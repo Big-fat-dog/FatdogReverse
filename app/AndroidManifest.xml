@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.fatdog.reverse"
+    android:versionCode="1"
+    android:versionName="1.0">
+
+    <uses-sdk android:minSdkVersion="21" android:targetSdkVersion="34" />
+
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <application
+        android:label="@string/app_name"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:theme="@android:style/Theme.Material.Light.NoActionBar"
+        android:forceDarkAllowed="false"
+        android:allowBackup="false"
+        android:usesCleartextTraffic="true">
+
+        <activity android:name=".MainActivity" android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <activity android:name=".TokenVaultActivity" android:exported="false" />
+        <activity android:name=".NoteKeeperActivity" android:exported="false" />
+        <activity android:name=".PuzzleBoxActivity" android:exported="false" />
+        <activity android:name=".GateKeeperActivity" android:exported="false" />
+        <activity android:name=".ConfigCenterActivity" android:exported="false" />
+        <activity android:name=".VipSalonActivity" android:exported="false" />
+        <activity android:name=".ActivationRoomActivity" android:exported="false" />
+        <activity android:name=".ProWorkshopActivity" android:exported="false" />
+        <activity android:name=".HashCheckActivity" android:exported="false" />
+        <activity android:name=".MsgAuthActivity" android:exported="false" />
+        <activity android:name=".b1Activity" android:exported="false" />
+        <activity android:name=".k4Activity" android:exported="false" />
+        <activity android:name=".z9Activity" android:exported="false" />
+        <activity android:name=".s5Activity" android:exported="false" />
+        <activity android:name=".t6Activity" android:exported="false" />
+        <activity android:name=".u7Activity" android:exported="false" />
+        <activity android:name=".v8Activity" android:exported="false" />
+        <activity android:name=".v9Activity" android:exported="false" />
+        <activity android:name=".w1Activity" android:exported="false" />
+        <activity android:name=".x2Activity" android:exported="false" />
+        <activity android:name=".y3Activity" android:exported="false" />
+        <activity android:name=".z24Activity" android:exported="false" />
+        <activity android:name=".a25Activity" android:exported="false" />
+        <activity android:name=".a20Activity" android:exported="false" />
+        <activity android:name=".ProfileActivity" android:exported="false" />
+
+        <activity android:name=".ForbiddenLandActivity" android:exported="false" />
+        <activity android:name=".ForbiddenStoryActivity" android:exported="false" />
+        <activity android:name=".DivineReflectionActivity" android:exported="false" />
+
+        <!-- 关卡 6 的隐藏入口：exported=true，但大厅里没有任何按钮指向我 -->
+        <activity android:name=".RewardActivity" android:exported="true" />
+    </application>
+</manifest>

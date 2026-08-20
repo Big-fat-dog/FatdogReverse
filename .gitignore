@@ -1,0 +1,36 @@
+# ============ Python ============
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# ============ 构建产物 ============
+build/
+app/build/
+app/obj/
+app/libs/
+FatdogReverse.apk
+FatdogReverse.apk.idsig
+
+# ============ 编译日志 / 留档 ============
+comp_err.txt
+comp_out.txt
+error/
+
+# ============ HTTPS 证书与私钥（由 gen_certs.py 生成） ============
+certs/
+*.keystore
+*.jks
+
+# ============ 源素材图库（已转码进 res/，无需入库） ============
+图库/
+
+# ============ 系统 / 编辑器 ============
+.idea/
+.vscode/
+*.iml
+Thumbs.db
+.DS_Store
+
+REPORT.md

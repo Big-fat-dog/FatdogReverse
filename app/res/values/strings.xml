@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">胖狗逆向靶场</string>
+    <string name="title_main">关卡大厅 — 第一季：静态分析 + smali + Frida
+（对应教程 18：APK 结构与 jadx 静态分析入门、教程 19：逆向 Java 基础与 smali、教程 20：Frida Hook 实战）</string>
+
+    <string name="tab_levels">基本关卡</string>
+    <string name="tab_kunlun">昆仑山</string>
+    <string name="tab_profile">个人主页</string>
+    <string name="kunlun_title">昆仑山 · 困难关卡</string>
+    <string name="kunlun_waiting">敬请期待</string>
+
+    <string name="btn_vault">关卡 1：明文藏宝</string>
+    <string name="btn_note">关卡 2：Base64 马甲</string>
+    <string name="btn_puzzle">关卡 3：拼图游戏</string>
+    <string name="btn_gate">关卡 4：MD5 验门</string>
+    <string name="btn_config">关卡 5：资源藏宝</string>
+    <string name="btn_vip">关卡 7：VIP 检测（smali）</string>
+    <string name="btn_activate">关卡 8：激活码（smali）</string>
+    <string name="btn_pro">关卡 9：多重资格（smali）</string>
+    <string name="btn_h10">关卡 10：SHA-256 验门（Frida）</string>
+    <string name="btn_h11">关卡 11：HMAC 验签（Frida）</string>
+    <string name="btn_aes12">关卡 12：AES 密码库（Frida）</string>
+    <string name="btn_dual13">关卡 13：双重校验（Frida）</string>
+    <string name="btn_chain14">关卡 14：三层链路（Frida）</string>
+    <string name="btn_pages15">关卡 15：千数求和</string>
+    <string name="btn_rc16">关卡 16：流密码暗河</string>
+    <string name="btn_f17">关卡 17：玄门遁甲</string>
+    <string name="btn_r18">关卡 18：乾坤密钥</string>
+    <string name="btn_l19">关卡 19：雾里看花</string>
+    <string name="btn_ad20">关卡 20：万恶广告劫</string>
+    <string name="btn_t21">关卡 21：踏云寻踪</string>
+    <string name="btn_p22">关卡 22：双锁封疆</string>
+    <string name="btn_w23">关卡 23：白屏迷雾</string>
+    <string name="btn_g24">关卡 24：换票迷局</string>
+    <string name="btn_n25">关卡 25：灵台证真</string>
+    <string name="tip_hidden">提示：关卡 6 的入口不在这个页面上，去 AndroidManifest.xml 里找。</string>
+</resources>

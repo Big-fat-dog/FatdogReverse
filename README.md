@@ -1,0 +1,367 @@
+# FatdogReverse —— 按教程系列打造的 Android 逆向闯关靶场
+
+一个专为 `E:\pyteacher` 教程系列配套的练习 App。第一季覆盖四块：
+
+- **关卡 1-6** —— 教程 18《APK 结构与 jadx 静态分析入门》：纯静态分析，从 jadx 搜字符串到资源、Manifest、哈希校验；
+- **关卡 7-9** —— 教程 19《逆向 Java 基础与 smali》：smali 修改挑战，难度递增；
+- **关卡 10-14** —— 教程 20《Frida Hook 实战（Java 层）》：对参数做加/解密/哈希后验证结果的实战，难度递增；
+- **关卡 15-19** —— 网络取数系列（数据只在本地服务端）：HMAC / RC4 / 国密 / RSA+DES / AES+HMAC（L19 加密类经 R8 混淆）；
+- **关卡 20** —— 教程 19 的进阶：**万恶广告劫**（改 smali 关弹窗）——进去只有一个"点此领取 1 亿大礼包"按钮，点了就弹连环牛皮癣广告：× 前 5 秒不显示、显示了也瞬移、还弹嘲讽 Toast，正常操作永远关不掉；正解是 apktool 把广告开关关掉。
+- **关卡 21-25** —— 第二季 SSL 抓包系列（HTTPS + 自定义 TrustManager / OkHttp CertificatePinner / WebView 自签证书白屏 / 反 Hook 检测 + 内存换 pin / JNI native 校验）。
+
+> 所有网络关（15-22、24-25）采用**分页加载**：顶部输入/翻页条（页码窗口、上一页/下一页、跳转到指定页），下方两排数字（10 个/页）。点页码窗口会自动左移 3 格——1 2 3 消失、多出后面 3 个页码，像手掌翻页一样。关卡 23 例外：它加载的是 HTTPS H5 页，没有分页——页面白屏本身就是题面。
+
+APK 结构刻意做得和真实 App 一致：图标（5 种密度）、XML 布局、strings 资源、resources.arsc、单个 classes.dex（**R8 混淆打包**，仅关卡 19 的加密包被改名；无 classes2/classes3）、assets/config.json、双架构 so（关卡 25 的 JNI 校验在此）、META-INF 签名三件套。
+
+> **关于类名**：关卡 1-11 的类名是"表达功能含义"的名字（如 `VipSalonActivity`），关卡 12 开始**类名刻意变"难读"**（如 `b1Activity`、`k4Activity`、`z9Activity`、`s5Activity`），一个关卡的内容会**分散在多个类**里，还会混入**没人调用的诱饵工具类**（AesKit、Md5Tools、KeyFactory、TokenGen、DigestBox…）。"关卡 N 对应哪些类"必须靠交叉引用自己找，这本身就是逆向的一部分。
+
+> **关卡 19 小提示**：加密逻辑在 `com.fatdog.reverse.o` 包，构建时用 R8 混淆（keep 规则只放行该包重命名），算法名/路径/密钥均为异或加密字符串——jadx 里搜 `AES`、`/api/…` 都搜不到。别慌，找 `v9Activity` 的调用链即可顺藤摸瓜。
+
+## 关卡总览
+
+| 关卡 | 名称 | 考点 | 对应教程 |
+|---|---|---|---|
+| 1 | 明文藏宝 | flag 以明文写死在 dex 里，jadx 全文搜索 | 18 篇：字符串是静态分析的第一线索 |
+| 2 | Base64 马甲 | 以 `=` 结尾的编码串，先想到 Base64 | 08 篇：Base64 不是加密 |
+| 3 | 拼图游戏 | 字符串被拆散 + 字符异或运算 | 18 篇：拼接与运算混淆 |
+| 4 | MD5 验门 | 32 位哈希常量、输入与哈希比对 | 09 篇：MD5 摘要与在线查表 |
+| 5 | 资源藏宝 | flag 藏在 assets/config.json 的字段里 | 18 篇：APK 结构中的资源 |
+| 6 | 隐藏入口 | Manifest 里的 exported Activity，无 UI 入口 | 18 篇：四大组件与 Manifest |
+| 7 | VIP 检测（smali） | 修改 smali 去掉 isVip 检测 | 19 篇：smali 寄存器/指令/跳转 |
+| 8 | 激活码（smali） | smali 里的 fill-array-data 密文，改 checkKey 或还原激活码 | 19 篇：smali 字节数组与 fill-array-data |
+| 9 | 多重资格（smali） | 多重检查 + 诱饵 flag，需完整理解 smali 逻辑 | 19 篇：smali 短路与逻辑链 |
+| 10 | SHA-256 验门（Frida） | 输入口令，SHA-256 比对内置哈希 | 20 篇：Hook MessageDigest / 篡改 verify |
+| 11 | HMAC 验签（Frida） | 输入口令，HMAC-SHA256 比对 | 20 篇：Hook Mac.doFinal |
+| 12 | AES 密码库（Frida） | 输入密码，AES-CBC 解密密文比对（密钥/IV/密文分散在工具类） | 20 篇：Hook Cipher.doFinal + 类分散 |
+| 13 | 双重校验（Frida） | 账号 MD5 + 令牌 AES，双参数，逻辑跨两个工具类 | 20 篇：同时 Hook 多算法 |
+| 14 | 三层链路（Frida） | license 过三层变换（2×AES + 异或）+ deviceId MD5，密钥分散+大量诱饵 | 20 篇：链式 Hook + 识别诱饵 |
+| 15 | 千数求和 | 1000 个数=100 页×10 个，请求带 HMAC 签名，数字只在本地服务端 | 20/07 篇：请求签名复刻 + 发包取数 |
+| 16 | 流密码暗河 | 请求参数整段加密（RC4）+ MD5 签名，响应体加密，60 页×8 个 | 20/13 篇：RC4 复刻 + 双向加解密取数 |
+| 17 | 玄门遁甲 | POST 表单 enc/sig/dog/ts 校验，请求参数加密（国密 SM4）+ 摘要（SM3），100 页×10 个 | 20+国密：SM4/SM3 复刻 + 表单取数 |
+| 18 | 乾坤密钥 | RSA 公钥加密请求参数 + DES 解密响应，密钥一半服务端下发、一半藏在 App | 20+RSA/DES：混合密钥复刻 + 发包取数 |
+| 19 | 雾里看花 | 请求参数加密（AES）+ HMAC 签名，响应体加密；**加密包被真 R8 混淆、字符串加密** | 20+R8：先认混淆再复刻 |
+| 20 | 万恶广告劫（smali） | 连环牛皮癣广告：switch(step) 状态机弹 8 条广告、× 瞬移 + 嘲讽 Toast、正常关不掉；正解 apktool 把 AdBox.a 开关改 0 | 19 篇：smali 字段/跳转/switch 状态机 |
+| 21 | 踏云寻踪 | HTTPS + 自定义信任（内置自签 CA），请求带 HMAC 签名，100 页×10 个 | 21 篇：TrustManager / 抓包对抗入门 |
+| 22 | 双锁封疆 | HTTPS + 证书锁定（SPKI 焊死）+ 自定义信任，双闸门 | 21 篇：OkHttp pinning / 双闸门绕过 |
+| 23 | 白屏迷雾 | WebView 加载 HTTPS H5，自签证书错误被 handler.cancel() 白屏；Hook onReceivedSslError → proceed() 拿 flag | 21 篇：WebView 证书错误处理 |
+| 24 | 换票迷局 | HTTPS + pin 校验带反 Hook 守卫（Hook 校验就异常），正解 Frida 内存换 pin；100 页×10 个求和 | 21 篇：反 Hook 检测 / 内存换值 |
+| 25 | 灵台证真 | HTTPS + JNI native 校验（verifyServer 门禁 + nativeSign 签名都在 libnative.so），Java Hook 无效 | 22 篇预告：native 逆向与 JNI |
+
+每关的**解题思路分级提示**见下方折叠块；完整题解（含 Python 复刻代码与 Frida 脚本）在 `SOLUTIONS.md`（建议先自己练）。
+
+## 通用流程
+
+**静态分析（1-6 关）**：`jadx` 打开 APK → 搜 `FLAG_18` → 逐关按提示走。
+
+**smali 修改（7-9、20 关）**：需要 apktool 解包/回编译 + zipalign/apksigner 重签名：
+
+```
+apktool d FatdogReverse.apk -o out          # 单 classes.dex → out/smali/com/fatdog/reverse/...
+# 关卡 20：打开 out/smali/com/fatdog/reverse/AdBox.smali，
+#   .field public static a:I = 0x1  ← 把 0x1 改成 0x0（广告开关）
+#   （或把 showAd 门口 sget a:I + if-nez 反转为 if-eqz）
+# 编辑对应 .smali
+apktool b out -o rebuilt.apk
+zipalign -f 4 rebuilt.apk aligned.apk
+apksigner sign --ks build/debug.keystore --ks-key-alias androiddebugkey \
+        --ks-pass pass:android --key-pass pass:android --out FatdogReverse-patched.apk aligned.apk
+adb install -r FatdogReverse-patched.apk
+```
+
+> 关卡 20 的广告是 Java 结构化的 switch 状态机（jadx 展开成巨型 switch + 一堆神秘数字），smali 里反而是清晰的 `packed-switch` 表 + 一眼可见的开关 `sget AdBox->a:I`——这关教的是"读 smali 比读反编译 Java 还顺"。
+
+**个人主页（修仙境界）**：大厅最底部有"个人主页"按钮。每通过一关（在关卡里触发 flag）都会自动打点记录；主页根据**通关数量**定境界，**每 5 关为一个大境界**：
+
+| 通关数 | 境界 |
+|---|---|
+| 0 | 凡人 |
+| 1-5 | 炼气 一层~五层 |
+| 6-10 | 筑基 一层~五层 |
+| 11-15 | 金丹 一层~五层 |
+| 16-20 | 元婴 一层~五层 |
+| 21-25 | 化神 一层~五层 |
+
+主页还显示当前境界的描述、进度条（█/░）和"再通 X 关迈入下一境界"的提示。
+
+**Frida 动态 Hook（10-15 关）**：需要真机/模拟器 + frida-server（教程 20 有完整安装流程）。通用观察脚本长这样：
+
+```javascript
+// hook_crypto.js —— 通用加密原语 Hook：不管业务怎么藏，明文都要经过这里
+Java.perform(function () {
+    function bytesToHex(b) { var s = ''; for (var i = 0; i < b.length; i++) { var x = b[i] & 0xff; s += ('0' + x.toString(16)).slice(-2); } return s; }
+    var MD = Java.use('java.security.MessageDigest');
+    MD.update.overload('[B').implementation = function (d) { console.log('[digest] 输入:', bytesToHex(d)); return this.update(d); };
+    MD.digest.overload().implementation = function () { var r = this.digest(); console.log('[digest] 输出:', bytesToHex(r)); return r; };
+    var Mac = Java.use('javax.crypto.Mac');
+    Mac.doFinal.overload('[B').implementation = function (d) { console.log('[mac] 输入:', bytesToHex(d)); var r = this.doFinal(d); console.log('[mac] 输出:', bytesToHex(r)); return r; };
+    var C = Java.use('javax.crypto.Cipher');
+    C.doFinal.overload('[B').implementation = function (d) { console.log('[cipher] 输入:', bytesToHex(d)); var r = this.doFinal(d); console.log('[cipher] 输出:', bytesToHex(r)); return r; };
+});
+```
+
+**网络关卡（15-22、24-25 关统一分页加载 + 23 关 WebView H5 页）**：先启动本地服务端（FastAPI），再分析/复刻签名取数：
+
+```
+# 终端 1：启动模拟服务端（数字只在这里，APK 里没有）
+pip install fastapi uvicorn python-multipart pycryptodome   # 首次需要
+python server.py          # HTTP :8787（15-20） + HTTPS :8443（21-25，自签 CA）
+
+# 模拟器：App 自动请求 http://10.0.2.2:8787（NetHost 识别到模拟器，默认即可）
+# 真机：  adb reverse tcp:8787 tcp:8787（地址自动切换，无需改 config.json）
+#        HTTPS 关（21-25）同理：adb reverse tcp:8443 tcp:8443（地址自动切换）
+#        L23 的 H5 页只讲 HTTPS：https://…:8443/h5/v23（HTTP 访问直接 403）
+```
+
+地址自动切换：`config.json` 的 `api_base_url` 默认 `"AUTO"`——模拟器自动走 `10.0.2.2`、真机自动走 `127.0.0.1`（识别不出模拟器特征时按真机处理）；也可手动填 `http://局域网IP:8787` 覆盖，手机与电脑同一网络即可免 USB。
+
+各网络关要点：L15 HMAC 明文参数；L16 请求整段加密+MD5 签名、响应加密（RC4）；L17 表单 enc/sig/dog（国密 SM4+SM3，纯 Python 实现）；L18 RSA 加密请求参数 + DES 解密响应（密钥一半服务端下发）；L19 AES 加密参数 + HMAC 签名、响应加密（加密包 R8 混淆 + 字符串加密）；L21/L22 走 HTTPS + 自签 CA（TrustManager / CertificatePinner 双闸门）；L23 走 WebView 加载 https://…:8443/h5/v23（主机自动选择；仅 HTTPS，HTTP 直接 403）：自签证书不被信任 → App 在 onReceivedSslError 里 handler.cancel() → 白屏，Hook 放行后页面出现、自动通关。L24 走 HTTPS + 内置 CA + HostnameVerifier pin 校验（pin 无明文，XOR 数组藏在 Z24Core），校验链带反 Hook 守卫——Hook 校验函数直接放行会触发"完整性校验失败"，正解是 Hook Z24Core.realPin 内存换 pin（换票）。L25 走 HTTPS + JNI：发请求前调 Nx.verifyServer（native 主机白名单），签名 Nx.nativeSign 在 libnative.so 里算 HMAC-SHA256——密钥不在 Java（strings libnative.so 可见 fatdemo_jni_2026），Hook Mac/MessageDigest 无效，正路是静态逆向 so 复刻或 Frida 原生层调用。
+
+## 环境准备
+
+构建只需要三样东西，**不需要 Android Studio / Gradle**：
+
+1. **JDK 17+** —— 本机 `E:\PyCharm 2025.3.3\jbr` 自带，无需安装。
+2. **Android SDK 的 build-tools 与 platforms**：
+   - 下载 [commandline-tools](https://dl.google.com/android/repository/commandlinetools-win-11076708_latest.zip)，解压到 SDK 根目录（本机为 `C:\Users\DELL\AppData\Local\Android\Sdk`，目录结构：`...\cmdline-tools\latest\bin`）。
+   - 设置环境变量 `ANDROID_SDK_ROOT` 指向 SDK 根目录（`build_apk.py` 也会自动探测 `%LOCALAPPDATA%\Android\Sdk` 等常见路径）。
+   - 运行：
+     ```
+     set JAVA_HOME=E:\PyCharm 2025.3.3\jbr
+     C:\Android\cmdline-tools\latest\bin\sdkmanager.bat "platform-tools" "platforms;android-34" "build-tools;34.0.0"
+     ```
+3. **NDK（关卡 25 必需，其余关可选）**：
+   ```
+   C:\Android\cmdline-tools\latest\bin\sdkmanager.bat "ndk;26.1.10909125"
+   ```
+   不装 NDK 也能构建出 APK，但会缺 `lib/*.so`——关卡 25 的 native 校验（verifyServer/nativeSign）就在里面，缺了进不去。
+4. **关卡 7-9 需要 apktool**；**关卡 10-16 需要 Frida**（`pip install frida-tools` + 设备端 frida-server，版本必须一致）；**网络关 15-22、24-25 需要 Python 标准库（15/16）+ pycryptodome（17/18/19），关卡 23 无需额外依赖（curl -k 或 Frida）；真机玩 15-25 网络关需 `adb reverse`（或用局域网 IP 覆盖）**；服务端需要 `pip install fastapi uvicorn python-multipart pycryptodome`。
+
+## 构建与安装
+
+```
+cd /d E:\pyteacher\FatdogReverse
+python build_apk.py
+
+adb install -r FatdogReverse.apk
+```
+
+构建产物 `FatdogReverse.apk` 就是你的靶子（桌面图标为胖狗），启动后显示"胖狗逆向靶场"：用 jadx 打开它，开始闯关。
+
+## 项目结构
+
+```
+FatdogReverse/
+├── build_apk.py            # 一键构建（aapt2 + javac + R8 混淆打包 + 可选 smali 汇编 classes3 + 可选 ndk-build + apksigner）
+├── r8.pro                  # R8 keep 规则：只放行 com.fatdog.reverse.o 包改名，其余全部保留原名可读
+├── gen_certs.py            # 关卡 21-25 的 HTTPS 证书生成（自签 CA + 服务器证书）
+├── certs/                  # 生成的证书（ca.crt / server.crt / server.key，不入 APK）
+├── libs/                   # OkHttp/Okio/Kotlin 依赖 jar + 注解 jar
+├── server.py               # 关卡 15-25 本地模拟服务端（FastAPI，数字/页面只在这里）
+├── FatdogReverse.apk             # 构建产物
+├── README.md               # 本文件
+├── SOLUTIONS.md            # 完整题解（先看别看！）
+├── PLANNED.md              # 开发规划与状态（15-25 已全部落地）
+├── tools/                  # smali/baksmali 等 jar
+└── app/
+    ├── AndroidManifest.xml # 关卡 6 的关键线索藏在这里
+    ├── assets/config.json  # 关卡 5 的宝藏；关卡 15 的 API 地址也在里面
+    ├── jni/                # libnative.so 源码（关卡 25 的 native 门禁 + HMAC 签名在此）
+    ├── res/
+    │   ├── layout/activity_main.xml   # 大厅布局（14 个按钮，没有关卡 6）
+    │   ├── values/strings.xml         # 字符串资源
+    │   └── mipmap-*/                  # 5 种密度的 launcher 图标
+    └── src/com/fatdog/reverse/
+        ├── MainActivity.java          # 关卡大厅
+        ├── TokenVaultActivity.java    # 关卡 1
+        ├── NoteKeeperActivity.java    # 关卡 2
+        ├── PuzzleBoxActivity.java     # 关卡 3
+        ├── GateKeeperActivity.java    # 关卡 4（classes.dex）
+        ├── ConfigCenterActivity.java  # 关卡 5（classes.dex）
+        ├── VipSalonActivity.java      # 关卡 7（smali，classes.dex）
+        ├── ActivationRoomActivity.java# 关卡 8（smali，classes.dex）
+        ├── ProWorkshopActivity.java   # 关卡 9（smali，classes.dex）
+        ├── HashCheckActivity.java     # 关卡 10（Frida）
+        ├── MsgAuthActivity.java       # 关卡 11（Frida）
+        ├── b1Activity.java + SBox.java# 关卡 12（Frida，内容分散；Md5Wrap/MiscCrypt 是诱饵）
+        ├── k4Activity.java + SignUtil.java + KBox.java  # 关卡 13（Frida；HashFactory 是诱饵）
+        ├── z9Activity.java + XBox.java + Mux.java       # 关卡 14（Frida；AesKit/Md5Tools/KeyFactory 是诱饵）
+        ├── s5Activity.java + Sg.java + Kx.java          # 关卡 15（网络；TokenGen/DigestBox 诱饵）
+        ├── t6Activity.java + C16.java + Rc4Core.java + Jk.java          # 关卡 16（网络；B64Kit/TokenGen/DigestBox 诱饵）
+        ├── u7Activity.java + Fl.java + Kt.java + Sm4Core.java + Sm3Core.java  # 关卡 17（网络/国密；NetPacker 诱饵）
+        ├── v8Activity.java + Rs.java + Pk.java                            # 关卡 18（网络/RSA+DES；RsaKit 诱饵）
+        ├── v9Activity.java + o/*                                         # 关卡 19（网络/AES+HMAC，加密包 R8 混淆）
+        ├── a20Activity.java + AdBox.java + Sx.java + PhantomAd.java   # 关卡 20（smali/连环广告；PhantomAd 假开关诱饵）
+        ├── w1Activity.java + Tm.java + Km.java                            # 关卡 21（HTTPS/自定义信任；CertBox 诱饵）
+        ├── x2Activity.java + Pn.java + Kp.java                            # 关卡 22（HTTPS/证书锁定；Pim 诱饵）
+        ├── NetHost.java              # 全局环境探测：模拟器 10.0.2.2 / 真机 127.0.0.1（默认真机）
+        ├── y3Activity.java + Hq.java + WvKit.java        # 关卡 23（WebView/自签证书白屏；WvKit 诱饵）
+        ├── z24Activity.java + Aw.java + Tk.java + Z24Core.java   # 关卡 24（HTTPS/pin + 反 Hook 守卫；Gp 诱饵）
+        ├── a25Activity.java + Nx.java + By.java + libnative.so   # 关卡 25（JNI native 校验；Rj 诱饵）
+        ├── ProfileActivity.java    # 个人主页：修仙境界（顶部传送带分类：基本情况/太古禁地/神念自察）
+        ├── PassLog.java            # 通关进度记录（各关触发 flag 时自动打点）
+        └── RewardActivity.java     # 关卡 6（大厅里没有入口）
+    # APK 只有单个 classes.dex（R8 打包全部关卡，无 classes2/classes3）
+```
+
+## 分级提示（按需展开）
+
+<details>
+<summary>关卡 1 · 轻度提示</summary>
+
+jadx 全文搜索 `FLAG_18`。
+
+</details>
+
+<details>
+<summary>关卡 2 · 轻度提示</summary>
+
+那串以 `=` 结尾的字符串，用 Python `base64.b64decode(...)` 解码。
+
+</details>
+
+<details>
+<summary>关卡 3 · 轻度提示</summary>
+
+jadx 里是一堆 `(char) ('y' ^ 1)` 表达式。异或的逆运算就是它自己。提示：`'y' ^ 1 = 'x'`。
+
+</details>
+
+<details>
+<summary>关卡 4 · 轻度提示</summary>
+
+代码里有一个 32 位十六进制串。到 cmd5.com 这类在线查表站查一下；查不到就写几行 Python 爆破纯数字密码。
+
+</details>
+
+<details>
+<summary>关卡 5 · 重度提示</summary>
+
+APK 就是个 zip。改后缀解压，打开 `assets/config.json`，找一个不太对劲的字段。
+
+</details>
+
+<details>
+<summary>关卡 6 · 重度提示</summary>
+
+看 `AndroidManifest.xml` 里声明的所有 Activity，找一个大厅没引用、但 `exported="true"` 的：
+
+```
+adb shell am start -n com.fatdog.reverse/.RewardActivity
+```
+
+</details>
+
+<details>
+<summary>关卡 7 · 轻度提示</summary>
+
+apktool 解包，打开 `smali/.../VipSalonActivity.smali`，找到 `isVip()Z`：`const/4 v0, 0x0` 后面 `return v0` 就是"恒不是 VIP"。把 `0x0` 改成 `0x1`，回编译重签名重装。或者把按钮回调里的 `if-eqz` 反过来。
+
+</details>
+
+<details>
+<summary>关卡 8 · 中度提示</summary>
+
+期望的激活码在 smali 里是一段 `.array-data` 字节（`buildKey()` 里，`fill-array-data` 后面）。把每个字节 `^ 0x2A` 还原成字符串，直接输入即可；或者更暴力一点——把 `checkKey()` 的方法体整体改成 `const/4 v0, 0x1` + `return v0`。
+
+</details>
+
+<details>
+<summary>关卡 9 · 重度提示</summary>
+
+`checkStatus()` 是 `isVip() && isActivated()` 两个检查的短路与。只改一个，会走进 else 分支——**注意：那里弹出的字符串也以 `FLAG_18_L9{...}` 开头，那是诱饵**。把 `checkStatus()` 整体改成返回 true，或两个检查都改成返回 true。
+
+</details>
+
+<details>
+<summary>关卡 10 · 中度提示</summary>
+
+代码里 `verify()` 里有一个 64 位十六进制串（SHA-256）。口令是教程 20 主角的名字，全小写。也可以用 Frida 把 `HashCheckActivity.verify` 的返回值改成 true，输入随便什么都过。
+
+</details>
+
+<details>
+<summary>关卡 11 · 中度提示</summary>
+
+`MsgAuthActivity` 里密钥是 `fatdemo_hmac_key`，内置的是 HMAC-SHA256 结果。口令是 FATLAB 实验室代号全小写。Python 一行 `hmac.new(key, msg, hashlib.sha256)` 就能验。
+
+</details>
+
+<details>
+<summary>关卡 12 · 重度提示</summary>
+
+密钥、IV、密文都在 `SBox` 里（`FATDEMO_KEY_12AB` / `0001020304050607` / `Grg3J5v8Lh0r9KyE0Py0zw==`），`b1Activity` 只是调用它。用 Python 做一次 AES-CBC 解密就得到密码。注意旁边 `Md5Wrap`、`MiscCrypt` 是没人调用的诱饵。
+
+</details>
+
+<details>
+<summary>关卡 13 · 重度提示</summary>
+
+两个输入对应两段逻辑：账号走 `SignUtil`（MD5，内置哈希对应 `neon_user`），令牌走 `KBox`（AES-ECB，密钥 `NEON_TOKEN_KEY16`，解出 `neon_token_ok`）。两个都对才过。`HashFactory` 是诱饵。
+
+</details>
+
+<details>
+<summary>关卡 14 · 重度提示</summary>
+
+license 链路：`base64 → AES解密(密钥A在XBox) → AES解密(密钥B在Mux) → 异或0x5A → "GRANTED_2026_OK!"`。要用 Python 反向把明文一层层加密回去得到 license。deviceId 的 MD5 对应 `pivot_device`。`AesKit`、`Md5Tools`、`KeyFactory` 都是诱饵——尤其是 `KeyFactory` 里的假密钥，别拿它去算。
+
+</details>
+
+<details>
+<summary>关卡 15 · 重度提示</summary>
+
+1. 先跑 `python server.py`，再在 App 里输入页号 1 点"请求该页"看响应——签名参数 `sign` 由 `Sg`/`Kx` 拼出的密钥算 `HMAC-SHA256("page=N&ts=T")`。
+2. 密钥拆成两段异或字节数组：`Kx.PA`（`^0x3C`）→ `fatdemo_`，`Sg.PB`（`^0x3C`）→ `page_key_2026`，拼起来就是完整密钥。
+3. 用 Python 复刻签名，把 100 页全部取回求和（`TokenGen`/`DigestBox` 是诱饵，别管）。
+4. 也可以 Frida 在 App 发包瞬间 Hook `Sg.sign`/`Mac.doFinal`/`java.net.URL` 看参数和 URL。
+
+</details>
+
+<details>
+<summary>关卡 23 · 中度提示</summary>
+
+1. 大厅点进去是**白屏**，不是坏了：页面是 `https://…:8443/h5/v23`（仅 HTTPS；主机由 NetHost 自动选：模拟器 `10.0.2.2` / 真机 `127.0.0.1`），服务端证书自签、没进系统信任库，App 在 `onReceivedSslError` 里 `handler.cancel()` 了。
+2. 路径不在 config.json：`Hq` 类里有一段异或 `0x2F` 的字节数组，还原出来是 `/h5/v23`，主机由 `NetHost` 按环境拼。
+3. 静态抄近道：`python server.py` 后 `curl -k https://127.0.0.1:8443/h5/v23`，页面 `#flag` 里就是 flag。
+4. 动态正解：Frida Hook `com.fatdog.reverse.y3Activity$WvClient.onReceivedSslError`，调 `handler.proceed()` 放行——页面出现后 App 自动读 `#flag` 通关打点。
+
+</details>
+
+<details>
+<summary>关卡 24 · 重度提示</summary>
+
+1. 服务端 `python server.py` 后走 HTTPS:8443 的 `GET /api/swap`（主机由 NetHost 自动选）。HMAC 密钥两段：`Tk.PA`（^0x3C → `fatdemo_`）+ `Aw.KB`（^0x3C → `swap_key`），拼出 `fatdemo_swap_key`。
+2. pin 没明文：`Z24Core.PINX` 异或 0x5A 还原出 `sha256/Tix1…`（和 L22 同一个服务器指纹）。注意 `Gp.FAKE_PIN` 是诱饵，别拿来换。
+3. 反 Hook 守卫：`verify → Z24Core.checkPin`（guardTicks+1、记结论），响应前 `assertGuard()` 检查计数与结论——直接把 verify/checkPin Hook 掉放行，会抛"完整性校验失败"。
+4. 正解（script E，内存换票）：第一关同 L21 换 TrustManager；第二关 Hook `Z24Core.realPin`，把返回值换成 mitmproxy 证书的 SPKI pin——校验链照常走完，计数正常、pin 也匹配。
+5. 静态抄近道：还原 pin + HMAC 密钥后用 Python 带 `certs/ca.crt` 复刻请求（pinning 只保护 App 客户端，不拦 Python），100 页求和 = 50225。
+
+</details>
+
+<details>
+<summary>关卡 25 · 中度提示</summary>
+
+1. jadx 里只有声明：`Nx.verifyServer` / `Nx.nativeSign` 都是 `native` 方法，逻辑在 `libnative.so` 里（Java Hook 无用）。
+2. 把 APK 里的 `lib/arm64-v8a/libnative.so` 解出来（APK 就是 zip），`strings libnative.so | grep fatdemo` → 密钥 `fatdemo_jni_2026`（本关特意放明文，native 逆向入门）。
+3. 静态复刻：Python 带 `certs/ca.crt` 请求 `GET https://…:8443/api/native?page=N&ts=T&sign=HMAC-SHA256(fatdemo_jni_2026, "page=N&ts=T")`，100 页求和 = 52674。
+4. 动态：Frida 原生层——`Interceptor.attach` 观察 `Java_com_fatdog_reverse_Nx_nativeSign` 的返回值，或用 `NativeFunction` 直接调它拿签名。
+5. 注意 `Rj.FAKE_KEY` 是诱饵；`verifyServer` 只放行 10.0.2.2 / 127.0.0.1 / localhost。
+
+</details>
+
+<details>
+<summary>关卡 20 · 重度提示</summary>
+
+1. 进入关卡只有「点此领取 1 亿大礼包」——点了就弹**连环广告**：`switch(step)` 状态机一轮 8 条（5 张图循环复用），× 前 5 秒不显示、显示了点击瞬移四个角 + 嘲讽 Toast，连点 3 次出现「看完关闭」，点了进下一条……正常操作永远关不完。
+2. 广告机在 `AdBox`：所有的文案都是异或 0x4D 的神秘数字，别去解文案；**真正要动的是开关字段 `a`**：
+3. 正解：`apktool d FatdogReverse.apk -o out` → `out/smali/com/fatdog/reverse/AdBox.smali` → 把 `.field public static a:I = 0x1` 的 `0x1` 改成 `0x0`（或把 `showAd` 开头的 `sget v0, …->a:I` + `if-nez v0, :cond_?` 反转为 `if-eqz`）→ 回编译重签名重装 → 点按钮不再弹广告，页面出现「我已关掉广告」→ 礼花 + flag。
+4. Frida 双解：`Java.use('com.fatdog.reverse.AdBox').a.value = 0;` 一跑，广告即断。
+5. 注意 `PhantomAd.enabled` 是**诱饵假开关**：改它一点用没有——它的名字带 ad 但 AdBox 从不读它。
+
+</details>
+
+## 路线图
+
+- 第一季（当前）：教程 18 静态分析 6 关 + 教程 19 smali 4 关（7/8/9/20）+ 教程 20 Frida 5 关（10-14）+ 网络取数 5 关（15-19）
+- 第二季：SSL / 抓包对抗系列 21-25（已全部落地，规划见 `PLANNED.md`）
+- 第三季（规划）：教程 22 native 层逆向

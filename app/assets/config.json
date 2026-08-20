@@ -1,0 +1,20 @@
+{
+  "api": {
+    "base_url": "https://api.example.com/v1",
+    "sign_version": "1.4.3",
+    "timeout_ms": 5000
+  },
+  "feature": {
+    "debug_log": false,
+    "enable_push": true,
+    "treasure_note": "FLAG_18_L5{config_json_assets}"
+  },
+  "upgrade": {
+    "check_interval_h": 24,
+    "force_update": false
+  },
+  "server": {
+    "api_base_url": "AUTO",
+    "sign_version": "1.0"
+  }
+}
