@@ -1,6 +1,6 @@
 # FatdogReverse —— 按教程系列打造的 Android 逆向闯关靶场
 
-一个专为 `E:\pyteacher` 教程系列配套的练习 App。第一季覆盖四块：
+一个专为《pyteacher 逆向教程》系列配套的练习 App。第一季覆盖四块：
 
 - **关卡 1-6** —— 教程 18《APK 结构与 jadx 静态分析入门》：纯静态分析，从 jadx 搜字符串到资源、Manifest、哈希校验；
 - **关卡 7-9** —— 教程 19《逆向 Java 基础与 smali》：smali 修改挑战，难度递增；
@@ -120,18 +120,18 @@ python server.py          # HTTP :8787（15-20） + HTTPS :8443（21-25，自签
 
 构建只需要三样东西，**不需要 Android Studio / Gradle**：
 
-1. **JDK 17+** —— 本机 `E:\PyCharm 2025.3.3\jbr` 自带，无需安装。
+1. **JDK 17+** —— 任意 JDK 17+ 均可（官方 OpenJDK、IntelliJ/PyCharm 自带 JBR 都行）。命令里把 `<你的 JDK 根目录>` 换成实际路径（例如 `D:\JAVA`）。
 2. **Android SDK 的 build-tools 与 platforms**：
-   - 下载 [commandline-tools](https://dl.google.com/android/repository/commandlinetools-win-11076708_latest.zip)，解压到 SDK 根目录（本机为 `C:\Users\DELL\AppData\Local\Android\Sdk`，目录结构：`...\cmdline-tools\latest\bin`）。
+   - 下载 [commandline-tools](https://dl.google.com/android/repository/commandlinetools-win-11076708_latest.zip)，解压到 SDK 根目录（目录结构：`<SDK 根目录>\cmdline-tools\latest\bin`，例如 `D:\Andorid\SDK`）。
    - 设置环境变量 `ANDROID_SDK_ROOT` 指向 SDK 根目录（`build_apk.py` 也会自动探测 `%LOCALAPPDATA%\Android\Sdk` 等常见路径）。
    - 运行：
      ```
-     set JAVA_HOME=E:\PyCharm 2025.3.3\jbr
-     C:\Android\cmdline-tools\latest\bin\sdkmanager.bat "platform-tools" "platforms;android-34" "build-tools;34.0.0"
+     set JAVA_HOME=<你的 JDK 根目录>
+     <SDK 根目录>\cmdline-tools\latest\bin\sdkmanager.bat "platform-tools" "platforms;android-34" "build-tools;34.0.0"
      ```
 3. **NDK（关卡 25 必需，其余关可选）**：
    ```
-   C:\Android\cmdline-tools\latest\bin\sdkmanager.bat "ndk;26.1.10909125"
+   <SDK 根目录>\cmdline-tools\latest\bin\sdkmanager.bat "ndk;26.1.10909125"
    ```
    不装 NDK 也能构建出 APK，但会缺 `lib/*.so`——关卡 25 的 native 校验（verifyServer/nativeSign）就在里面，缺了进不去。
 4. **关卡 7-9 需要 apktool**；**关卡 10-16 需要 Frida**（`pip install frida-tools` + 设备端 frida-server，版本必须一致）；**网络关 15-22、24-25 需要 Python 标准库（15/16）+ pycryptodome（17/18/19），关卡 23 无需额外依赖（curl -k 或 Frida）；真机玩 15-25 网络关需 `adb reverse`（或用局域网 IP 覆盖）**；服务端需要 `pip install fastapi uvicorn python-multipart pycryptodome`。
@@ -139,7 +139,7 @@ python server.py          # HTTP :8787（15-20） + HTTPS :8443（21-25，自签
 ## 构建与安装
 
 ```
-cd /d E:\pyteacher\FatdogReverse
+cd /d <你的项目目录>
 python build_apk.py
 
 adb install -r FatdogReverse.apk
