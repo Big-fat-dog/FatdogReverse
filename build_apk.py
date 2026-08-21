@@ -88,6 +88,20 @@ def find_ndk(sdk):
 
 
 def run(cmd, **kw):
+    # 新版构建工具对含中文的绝对路径支持不佳：统一以项目根为工作目录，
+    # 项目内路径改写为相对路径（SDK/JDK 等外部路径保持不变）。
+    if 'cwd' not in kw:
+        kw['cwd'] = HERE
+        fixed = []
+        for c in cmd:
+            if isinstance(c, str) and os.path.isabs(c):
+                try:
+                    if os.path.commonpath([c, HERE]) == HERE:
+                        c = os.path.relpath(c, HERE)
+                except ValueError:
+                    pass
+            fixed.append(c)
+        cmd = fixed
     print('>>', ' '.join(cmd))
     subprocess.check_call(cmd, **kw)
 
