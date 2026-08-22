@@ -21,12 +21,12 @@ public class ForbiddenLandActivity extends Activity {
     private static final String[] LEVEL_IDS = {
             "L1", "L2", "L3", "L4", "L5", "L6", "L7", "L8",
             "L9", "L10", "L11", "L12", "L13", "L14", "L15", "L16",
-            "L17", "L18", "L19", "L20", "L21", "L22", "L23", "L24", "L25", "L26", "L27", "L28"};
+            "L17", "L18", "L19", "L20", "L21", "L22", "L23", "L24", "L25", "L26", "L27", "L28", "L29"};
     private static final String[] LEVEL_NAMES = {
             "第 1 层", "第 2 层", "第 3 层", "第 4 层", "第 5 层", "第 6 层", "第 7 层", "第 8 层",
             "第 9 层", "第 10 层", "第 11 层", "第 12 层", "第 13 层", "第 14 层", "第 15 层", "第 16 层",
             "第 17 层", "第 18 层", "第 19 层", "第 20 层 · 万恶广告劫", "第 21 层", "第 22 层", "第 23 层",
-            "第 24 层", "第 25 层", "第 26 层 · 双符合璧", "第 27 层 · 万法归宗", "第 28 层 · 缄默之钥"};
+            "第 24 层", "第 25 层", "第 26 层 · 双符合璧", "第 27 层 · 万法归宗", "第 28 层 · 缄默之钥", "第 29 层 · 隐姓埋名"};
 
     private static final int PER_ROW = 4;            // 每行格子数
     private static final int ROWS_FIRST = 2;         // 种子行数下限
@@ -139,8 +139,9 @@ public class ForbiddenLandActivity extends Activity {
             LinearLayout row = new LinearLayout(act);
             row.setOrientation(LinearLayout.HORIZONTAL);
             for (int j = r * PER_ROW; j < Math.min((r + 1) * PER_ROW, LEVEL_IDS.length); j++) {
+                // 固定格高：名称长短不再影响方块大小（长名单行省略，点开看全称）
                 row.addView(buildCell(act, j), new LinearLayout.LayoutParams(0,
-                        LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+                        dp(act, 96), 1f));
             }
             list.addView(row, new LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT,
@@ -194,6 +195,8 @@ public class ForbiddenLandActivity extends Activity {
             small.setText(LEVEL_NAMES[idx]);
             small.setTextSize(11);
             small.setTextColor(0xCCFFFFFF);
+            small.setSingleLine(true);
+            small.setEllipsize(android.text.TextUtils.TruncateAt.END);
             cell.addView(small, Ui.wrap(1));
             cell.setOnClickListener(new View.OnClickListener() {
                 @Override
@@ -219,6 +222,8 @@ public class ForbiddenLandActivity extends Activity {
             small.setText(LEVEL_NAMES[idx]);
             small.setTextSize(11);
             small.setTextColor(0xFF77777F);
+            small.setSingleLine(true);
+            small.setEllipsize(android.text.TextUtils.TruncateAt.END);
             cell.addView(small, Ui.wrap(1));
         }
         return cell;

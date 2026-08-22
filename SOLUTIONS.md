@@ -1555,3 +1555,110 @@ Java.perform(function () {
 | 27 | `FLAG_18_L27{capture_then_replicate}`（答案=加和 `50623`） |
 
 > 关卡 9 的 else 分支里那个 `FLAG_18_L9{single_gate_not_enough}` 是诱饵，不是有效 flag。
+
+
+---
+
+## 关卡 28：缄默之钥（native 字符串加密）
+
+**考点**：密钥 `Fatdog_unhappy` 被 ^0x5C 存成字节数组 `KEY28_KX` 躺在 libl28.so 的 .rodata，运行时才解到栈缓冲喂 HMAC-SHA256。strings 只能看到诱饵 `Fatdog_silent`（Java 层 `Fk.FAKE_KEY` 与 so 内 `KEY28_DECOY` 双份埋伏）。
+
+**静态路线**
+1. 解包 APK 取 `lib/arm64-v8a/libl28.so`；`strings libl28.so | grep Fatdog` 只见诱饵。
+2. IDA/Ghidra 打开：导出表有 `Java_com_fatdog_reverse_Zk_nativeSign` 和数组符号 `KEY28_KX`；跟一遍函数开头的解码循环（每字节 ^0x5C）即还原密钥 `Fatdog_unhappy`。
+3. Python 复刻（先 `python server.py`，本目录执行）：
+
+```python
+import time, hmac, hashlib, requests
+
+KEY  = b"Fatdog_unhappy"                # IDA 还原出的真密钥
+BASE = "https://127.0.0.1:8443"         # 模拟器换 https://10.0.2.2:8443
+CA   = "certs/ca.crt"
+
+total = 0
+for page in range(1, 101):
+    ts   = int(time.time())             # 服务端有 600s 新鲜度窗口
+    sign = hmac.new(KEY, f"page={page}&ts={ts}".encode(), hashlib.sha256).hexdigest()
+    r = requests.get(f"{BASE}/api/l28", params={"page": page, "ts": ts, "sign": sign},
+                     verify=CA, timeout=10)
+    total += sum(r.json()["nums"])
+print("总和:", total)                    # 49750
+```
+
+对拍样例（本机已实算）：`HMAC(Fatdog_unhappy, "page=1&ts=1787013761") = 6e05345fe471e618e1691e86d995edaf64a60b074bced900b3a0e5fcc01ea057`，可与 Frida 观察到的返回值逐字符比对。
+
+**Frida 动态路线**
+
+```javascript
+// hook_l28.js —— 三联单观察 nativeSign（so 未加载时等 dlopen）
+function hookSign() {
+  var addr = Module.findExportByName('libl28.so', 'Java_com_fatdog_reverse_Zk_nativeSign');
+  if (!addr) return false;
+  Interceptor.attach(addr, {
+    onEnter: function (a) { this.page = a[2].toInt32(); this.ts = a[3].toString(10); },
+    onLeave: function (rv) {
+      var env = Java.vm.getEnv();
+      var chars = env.getStringUtfChars(rv, NULL);
+      console.log('[nativeSign] page=' + this.page + ' ts=' + this.ts + ' → ' + chars.readUtf8String());
+      env.releaseStringUtfChars(rv, chars);
+    }
+  });
+  return true;
+}
+Java.perform(function () {
+  if (!hookSign()) ['android_dlopen_ext', 'dlopen'].forEach(function (fn) {
+    var p = Module.findExportByName(null, fn); if (!p) return;
+    Interceptor.attach(p, {
+      onEnter: function (a) { this.n = a[0].readCString(); },
+      onLeave: function () { if (this.n && this.n.indexOf('libl28.so') >= 0) hookSign(); }
+    });
+  });
+});
+// 另一条路：运行时内存里搜解出来的明文密钥
+// var m = Process.findModuleByName('libl28.so');
+// Memory.scanSync(m.base, m.size, '46 61 74 64 6f 67 5f 75 6e 68 61 70 70 79')  // "Fatdog_unhappy"
+```
+
+**坑位提醒**：`Fk.FAKE_KEY` 和 so 里明文可见的 `Fatdog_silent` 都是诱饵，拿来算签名只会收到 403。
+
+---
+
+## 关卡 29：隐姓埋名（native 动态注册）
+
+**考点**：真身经 `JNI_OnLoad → RegisterNatives` 动态绑定到 Wq.nativeSign——实现是无名 static 函数，导出表里没有任何"正确名字"的真函数。两个带名字的导出全是坑：
+
+| 导出函数 | 真面目 |
+|---|---|
+| `Java_com_fatdog_reverse_Wq_nativeSign` | 名字完全符合静态注册规则，但被动态注册覆盖、JVM 永不调用；内部用明文假钥 `Fatdog_lazy`（strings 可见），手动 NativeFunction 调它得错值 → 403 |
+| `Java_com_fatdog_reverse_Wq_sign` | 方法名都对不上，返回固定废 hex |
+
+另有 Java 层诱饵 `Yd.FAKE_KEY="Fatdog_bogus"`。真密钥 `Fatdog_angry` 以 ^0x69 数组 `KEY29_KX` 藏在 .data。
+
+**Frida 动态路线（正路）**
+
+```javascript
+// hook_rn.js —— spawn 注入（frida -U -f com.fatdog.reverse -l hook_rn.js，CLI 敲 %resume 放行）
+Java.perform(function () {
+  var sym  = '_ZN3art3JNI15RegisterNativesEP7_JNIEnvP7_jclassPK15JNINativeMethodi';
+  var addr = Module.findExportByName('libart.so', sym);
+  Interceptor.attach(addr, {
+    onEnter: function (args) {
+      var methods = args[2], count = args[3].toInt32();
+      for (var i = 0; i < count; i++) {
+        var m = methods.add(i * 24);          // 64 位：name/sig/fnPtr 各 8 字节
+        console.log('[RegisterNatives] ' + m.readPointer().readCString()
+          + m.add(8).readPointer().readCString() + ' → ' + m.add(16).readPointer());
+      }
+    }
+  });
+});
+// 抓到映射后按偏移挂三联单：
+// var mod = Process.findModuleByName('libl29.so');
+// Interceptor.attach(mod.base.add(偏移), { onEnter/onLeave 见关卡 28 脚本 })
+```
+
+拿到三联单里的签名后与本地试算对拍，确认消息格式 `page=N&ts=T`。
+
+**静态路线**
+
+IDA 从 `JNI_OnLoad` 入手：`FindClass("com/fatdog/reverse/Wq")` 后的 `RegisterNatives(env, cls, methods, 1)`，methods 数组第三格就是无名真身地址；顺带看到 `.data` 里的 `KEY29_KX`（12 字节，逐字节 ^0x69 还原 `Fatdog_angry`）。复刻脚本与关卡 28 相同，只换 KEY 为 `b"Fatdog_angry"`、端点为 `/api/l29`，100 页求和 = **50208**。

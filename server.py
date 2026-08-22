@@ -121,6 +121,12 @@ PAGES28, PER_PAGE28, SEED28 = 100, 10, 20270315
 _rng28 = random.Random(SEED28)
 NUMS28 = [_rng28.randint(1, 100) for _ in range(PAGES28 * PER_PAGE28)]
 
+# ---------------- 关卡 29：native 动态注册（真身无名，导出表全是诱饵） ----------------
+KEY29_HMAC = b"Fatdog_angry"
+PAGES29, PER_PAGE29, SEED29 = 100, 10, 20270412
+_rng29 = random.Random(SEED29)
+NUMS29 = [_rng29.randint(1, 100) for _ in range(PAGES29 * PER_PAGE29)]
+
 # ---------------- 关卡 23：WebView 白屏（证书错误） ----------------
 # 页面只接受 HTTPS；HTTP 端口访问一律 403。
 # App 端 WebView 不信任自签证书 → onReceivedSslError → handler.cancel() 白屏；
@@ -470,6 +476,16 @@ def api_l28(page: int = Query(...), ts: int = Query(...), sign: str = Query(...)
     return {"page": page, "nums": NUMS28[idx:idx + PER_PAGE28]}
 
 
+@app.get("/api/l29")
+def api_l29(page: int = Query(...), ts: int = Query(...), sign: str = Query(...)):
+    _check_page(page, PAGES29)
+    _check_ts(ts)
+    if not hmac.compare_digest(sign, hmac.new(KEY29_HMAC, f"page={page}&ts={ts}".encode(), hashlib.sha256).hexdigest()):
+        raise HTTPException(status_code=403, detail="sign invalid")
+    idx = (page - 1) * PER_PAGE29
+    return {"page": page, "nums": NUMS29[idx:idx + PER_PAGE29]}
+
+
 @app.get("/h5/v23", response_class=HTMLResponse)
 def h5_v23(request: Request):
     # 只接受 HTTPS；App 端 WebView 不信任自签证书 → onReceivedSslError → 白屏。
@@ -526,7 +542,7 @@ if __name__ == "__main__":
     print(f"L26 mTLS: https://{HOST}:8444/api/mtls （双向 TLS：必须出示 certs/client.p12 里的客户端证书）")
     print(f"数字加和：L15={sum(NUMS)} L16={sum(NUMS16)} L17={sum(NUMS17)} L18={sum(NUMS18)} L19={sum(NUMS19)} "
           f"L21={sum(NUMS21)} L22={sum(NUMS22)} L24={sum(NUMS24)} L25={sum(NUMS25)} L26={sum(NUMS26)} L27={sum(NUMS27)} "
-          f"L28={sum(NUMS28)}")
+          f"L28={sum(NUMS28)} L29={sum(NUMS29)}")
     http_cfg = uvicorn.Config(app, host=HOST, port=PORT_HTTP, log_level="info")
     threading.Thread(target=uvicorn.Server(http_cfg).run, daemon=True).start()
     https_cfg = uvicorn.Config(app, host=HOST, port=PORT_HTTPS,

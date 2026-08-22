@@ -9,6 +9,7 @@
 - **关卡 20** —— 教程 19 的进阶：**万恶广告劫**（改 smali 关弹窗）——进去只有一个"点此领取 1 亿大礼包"按钮，点了就弹连环牛皮癣广告：× 前 5 秒不显示、显示了也瞬移、还弹嘲讽 Toast，正常操作永远关不掉；正解是 apktool 把广告开关关掉。
 - **关卡 21-26** —— 第二季 SSL 抓包系列（HTTPS + 自定义 TrustManager / OkHttp CertificatePinner / WebView 自签证书白屏 / 反 Hook 检测 + 内存换 pin / JNI native 校验 / 双向 TLS mTLS 客户端证书）。
 - **关卡 27** —— **万法归宗**：HTTPS 双闸门（TrustManager+CertificatePinner）+ 复合签名（AES 参数加密 + HMAC，响应加密，加密包 R8 混淆），抓到明文≠采集成功，复刻整条签名链才算通关。
+- **关卡 28 起** —— 第三季 Native 试炼系列（教程 22《Frida Hook 实战 Native 层》配套）：每关独立 so 防剧透，密钥标记弃用 fatdemo 改用 `Fatdog_<情绪词>`（情绪词用尽换动词）；大厅新增「Native 试炼」分区。
 
 > 所有网络关（15-22、24-25）采用**分页加载**：顶部输入/翻页条（页码窗口、上一页/下一页、跳转到指定页），下方两排数字（10 个/页）。点页码窗口会自动左移 3 格——1 2 3 消失、多出后面 3 个页码，像手掌翻页一样。关卡 23 例外：它加载的是 HTTPS H5 页，没有分页——页面白屏本身就是题面。
 
@@ -49,6 +50,8 @@ APK 结构刻意做得和真实 App 一致：图标（5 种密度）、XML 布�
 | 25 | 灵台证真 | HTTPS + JNI native 校验（verifyServer 门禁 + nativeSign 签名都在 libnative.so），Java Hook 无效 | 22 篇预告：native 逆向与 JNI |
 | 26 | 双符合璧 | 双向 TLS（mTLS）：服务端握手层强制验证客户端证书；APK 内置 mt_client.p12，密码拆两半藏在异或数组里 | 21 篇进阶：客户端证书提取、PKCS12、mTLS 复刻 |
 | 27 | 万法归宗 | HTTPS 双闸门 + 复合签名：AES 参数加密 + HMAC 签名 + 响应加密，加密包 R8 混淆；抓包→复刻全闭环 | 21+20 篇合卷：绕 pinning 抓密文 → 解混淆还原签名链 → 100 页取数 |
+| 28 | 缄默之钥 | 密钥 ^0x5C 藏进 libl28.so 的 .rodata，strings 只有诱饵 Fatdog_silent；IDA 读解码循环或运行时内存搜明文，HMAC 复刻取数 | 22 篇：字符串加密只骗静态，内存必有明文 |
+| 29 | 隐姓埋名 | 真身经 JNI_OnLoad 动态注册（无名 static 函数）；导出表两个假 nativeSign 是坑，按名 Hook 不触发或拿错值 | 22 篇：RegisterNatives 抓映射 + spawn 抢时机 |
 
 每关的**解题思路分级提示**见下方折叠块；完整题解（含 Python 复刻代码与 Frida 脚本）在 `SOLUTIONS.md`（建议先自己练）。
 
@@ -122,7 +125,7 @@ python server.py          # HTTP :8787（15-20） + HTTPS :8443（21-25，自签
 
 地址自动切换：`config.json` 的 `api_base_url` 默认 `"AUTO"`——模拟器自动走 `10.0.2.2`、真机自动走 `127.0.0.1`（识别不出模拟器特征时按真机处理）；也可手动填 `http://局域网IP:8787` 覆盖，手机与电脑同一网络即可免 USB。
 
-各网络关要点：L15 HMAC 明文参数；L16 请求整段加密+MD5 签名、响应加密（RC4）；L17 表单 enc/sig/dog（国密 SM4+SM3，纯 Python 实现）；L18 RSA 加密请求参数 + DES 解密响应（密钥一半服务端下发）；L19 AES 加密参数 + HMAC 签名、响应加密（加密包 R8 混淆 + 字符串加密）；L21/L22 走 HTTPS + 自签 CA（TrustManager / CertificatePinner 双闸门）；L23 走 WebView 加载 https://…:8443/h5/v23（主机自动选择；仅 HTTPS，HTTP 直接 403）：自签证书不被信任 → App 在 onReceivedSslError 里 handler.cancel() → 白屏，Hook 放行后页面出现、自动通关。L24 走 HTTPS + 内置 CA + HostnameVerifier pin 校验（pin 无明文，XOR 数组藏在 Z24Core），校验链带反 Hook 守卫——Hook 校验函数直接放行会触发"完整性校验失败"，正解是 Hook Z24Core.realPin 内存换 pin（换票）。L25 走 HTTPS + JNI：发请求前调 Nx.verifyServer（native 主机白名单），签名 Nx.nativeSign 在 libnative.so 里算 HMAC-SHA256——密钥不在 Java（strings libnative.so 可见 fatdemo_jni_2026），Hook Mac/MessageDigest 无效，正路是静态逆向 so 复刻或 Frida 原生层调用。**L26 走双向 TLS（mTLS）**：`https://…:8444/api/mtls`，服务端握手层强制验证客户端证书（只信内置 CA 签发的）；App 从 `assets/mt_client.p12` 加载客户端证书+私钥（密码 `fatdemo_mt26` 拆在 Zt/Mc 的异或数组里），没这张证书连握手都过不去——先抠证书解密码，再带 client 证书复刻取数（加和 50814）。**L27 万法归宗**走 HTTPS :8443 的 `POST /api/l27` + 复合签名：`enc=AES(page=N&ts=T)`、`sign=HMAC(enc)`、响应 `{"d"}` 再过一层 AES；加密核心在 `com.fatdog.reverse.p` 包（构建时被 R8 改名 + 算法名/路径/密钥全是异或串），三把密钥各拆两半跨类拼装。抓包得先放倒 TrustManager + CertificatePinner 两道闸——而且抓到的也只是 enc 密文：从 c27Activity 的调用链摸进混淆包还原签名链，才能复刻取数（加和 50623）。
+各网络关要点：L15 HMAC 明文参数；L16 请求整段加密+MD5 签名、响应加密（RC4）；L17 表单 enc/sig/dog（国密 SM4+SM3，纯 Python 实现）；L18 RSA 加密请求参数 + DES 解密响应（密钥一半服务端下发）；L19 AES 加密参数 + HMAC 签名、响应加密（加密包 R8 混淆 + 字符串加密）；L21/L22 走 HTTPS + 自签 CA（TrustManager / CertificatePinner 双闸门）；L23 走 WebView 加载 https://…:8443/h5/v23（主机自动选择；仅 HTTPS，HTTP 直接 403）：自签证书不被信任 → App 在 onReceivedSslError 里 handler.cancel() → 白屏，Hook 放行后页面出现、自动通关。L24 走 HTTPS + 内置 CA + HostnameVerifier pin 校验（pin 无明文，XOR 数组藏在 Z24Core），校验链带反 Hook 守卫——Hook 校验函数直接放行会触发"完整性校验失败"，正解是 Hook Z24Core.realPin 内存换 pin（换票）。L25 走 HTTPS + JNI：发请求前调 Nx.verifyServer（native 主机白名单），签名 Nx.nativeSign 在 libnative.so 里算 HMAC-SHA256——密钥不在 Java（strings libnative.so 可见 fatdemo_jni_2026），Hook Mac/MessageDigest 无效，正路是静态逆向 so 复刻或 Frida 原生层调用。**L26 走双向 TLS（mTLS）**：`https://…:8444/api/mtls`，服务端握手层强制验证客户端证书（只信内置 CA 签发的）；App 从 `assets/mt_client.p12` 加载客户端证书+私钥（密码 `fatdemo_mt26` 拆在 Zt/Mc 的异或数组里），没这张证书连握手都过不去——先抠证书解密码，再带 client 证书复刻取数（加和 50814）。**L27 万法归宗**走 HTTPS :8443 的 `POST /api/l27` + 复合签名：`enc=AES(page=N&ts=T)`、`sign=HMAC(enc)`、响应 `{"d"}` 再过一层 AES；加密核心在 `com.fatdog.reverse.p` 包（构建时被 R8 改名 + 算法名/路径/密钥全是异或串），三把密钥各拆两半跨类拼装。抓包得先放倒 TrustManager + CertificatePinner 两道闸——而且抓到的也只是 enc 密文：从 c27Activity 的调用链摸进混淆包还原签名链，才能复刻取数（加和 50623）。L28 走 native 字符串加密：密钥 ^0x5C 藏 libl28.so（strings 只见诱饵 Fatdog_silent），IDA 还原 Fatdog_unhappy 或 Frida 运行时搜明文，加和 49750；L29 走动态注册：导出表两个假 nativeSign 全是坑，真身无名靠 spawn+hook libart RegisterNatives 抓映射，密钥 Fatdog_angry 异或藏 .data，加和 50208。
 
 ## 环境准备
 
@@ -394,9 +397,27 @@ license 链路：`base64 → AES解密(密钥A在XBox) → AES解密(密钥B在M
 
 </details>
 
+<details>
+<summary>关卡 28 · 中度提示</summary>
+
+1. jadx 只有 `Zk.nativeSign` 声明；解包 APK 取 `lib/arm64-v8a/libl28.so`。
+2. `strings libl28.so` 只见诱饵 `Fatdog_silent`——真密钥被 ^0x5C 存成字在数组 `KEY28_KX`（IDA 里读 `Zk_nativeSign` 的解码循环即还原 `Fatdog_unhappy`）。
+3. 静态抄近道：Python 带 `certs/ca.crt` 复刻 HMAC 取 100 页求和 = 49750；动态：Frida 三联单看返回值对拍，或 `Memory.scanSync` 在运行时搜明文。
+
+</details>
+
+<details>
+<summary>关卡 29 · 中度提示</summary>
+
+1. 导出表的 `Java_com_fatdog_reverse_Wq_nativeSign` 是同名诱饵（假密钥 `Fatdog_lazy`，已被动态注册覆盖，Hook 它不会触发）；`Wq_sign` 返回废值。`Yd.FAKE_KEY` 也是假货。
+2. 正解 spawn 注入：hook libart 的 `RegisterNatives`（`_ZN3art3JNI15RegisterNativesEP7_JNIEnvP7_jclassPK15JNINativeMethodi`）打印映射，拿到真身地址 → 减模块基址得偏移 → Interceptor.attach 三联单。
+3. 静态路线：IDA 从 `JNI_OnLoad` 的 RegisterNatives 参数找到无名真身与 `KEY29_KX`（^0x69 → `Fatdog_angry`），Python 复刻取数求和 = 50208。
+
+</details>
+
 ## 路线图
 
 - 第一季：教程 18 静态分析 6 关 + 教程 19 smali 4 关（7/8/9/20）+ 教程 20 Frida 5 关（10-14）+ 网络取数 5 关（15-19）
 - 第二季：SSL / 抓包对抗系列 21-27（已全部落地，规划见 `PLANNED.md`）
-- 第三季（规划）：教程 22 native 层逆向
+- 第三季：native 层系列（L28 缄默之钥、L29 隐姓埋名已落地；规划至 L37，见 PLANNED.md 第三季章节）；大厅新增「Native 试炼」分区
 - **标记变更（自 L28 起）**：密钥/口令等标记弃用 `fatdemo_` 前缀，改用 `Fatdog_<情绪词>`（情绪词用尽换动词，如 `Fatdog_unhappy` / `Fatdog_sneak`）；L1-27 保持不变，完整规范见 `SKILL.md` §四
