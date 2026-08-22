@@ -1662,3 +1662,50 @@ Java.perform(function () {
 **静态路线**
 
 IDA 从 `JNI_OnLoad` 入手：`FindClass("com/fatdog/reverse/Wq")` 后的 `RegisterNatives(env, cls, methods, 1)`，methods 数组第三格就是无名真身地址；顺带看到 `.data` 里的 `KEY29_KX`（12 字节，逐字节 ^0x69 还原 `Fatdog_angry`）。复刻脚本与关卡 28 相同，只换 KEY 为 `b"Fatdog_angry"`、端点为 `/api/l29`，100 页求和 = **50208**。
+
+
+---
+
+## 关卡 30：无名剑冢（指针表派发 + UTF-16 藏钥）
+
+**考点**：libl30.so 导出表只有一个入口 `Java_com_fatdog_reverse_Vn_nativeSign`，内部经 `K30_TABLE[4]` 派发到四个 noinline 同形签名函数（gloomy/pale/sour/mute），真身沉在文件底部；四把密钥全以 UTF-16LE 码元数组存放——默认 `strings` 与 IDA 字符串窗口均不显示。谁是真身只能靠服务器裁决：错候选的签名同样是一串合法 hex，但换来 403。
+
+**第一步：让藏起来的字符串现形**
+
+```text
+strings -el libl30.so        # -el 按 16 位小端扫描：Fatdog_gloomy / pale / sour / mute 全部现形
+```
+
+IDA/Ghidra 路线：从唯一导出入口看到一次间接调用 → 找到 `.data` 里的 `K30_TABLE`（四个函数指针）→ 数据窗把那四个码元数组按 16 位字符查看，直接读出明文。
+
+**第二步：确认真身槽位**
+
+静态读派发逻辑（`K30_SLOT=0` → 槽 0 = gloomy）；或动态按偏移逐个 Hook 四个函数看返回值：
+
+```javascript
+var mod = Process.findModuleByName('libl30.so');
+// IDA 里查得四个函数的模块内偏移后逐一 attach，
+// onLeave 用 env.getStringUtfChars 读 jstring 返回值，喂服务器验真（错候选 403）
+```
+
+**第三步：Python 复刻取数**（先 `python server.py`）
+
+```python
+import time, hmac, hashlib, requests
+
+KEY  = b"Fatdog_gloomy"                 # 槽 0 的真钥匙
+BASE = "https://127.0.0.1:8443"         # 模拟器换 https://10.0.2.2:8443
+
+total = 0
+for page in range(1, 101):
+    ts   = int(time.time())
+    sign = hmac.new(KEY, f"page={page}&ts={ts}".encode(), hashlib.sha256).hexdigest()
+    r = requests.get(f"{BASE}/api/l30", params={"page": page, "ts": ts, "sign": sign},
+                     verify="certs/ca.crt", timeout=10)
+    total += sum(r.json()["nums"])
+print("总和:", total)                    # 51127
+```
+
+对拍样例：`HMAC(Fatdog_gloomy, "page=1&ts=1787013761") = bb55d7beb95497d2c541d18d6607c1788ce0a57261dbe9d6ba5e44bfe7b173c5`。
+
+**坑位提醒**：`Xk.FAKE_KEY = Fatdog_mute` 正是槽 3 的假钥匙——Java 层搜到的"密钥"十有八九是它。

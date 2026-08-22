@@ -31,7 +31,7 @@ public class MainActivity extends Activity {
             {R.id.btn_h10, R.id.btn_h11, R.id.btn_aes12, R.id.btn_dual13, R.id.btn_chain14},
             {R.id.btn_pages15, R.id.btn_rc16, R.id.btn_f17, R.id.btn_r18, R.id.btn_l19},
             {R.id.btn_t21, R.id.btn_p22, R.id.btn_w23, R.id.btn_g24, R.id.btn_n25, R.id.btn_m26, R.id.btn_f27},
-            {R.id.btn_l28, R.id.btn_l29},
+            {R.id.btn_l28, R.id.btn_l29, R.id.btn_l30},
     };
 
     private FrameLayout host;
@@ -260,6 +260,7 @@ public class MainActivity extends Activity {
         bind(R.id.btn_f27, c27Activity.class);
         bind(R.id.btn_l28, d28Activity.class);
         bind(R.id.btn_l29, e29Activity.class);
+        bind(R.id.btn_l30, f30Activity.class);
     }
 
     private void bind(int id, final Class<?> target) {

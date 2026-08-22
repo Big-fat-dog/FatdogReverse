@@ -1,15 +1,15 @@
-# FatdogReverse 开发规划与状态 —— 网络系列（15-25）
+# FatdogReverse 开发规划与状态 —— 网络系列（15-26）+ 万法归宗（27）
 
-> 状态：**15-25 已全部落地**。关卡 20 已由"goto 地狱"整改为**万恶广告劫**（连环牛皮癣广告 + smali 改开关），见 README/SOLUTIONS。
-> 设计目标：**数据只能发包拿**（数字/答案只在本地服务端 `server.py`，APK 里没有）；**加密在请求参数里**；**加密位置藏深**（密钥异或拼装 + 跨多类 + 诱饵类 + 真请求触发）。关卡 20 不取数，是一道"改 smali 开关"的独立题型。
+> 状态：**15-27 与第三季 L28-29 已全部落地**。关卡 20 已由"goto 地狱"整改为**万恶广告劫**（连环牛皮癣广告 + smali 改开关），见 README/SOLUTIONS。
+> 设计目标：**数据只能发包拿**（数字/答案只在本地服务端 `server.py`，APK 里没有）；**加密在请求参数里**；**加密位置藏深**（密钥异或拼装 + 跨多类 + 诱饵类 + 真请求触发）。关卡 20 不取数，是一道"改 smali 开关"的独立题型；关卡 27 把 HTTPS 双闸门与复合签名合成一关。
 
-## 通用架构（15-22、24-25 沿用，23 独立）
+## 通用架构（15-22、24-27 沿用，23 独立）
 
-- **服务端**：`server.py`（FastAPI + uvicorn + pycryptodome），HTTP 监听 `127.0.0.1:8787`（15-20），HTTPS 监听 `127.0.0.1:8443`（21-25，自签 CA，证书由 `gen_certs.py` 生成在 `certs/`，不入 APK）。
+- **服务端**：`server.py`（FastAPI + uvicorn + pycryptodome），HTTP 监听 `127.0.0.1:8787`（15-20），HTTPS 监听 `127.0.0.1:8443`（21-25、27，自签 CA，证书由 `gen_certs.py` 生成在 `certs/`，不入 APK），mTLS 监听 `127.0.0.1:8444`（26）。
   - 地址自动切换：`NetHost` 探测环境——模拟器自动走 `10.0.2.2`，真机自动走 `127.0.0.1`（识别不出模拟器特征时按真机）；`config.json` 的 `api_base_url` 默认 `"AUTO"`，填局域网 IP 可覆盖。
   - 真机：`adb reverse tcp:8787 tcp:8787`（8443 同理）；或电脑防火墙放行 + 局域网 IP 覆盖，免 USB。
 - **客户端**：15-20 用 `HttpURLConnection`，21-22、24-25 用 OkHttp；加密/签名只在发包瞬间执行。
-- **flag 交付**：15-22、24-25 的 flag 硬编码在 App 内（提交正确加和后 Celebration 展示）；**23 的 flag 只存在于服务端 H5 页面里，APK 完全没有**。
+- **flag 交付**：15-22、24-27 的 flag 硬编码在 App 内（提交正确加和后 Celebration 展示）；**23 的 flag 只存在于服务端 H5 页面里，APK 完全没有**。
 - **藏深手段**：密钥/IV 以异或字节数组拆段分散在多个类中运行时拼装；一关横跨 3-4 个真实类 + 1-3 个诱饵类；L19 的加密包还过了真 R8 混淆（类改名 + 字符串异或）。
 
 ## 落地总表
@@ -26,6 +26,11 @@
 | 23 | 白屏迷雾 | 无加密：自签证书错误 → onReceivedSslError cancel → 白屏 | GET https://…/h5/v23（仅 HTTPS，HTTP 403） | — | FLAG_18_L23{webview_ssl_error}（只在服务端页面） |
 | 24 | 换票迷局 | HMAC-SHA256 + TrustManager + HostnameVerifier pin 校验 + 反 Hook 守卫 | GET https://…/api/swap | 50225 | FLAG_18_L24{anti_hook_pin_swap} |
 | 25 | 灵台证真 | HMAC-SHA256 全在 native（libnative.so）算 + JNI 主机门禁 verifyServer | GET https://…/api/native | 52674 | FLAG_18_L25{native_jni_verify} |
+| 26 | 双符合璧 | 双向 TLS（mTLS）：握手层强制客户端证书 + PKCS12 密码拆分 + HMAC | GET https://…:8444/api/mtls | 50814 | FLAG_18_L26{mutual_tls_client_cert} |
+| 27 | 万法归宗 | HTTPS 双闸门（TrustManager+Pinner）+ 复合签名：AES 参数 + HMAC + 响应加密，加密包 R8 混淆 | POST https://…/api/l27 | 50623 | FLAG_18_L27{capture_then_replicate} |
+| 28 | 缄默之钥 | HMAC-SHA256，密钥 ^0x5C 异或藏进 libl28.so 的 .rodata（strings 只有诱饵 Fatdog_silent） | GET https://…/api/l28 | 49750 | FLAG_18_L28{runtime_decoded_key} |
+| 29 | 隐姓埋名 | HMAC-SHA256，真身经 JNI_OnLoad 动态注册绑定（无名 static 函数；导出表两个假 nativeSign 全是坑） | GET https://…/api/l29 | 50208 | FLAG_18_L29{register_natives_caught} |
+| 30 | 无名剑冢 | HMAC-SHA256，四同形签名函数经函数指针表派发（间接调用模糊 xref）；密钥 UTF-16LE 码元藏匿（默认 strings 盲区） | GET https://…/api/l30 | 51127 | FLAG_18_L30{nameless_dispatch} |
 
 > 加和 = 全部页数字的总和，App 用内置校验比对通过后才展示 flag。
 
@@ -41,6 +46,11 @@
 - L23：`y3Activity` + `Hq`（诱饵 `WvKit`）
 - L24：`z24Activity` + `Aw` + `Tk` + `Z24Core`（诱饵 `Gp`）
 - L25：`a25Activity` + `Nx` + `By` + `libnative.so`（诱饵 `Rj`）
+- L26：`b26Activity` + `Vd` + `Mc` + `Zt` + `assets/mt_client.p12`（诱饵 `MtlsKit`）
+- L27：`c27Activity` + `p/Wire` + `p/Gate` + `p/Cpt` + `p/Mk` + `p/Tail`（诱饵：包内 `p/Gh` + 根包 `EndKit`）
+- L28：`d28Activity` + `Zk` + `Ct` + `libl28.so`（诱饵 `Fk`；so 内另埋明文诱钥 `Fatdog_silent`）
+- L29：`e29Activity` + `Wq` + `Xs` + `libl29.so`（诱饵 `Yd`；so 导出表只有 JNI_OnLoad 与两个假 nativeSign）
+- L30：`f30Activity` + `Vn` + `Wo` + `libl30.so`（诱饵 `Xk`；so 内四个同形签名函数 + UTF-16 密钥库，导出仅一个 JNI 入口）
 
 ## 关卡 20 设计明细（万恶广告劫：改 smali 关弹窗）
 
@@ -106,6 +116,54 @@
   - 动态正解：Frida 原生层 `Interceptor.attach` 观察 / `NativeFunction` 直接调 `nativeSign`；也可 patch so 改白名单。
 - 完整题解见 `SOLUTIONS.md`（关卡 25）。
 
+## 关卡 27 设计明细（万法归宗：抓包→复刻全环）
+
+- **玩法（对玩家）**：把 21/22 的双闸门和 19 的复合签名合到一关：HTTPS + pinning 挡在门外，
+  请求参数 AES 整段加密 + HMAC 签名、响应体再加密。**抓到明文≠采集成功**，必须复刻整条签名链才能取满 100 页。
+- **App 端**：
+  - `c27Activity`：关卡页（100 页×10 个分页取数求和，内置 `SUM_HASH` 校验，banner 用 `drawable-nodpi/level_27.jpg`）。
+    本类保持可读——它是玩家顺藤摸瓜进混淆包的入口（同 L19 的 v9Activity 定位）。
+  - `p/Wire`：网络核心。`enc = hex(AES(req_key,"page=N&ts=T"))`、`sign = HMAC(hmac_key, enc)`，POST 表单带
+    page/ts/enc/sign/client/chan/ver/dev 噪声字段；响应 `{"d": hex}` 用 rsp_key 解密成 `page=N|nums=…`。
+  - `p/Gate`：OkHttp 双闸门。TrustManager 复用 `Tm.caDer()`；CertificatePinner 的 pin 以 `^0x27`
+    字节数组藏在 `Mk`（无明文 `sha256/`）；HostnameVerifier 按 `NetHost.host()` 动态放行。
+  - `p/Cpt`：加密原语（AES-ECB/PKCS5 + HmacSHA256 + hex），算法名异或 `^0x31` 藏在 Mk。
+  - `p/Mk` / `p/Tail`：三把密钥各拆两半跨类拼装——`fatdemo_`（^0x3C，Mk）+ `aeskey27`/`fin_hmac`/`rspkey27`（^0x3C，Tail）
+    = `fatdemo_aeskey27` / `fatdemo_fin_hmac` / `fatdemo_rspkey27`；路径 `/api/l27` 异或 `^0x25` 藏 Mk。
+  - **R8**：整个 p 包不在 r8.pro 的 keep 名单里，构建时自动改名（与 L19 的 o 包同一机制）。
+  - 诱饵双份：包内 `p/Gh`（假密钥假 pin，跟着一起被混淆）+ 根包 `EndKit`（假密钥假端点 `/api/end`，可读更像真的）。
+- **服务端**：主 app 加 `POST /api/l27`（8443 上跑，8787 同路由不拦——pinning 只保护 App 客户端，静态复刻本就直连）。
+  验 ts 窗口 → 验 HMAC(sign==HMAC(enc)) → AES 解 enc 得 `page=N&ts=T` 且与表单一致 → 返回 AES 加密 body。
+  SEED27=20270227，1000 个数字总和 50623。
+- **破解点**：
+  - 抓包路线：Frida 同时放倒 TrustManager（换信任系统/mitmproxy CA）+ CertificatePinner.check（或 objection 全家桶）→
+    mitmproxy 看到的也只是 enc 密文——还得解出三把密钥才能懂明文。
+  - 静态正解：jadx 从 c27Activity 跟进被改名的 p 包 → 还原三组 XOR（0x3C/0x25/0x31/0x27）拼齐密钥与路径 →
+    Python 带 `certs/ca.crt` POST 复刻 100 页取数（完整脚本见 SOLUTIONS 关卡 27）。
+- **注意**：`gen_certs.py` 重生成证书后，L27 的 pin（`Mk.S_PIN` ^0x27）也要随 Tm/Pn/Z24Core 一起重烘焙。
+
+## 关卡 28 设计明细（缄默之钥：native 字符串加密，已落地）
+
+- **App 端**：`d28Activity`（分页取数求和模板，banner level_28.jpg）＋ `Zk`（JNI 桥，loadLibrary("l28")）＋ `Ct`（OkHttp，信任 Tm.caDer()，GET /api/l28?page=N&ts=T&sign=…）。
+- **libl28.so**：密钥 `Fatdog_unhappy` 以 ^0x5C 数组躺 .rodata（非 static 全局 `KEY28_KX`，防编译器折叠进指令）；`Zk.nativeSign` 运行时解到栈缓冲喂 HMAC-SHA256，消息 `page=N&ts=T`。诱饵三件：Java 层 `Fk.FAKE_KEY="Fatdog_silent"`、so 明文 `KEY28_DECOY` 同值。
+- **服务端**：`GET /api/l28` 验签（KEY28_HMAC=Fatdog_unhappy），SEED28=20270315，加和 49750。
+- **破解点**：① IDA 读解码循环还原密钥 → Python 复刻；② Frida 三联单观察返回值对拍；③ Memory.scanSync 运行时搜解出的明文。注意别拿 Fk/DECOY 的假钥算。
+
+## 关卡 29 设计明细（隐姓埋名：native 动态注册，已落地）
+
+- **App 端**：`e29Activity` ＋ `Wq`（声明 nativeSign，loadLibrary("l29")）＋ `Xs`（OkHttp 客户端，GET /api/l29）。
+- **libl29.so**：`JNI_OnLoad` 里 `RegisterNatives` 把 `Wq.nativeSign` 绑到 static 无名函数 `l29_real_sign`（strip 后导出表彻底无名）；密钥 `Fatdog_angry` 以 ^0x69 数组藏 `.data`（非 const 全局 `KEY29_KX`，防常量折叠成明文字面量——实测踩过这坑）。
+- **双诱饵导出**：`Java_com_fatdog_reverse_Wq_nativeSign`（名字完全符合静态注册规则但被动态覆盖，JVM 永不调用；内部用明文假钥 `Fatdog_lazy`，strings 可见）；`Java_com_fatdog_reverse_Wq_sign`（方法名都对不上，返回固定废 hex）。按名 Hook 前者不触发、手动 NativeFunction 调它得错值 → 服务器 403。
+- **服务端**：`GET /api/l29` 验签（KEY29_HMAC=Fatdog_angry），SEED29=20270412，加和 50208。
+- **破解点**：① spawn 注入 + hook libart `_ZN3art3JNI15RegisterNativesEP7_JNIEnvP7_jclassPK15JNINativeMethodi` 抓映射拿真身地址 → 偏移 Hook 三联单；② IDA 从 JNI_OnLoad 参数顺藤摸瓜静态还原。
+
+## 关卡 30 设计明细（无名剑冢：指针表派发 + UTF-16 藏钥，已落地）
+
+- **App 端**：`f30Activity` ＋ `Vn`（声明 nativeSign，loadLibrary("l30")）＋ `Wo`（OkHttp 客户端，GET /api/l30）。
+- **libl30.so**：四个 noinline 同形签名函数——gloomy(真)/pale/sour/mute，经 `K30_TABLE[4]` 函数指针表派发（volatile 槽位防常量折叠），JNI 入口只暴露一次间接调用；真身压在文件最底部。四把密钥全部以 **UTF-16LE 码元数组**存放（非 const 全局防折叠）：默认 `strings` 与 IDA 字符串窗口均不显示，`strings -el` 或数据窗看字节数组即现形。
+- **服务端**：`GET /api/l30` 验签（KEY30_HMAC=Fatdog_gloomy），SEED30=20270520，加和 51127。
+- **破解点**：① IDA 定位派发表与四个码元数组 → 还原 Fatdog_gloomy → Python 复刻；② 按偏移逐个 Hook 四候选观察返回值，服务器验真（错候选一律 403）；③ `strings -el libl30.so` 直接收 UTF-16 明文（本关教学点：编码藏匿挡不住 -el）。
+
 ## 实现清单（每关落地时已做）
 
 1. `server.py` 加对应接口（验签/加解密/页面逻辑只在服务端，数字/flag 不进 APK）。
@@ -114,7 +172,89 @@
 4. 重建 APK，抽查类与资源。
 5. 更新 `README.md` / `SOLUTIONS.md` / `REPORT.md` / 本文件。
 
+## 关卡 26 设计明细（双符合璧：双向 TLS / mTLS）
+
+- **玩法（对玩家）**：服务端在 TLS 握手层强制验证客户端证书——没这张证书，抓包工具连握手都过不去。
+- **App 端**：
+  - `b26Activity`：关卡页（100 页×10 个分页取数求和，内置 `SUM_HASH` 校验，banner 用 `drawable-nodpi/level_26.jpg`）。
+  - `Vd`：OkHttp 客户端。信任侧复用 `Tm.caDer()`；出示侧用 `Mc.loadP12()` → KeyManagerFactory 产出 KeyManager；签名密钥 = `Zt.pa()`(^0x3C) + `Vd.kb()`(^0x3C) = `fatdemo_mtls_key`；请求 `GET /api/mtls?page=N&ts=T&sign=…`，基址 `NetHost.mtlsBase()`（:8444）。
+  - `Mc`：PKCS12 保险库。p12 密码 = `Zt.pxa()`(^0x37→`fatdemo_`) + `Mc.PXB`(^0x5B→`mt26`) = `fatdemo_mt26`；别名 `fatdog-client`；文件在 `assets/mt_client.p12`（由 `gen_certs.py` 生成并复制进 assets）。
+  - `MtlsKit`：诱饵（假密码假别名，无人调用）。
+- **服务端**：
+  - `:8444` 跑**独立 FastAPI 实例** `mtls_app`——主 app（8787/8443）没有 `/api/mtls` 路由，杜绝跨端口绕过（404）。
+  - uvicorn 参数：`ssl_cert_reqs=CERT_REQUIRED` + `ssl_ca_certs=certs/ca.crt`（客户端证书必须是内置 CA 签发的）。
+  - SEED26=20270206，1000 个数字总和 50814。
+- **破解点**：
+  - 静态正解：解 XOR 得 HMAC 密钥与 p12 密码 → APK 里抠出 `mt_client.p12` → cryptography 导出证书私钥 → Python 带 CA+client 证书复刻 100 页取数（完整脚本见 SOLUTIONS 关卡 26）。
+  - 动态正解：Frida 调 `Mc.buildPassword()` 倒密码，mitmproxy 挂 client 证书抓明文。
+- **注意**：`gen_certs.py` 每次重跑会换掉 CA/server 证书——App 内嵌的 CA DER（Tm.CAA）、SPKI pin（Pn.PIN、Z24Core.PINX）必须同步重烘焙（本次已做）；后续如再生成证书记得同步这三处。
+
+## 第三季规划（L28-37 · native 层系列）—— 已拍板，待落地
+
+> 通过模式与 15-27 一脉相承：**数据只在服务端，通关 = 复刻/构造合法请求取满 100 页 → 加和提交 SUM_HASH 校验 → flag**。拿到密钥只是入场券（格式靠三联单观察 + 对拍确认）；L34 起"算不出算法"也有官方出路（Oracle/unidbg）。标记自 L28 启用 `Fatdog_<情绪词>`（情绪词恰好用满七关），L35 起进入动词系列。
+
+### 总览
+
+| 关卡 | 名称 | 核心考点 | 标记 | 难度 | 端点 | 状态 |
+|---|---|---|---|---|---|---|
+| 28 | 缄默之钥 | so 字符串加密，strings 失效 | Fatdog_unhappy | ★☆ | GET /api/l28 | 已落地（加和 49750） |
+| 29 | 隐姓埋名 | 动态注册 RegisterNatives + 假导出陷阱 | Fatdog_angry | ★★ | GET /api/l29 | 已落地（加和 50208） |
+| 30 | 无名剑冢 | strip 私有函数偏移 Hook + 诱饵函数（服务器当裁判） | Fatdog_gloomy | ★★★ | GET /api/l30 | 已落地（加和 51127） |
+| 31 | 两界穿针 | 密钥跨层拼装（native 回调 Java，Java 半截进 R8 改名子包 q）＋干扰包 | Fatdog_lonely | ★★★★ | POST /api/l31 | 规划 |
+| 32 | 心魔哨兵 | 反检测四路哨兵 + 静默投毒；中招仅弹窗警告（不拉黑） | Fatdog_anxious | ★★★★ | GET /api/l32 | 规划 |
+| 33 | 金刚不坏 | .text CRC 自校验 + 记账守卫；三条解法全开 | Fatdog_jealous | ★★★★★ | GET /api/l33 | 规划 |
+| 34 | 万法归墟 | 综合卷：动态注册+无名 Feistel+反检测+CRC+响应加密；Frida / patch so / unidbg 三条官方路线 | Fatdog_grumpy | ★★★★★★ | POST /api/l34 | 规划 |
+| 35 | 双匣暗渡 | C 手写 3DES + SM4 常量识别＋干扰包 | Fatdog_sneak | ★★★★ | POST /api/l35 | 规划 |
+| 36 | 查表识君 | C 手写 AES，真身藏在无用方法底下 | Fatdog_break | ★★★ | GET /api/l36 | 规划 |
+| 37 | 雪崩之谜 | C 手写 SHA-256 变体（改 IV/加盐），认骨架找改动点 | Fatdog_dodge | ★★★ | GET /api/l37 | 规划 |
+
+### 每关设计明细
+
+**L28 缄默之钥**：密钥以 XOR 数组躺 `.rodata`，运行时解到栈缓冲喂 HMAC-SHA256——strings 一无所获。三条路：IDA 读解密循环 / 运行时 `Memory.scanSync` 搜明文 / 导出函数三联单拿返回值对拍。
+
+**L29 隐姓埋名**：导出表只剩 `JNI_OnLoad`，真身经 `RegisterNatives` 运行时绑定；陷阱=导出 2 个假 `Java_com_..._sign`，能调但返回错值 → 服务器 403 教做人。正解：spawn 抢时机 + hook libart `RegisterNatives` 抓映射 → 偏移 Hook。
+
+**L30 无名剑冢**：真签名在 strip 后无名的内部函数（noinline + 函数指针表间接调用模糊 xref），周围 3 个同形 HMAC 诱饵、密钥各异、输出都是合法 hex。正解：IDA 从入口跟调用链/常量 xref 锁定真身 → `base.add(offset)` Hook；真假只能靠服务器反馈验真。
+
+**L31 两界穿针**：密钥前半 `Fatdog_` 在 Java（异或数组，放 R8 自动改名子包 `q`），后半 `lonely` 在 C；native 经 `FindClass → GetStaticMethodID → CallStaticObjectMethod` 回调取件、运行时拼整——单侧拿不全。加干扰包（见通用规格）：真包 `enc=hex(异或流(拼合密钥,payload))` + `sign=HMAC(拼合密钥,enc)` + 动态 ts，2 个加密参数。
+
+**L32 心魔哨兵**：`JNI_OnLoad` 起守护线程四路检测：扫 `/proc/self/maps` 搜 frida 特征 / 试探 27042 等端口 / 枚举线程名 gum-js-loop·gmain·gdbus / clock 时间差。**中招不闪退：静默翻转密钥一字节，签名全错；App 确认污染后弹窗警告"环境异常"（教育向，仅警告，不拉黑不封号）**。静态复刻党全程免疫；动态党拆法三层：改名换端口 frida-server + strongR-frida 洗指纹 / IDA 定位检测函数偏移 Hook / hook `open`·`fgets` 给 maps 洗地。ptrace 占坑照放（讲清它防的是 gdb 不是 Frida）。
+
+**L33 金刚不坏**：加载时对自身 `.text` 算 CRC32 存基线（校验器自身区间除外——该除外区间即 IDA 线索），每次签名重算比对；外加记账守卫（guardTicks/lastVerdict）防整体替换。**三解全开**：① hook `JNI_OnLoad` 于 onEnter 装完钩子——基线带钩建立永远一致；② 偏移 Hook 校验器（其区间被排除故安全）；③ Memory 找基线变量改写为当前实值。
+
+**L34 万法归墟**：全家桶终卷：动态注册入口 + 真算法在无名函数（HMAC 前过一轮自定义 Feistel，纯猜必死）+ 四路反检测 + CRC 守卫 + 响应体 RC4 加密（C 实现）。**三条官方路线**：纯 Frida（拆检测→抓注册→偏移观察→复刻）/ patch so（IDA 改字节废守卫重打包）/ **unidbg（官方解法之一：so 拖进模拟环境当离线签名机，需补 Java 半截回调的 DvmObject 桩——为教程 23 铺路）**。
+
+**L35 双匣暗渡**：单个 .c 文件手写 3DES 与 SM4 各一套，文件前半铺一堆无用变换函数（假 base64、死异或、废填充……），真加密压在文件底部且经函数指针表间接分发。考点=靠魔数认算法：DES 的 S1 盒 `14,4,13,1…` 与 PC1/PC2 表；SM4 的 S 盒 `d6 90 e9 fe…` 与 FK `a3b1bac6…`。干扰包：真包 `e1=hex(SM4(k1,"page=N&ts=T"))` + `e2=hex(3DES(k2,nonce))`，2 个加密参数 + 动态 ts；假包同形乱键。
+
+**L36 查表识君**：手写 AES-128（加解密双向，响应体也要解）。同样一堆无用方法垫底、真身沉底间接调用。认 AES S 盒 `63 7c 77 7b…` 与 Rcon；密钥异或藏匿。找到轮密钥即可 Python 复刻。
+
+**L37 雪崩之谜**：手写 SHA-256 但动了手脚（IV 换自定义值 / 末尾追加一轮自定义盐压缩）——K 表完好可认出骨架，标准库对不上就是要找的改动点；Python 复刻同一变体验收。
+
+### 干扰包通用规格（落在 L31 / L35）
+
+- 每次取一页，客户端连发 3-5 个请求：1 真 + 2-4 假；真假同形（字段名一致），假包密钥错误或载荷为噪声。
+- 服务端行为：真包返回 `{"page":N,"nums":[...]}`；假包返回 HTTP 200 + `{"page":N,"nums":[]}`（形似而空），部分假包返回 403——逼玩家靠响应内容而非状态码分辨。
+- 加密参数数量硬性约束：**≥2 且 ≤3**；必须含动态值 ts（600s 窗口，防重放）。
+- 玩家识别手段分级：Hook OkHttp 响应回调看哪包有货（易）/ mitmproxy 对比流量（中）/ 纯静态读发包代码（难）。
+
+### 工程与文档注意
+
+- **so 分库防剧透**：每关独立 `libl28.so` ~ `libl37.so`，绝不并入 L25 的 libnative.so（否则打 L25 解包即看到后续答案）。
+- 类续谱：活动类 d28/e29/f30/g31/h32/i33/j34/k35/l36/m37 Activity；工具类两字母新组合；L31 的 Java 半截进自动改名子包 `q`。
+- 服务端全部挂 8443 主 app 新路由；SEED/加和实现时记录回填总览表与落地总表。
+- flag 格式不变 `FLAG_18_Lxx{...}`（本季只换密钥标记）。
+- 文档同步按 SKILL Checklist：README 关卡行+分级提示折叠块、SOLUTIONS 双路线题解（L34 含 unidbg 路线）、PLANNED 状态回填。
+- 教程联动：本季配套教程 22《Frida Hook 实战 Native 层》（已发）；L34 unidbg 路线为教程 23 预留靶场。
+
+### 决策记录（已拍板）
+
+- L34 unidbg 列为官方解法之一；
+- L32 中招只弹窗警告，不做 IP 拉黑；
+- L33 三条解法全部开放；
+- 干扰包落在 L31、L35 两关（前者练响应甄别，后者天然双算法凑满加密参数配额）。
+
 ## 后续规划
 
-- 第三季：教程 22 native 层逆向——可考虑把某关校验挪进 `libnative.so`。
+- 第三季：native 层系列 L28-37，完整规划见上文《第三季规划》章节，逐关落地后回填状态与加和。
+- **标记命名切换（L28 起生效）**：密钥/口令等标记弃用 `fatdemo_` 前缀，改用 `Fatdog_<后缀>`——后缀先用情绪词（unhappy/angry/gloomy…），情绪词用尽换动词（sneak/break/dodge…）；详细规则与选词表见 `SKILL.md` §四。L1-27 维持 `fatdemo_` 不动。
 - 可选加料：签名校验防重打包、root/模拟器检测、flag 全部改服务端下发。

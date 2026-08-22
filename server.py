@@ -127,6 +127,12 @@ PAGES29, PER_PAGE29, SEED29 = 100, 10, 20270412
 _rng29 = random.Random(SEED29)
 NUMS29 = [_rng29.randint(1, 100) for _ in range(PAGES29 * PER_PAGE29)]
 
+# ---------------- 关卡 30：无名剑冢（函数指针表派发，密钥 UTF-16 藏匿） ----------------
+KEY30_HMAC = b"Fatdog_gloomy"
+PAGES30, PER_PAGE30, SEED30 = 100, 10, 20270520
+_rng30 = random.Random(SEED30)
+NUMS30 = [_rng30.randint(1, 100) for _ in range(PAGES30 * PER_PAGE30)]
+
 # ---------------- 关卡 23：WebView 白屏（证书错误） ----------------
 # 页面只接受 HTTPS；HTTP 端口访问一律 403。
 # App 端 WebView 不信任自签证书 → onReceivedSslError → handler.cancel() 白屏；
@@ -486,6 +492,16 @@ def api_l29(page: int = Query(...), ts: int = Query(...), sign: str = Query(...)
     return {"page": page, "nums": NUMS29[idx:idx + PER_PAGE29]}
 
 
+@app.get("/api/l30")
+def api_l30(page: int = Query(...), ts: int = Query(...), sign: str = Query(...)):
+    _check_page(page, PAGES30)
+    _check_ts(ts)
+    if not hmac.compare_digest(sign, hmac.new(KEY30_HMAC, f"page={page}&ts={ts}".encode(), hashlib.sha256).hexdigest()):
+        raise HTTPException(status_code=403, detail="sign invalid")
+    idx = (page - 1) * PER_PAGE30
+    return {"page": page, "nums": NUMS30[idx:idx + PER_PAGE30]}
+
+
 @app.get("/h5/v23", response_class=HTMLResponse)
 def h5_v23(request: Request):
     # 只接受 HTTPS；App 端 WebView 不信任自签证书 → onReceivedSslError → 白屏。
@@ -542,7 +558,7 @@ if __name__ == "__main__":
     print(f"L26 mTLS: https://{HOST}:8444/api/mtls （双向 TLS：必须出示 certs/client.p12 里的客户端证书）")
     print(f"数字加和：L15={sum(NUMS)} L16={sum(NUMS16)} L17={sum(NUMS17)} L18={sum(NUMS18)} L19={sum(NUMS19)} "
           f"L21={sum(NUMS21)} L22={sum(NUMS22)} L24={sum(NUMS24)} L25={sum(NUMS25)} L26={sum(NUMS26)} L27={sum(NUMS27)} "
-          f"L28={sum(NUMS28)} L29={sum(NUMS29)}")
+          f"L28={sum(NUMS28)} L29={sum(NUMS29)} L30={sum(NUMS30)}")
     http_cfg = uvicorn.Config(app, host=HOST, port=PORT_HTTP, log_level="info")
     threading.Thread(target=uvicorn.Server(http_cfg).run, daemon=True).start()
     https_cfg = uvicorn.Config(app, host=HOST, port=PORT_HTTPS,

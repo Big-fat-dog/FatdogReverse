@@ -16,3 +16,9 @@ include $(CLEAR_VARS)
 LOCAL_MODULE := l29
 LOCAL_SRC_FILES := l29.c
 include $(BUILD_SHARED_LIBRARY)
+
+# 关卡 30：无名剑冢（UTF-16 藏钥 + 函数指针表派发 + 三诱饵）
+include $(CLEAR_VARS)
+LOCAL_MODULE := l30
+LOCAL_SRC_FILES := l30.c
+include $(BUILD_SHARED_LIBRARY)

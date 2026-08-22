@@ -20,10 +20,10 @@ import org.json.JSONObject;
 import java.io.InputStream;
 import java.security.MessageDigest;
 
-// 网络关卡 29（native 第三季第 2 关）：真身经 JNI_OnLoad 动态注册绑定，
-// 导出表里只有两个诱饵——按名 Hook 到的都是假货。100 页 × 每页 10 个，分页取数求和通关。
-public class e29Activity extends Activity {
-    static final String SUM_HASH = "62a8567082c70fbd1249e13d69ee94a9b852458b0c4e54400cf6f90ffeb0510a";
+// 网络关卡 30（native 第三季第 3 关）：四个同形签名函数经函数指针表派发，
+// 只有一个是真身；密钥全以 UTF-16 码元存放，strings 一无所获。100 页取数求和通关。
+public class f30Activity extends Activity {
+    static final String SUM_HASH = "f0c0cb3aaa3c474aa246f11c78e3d4d7b1ad7258378bf055d7497cff9aba77b5";
     static final int PAGES = 100;
     static final int PER_PAGE = 10;
 
@@ -46,8 +46,8 @@ public class e29Activity extends Activity {
         box.setPadding(Ui.dp(16), Ui.dp(14), Ui.dp(16), Ui.dp(12));
 
         TextView tv = new TextView(this);
-        tv.setText("这一关连函数都隐了名——libl29.so 用 JNI_OnLoad 动态注册绑定签名真身。\n"
-                + "导出表里那两个带名字的 nativeSign 全是诱饵：Hook 它们要么不触发、要么拿到错值。");
+        tv.setText("这一关的 so 里有四个签名函数、四把候选密钥，长得一模一样。\n"
+                + "strings 连一把钥匙都看不见——它们全以 UTF-16 形态存放。谁是真身？服务器说了算。");
         tv.setGravity(Gravity.CENTER);
         box.addView(tv, Ui.wrap(4));
 
@@ -139,9 +139,9 @@ public class e29Activity extends Activity {
                 try {
                     int p = Integer.parseInt(s);
                     if (p >= 1 && p <= PAGES) loadPage(p);
-                    else Toast.makeText(e29Activity.this, "页码超出范围 1-" + PAGES, Toast.LENGTH_SHORT).show();
+                    else Toast.makeText(f30Activity.this, "页码超出范围 1-" + PAGES, Toast.LENGTH_SHORT).show();
                 } catch (Exception e) {
-                    Toast.makeText(e29Activity.this, "请输入页码", Toast.LENGTH_SHORT).show();
+                    Toast.makeText(f30Activity.this, "请输入页码", Toast.LENGTH_SHORT).show();
                 }
             }
         });
@@ -162,20 +162,21 @@ public class e29Activity extends Activity {
         hint.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                new AlertDialog.Builder(e29Activity.this)
+                new AlertDialog.Builder(f30Activity.this)
                         .setTitle("提示")
-                        .setMessage("服务端 HTTPS:8443 的 /api/l29，签名由 Wq.nativeSign 在 libl29.so 里算 HMAC-SHA256。"
-                                + "so 里 Java_com_fatdog_reverse_Wq_nativeSign 是静态注册同名诱饵（假密钥 Fatdog_lazy，被动态注册覆盖永不被调），"
-                                + "Java_com_fatdog_reverse_Wq_sign 是废值诱饵；真身是动态注册的无名 static 函数，密钥 Fatdog_angry 异或藏在 .data。\n"
-                                + "正路一（动态）：spawn 注入 + hook libart 的 RegisterNatives 抓映射 → 拿到地址偏移 Hook 观察三联单；\n"
-                                + "正路二（静态）：IDA 从 JNI_OnLoad 的 RegisterNatives 参数顺藤摸到真身与异或数组，还原后 Python 复刻取数。")
+                        .setMessage("服务端 HTTPS:8443 的 /api/l30，签名由 Vn.nativeSign 在 libl30.so 里算 HMAC-SHA256。"
+                                + "so 导出表只有一个入口，内部经函数指针表派发到四个同形函数：gloomy(真)/pale/sour/mute，"
+                                + "密钥以 UTF-16LE 码元存放——strings 默认不显示，strings -el 或 IDA 数据窗看字节数组即现形。\n"
+                                + "正路一（静态）：IDA 定位派发表四个槽位与对应码元数组，还原 Fatdog_gloomy 后 Python 复刻；\n"
+                                + "正路二（动态）：按偏移逐个 Hook 四个候选函数观察返回值，喂服务器验真（错候选一律 403）；\n"
+                                + "注意 Java 层诱饵 Xk.FAKE_KEY = Fatdog_mute，正是槽 3 那把假钥匙。")
                         .setPositiveButton("好的", null)
                         .show();
             }
         });
         box.addView(hint, Ui.wrap(10));
 
-        box.addView(Ui.banner(this, R.drawable.level_29, 150));
+        box.addView(Ui.banner(this, R.drawable.level_30, 150));
 
         setContentView(box);
         ThemeKit.apply(this);
@@ -185,10 +186,10 @@ public class e29Activity extends Activity {
             public void onClick(View v) {
                 String ans = ansIn.getText().toString().trim();
                 if (sha256Hex(ans).equals(SUM_HASH)) {
-                    Celebration.show(e29Activity.this, "FLAG_18_L29{register_natives_caught}");
-                    PassLog.mark(e29Activity.this, "L29");
+                    Celebration.show(f30Activity.this, "FLAG_18_L30{nameless_dispatch}");
+                    PassLog.mark(f30Activity.this, "L30");
                 } else {
-                    Toast.makeText(e29Activity.this,
+                    Toast.makeText(f30Activity.this,
                             "加和不对，再取数算一遍。", Toast.LENGTH_SHORT).show();
                 }
             }
@@ -201,7 +202,7 @@ public class e29Activity extends Activity {
         if (loading) return;
         loading = true;
         status.setText("正在请求第 " + page + " 页…");
-        Xs.fetchPage(base, page, new Xs.Cb() {
+        Wo.fetchPage(base, page, new Wo.Cb() {
             @Override
             public void onPage(final int got, final int[] nums) {
                 runOnUiThread(new Runnable() {
@@ -285,7 +286,7 @@ public class e29Activity extends Activity {
             JSONObject cfg = new JSONObject(readAssets("config.json"));
             return NetHost.resolve(cfg.getJSONObject("server").getString("api_base_url"), true);
         } catch (Exception e) {
-            return Xs.BASE;
+            return Wo.BASE;
         }
     }
 
