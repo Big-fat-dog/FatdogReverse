@@ -9,13 +9,13 @@ import java.security.cert.X509Certificate;
 // 正解是内存换值：Frida Hook realPin() 的返回值，把内置 pin 换成 mitmproxy
 // 证书的 SPKI pin，让真实的校验路径照常走完（守卫计数正常，pin 也匹配）。
 public class Z24Core {
-    // pin 原文：sha256/Tix1uqOheqbTST96K/CXQMt79TFjVZprnaUbMo3jv3E= （每字节 ^0x5A）
+    // pin 原文：sha256/B3Mk7KMT2PA+BI0tXRk8t8lNdgMYIo70qvZ59BzGpR4= （每字节 ^0x5A）
     static final int[] PINX = {
-            41, 50, 59, 104, 111, 108, 117, 14, 51, 34, 107, 47, 43, 21, 50, 63,
-            43, 56, 14, 9, 14, 99, 108, 17, 117, 25, 2, 11, 23, 46, 109, 99,
-            14, 28, 48, 12, 0, 42, 40, 52, 59, 15, 56, 23, 53, 105, 48, 44,
-            105, 31, 103
-    };
+		41, 50, 59, 104, 111, 108, 117, 24, 105, 23, 49, 109, 17, 23,
+		14, 104, 10, 27, 113, 24, 19, 106, 46, 2, 8, 49, 98, 46,
+		98, 54, 20, 62, 61, 23, 3, 19, 53, 109, 106, 43, 44, 0,
+		111, 99, 24, 32, 29, 42, 8, 110, 103
+	};
 
     // 守卫状态：校验路径每真实走一次 tick+1；校验结论单独记一份。
     static volatile int guardTicks = 0;

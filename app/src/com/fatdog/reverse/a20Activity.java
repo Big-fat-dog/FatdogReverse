@@ -85,6 +85,7 @@ public class a20Activity extends Activity {
             @Override
             public void onClick(View v) {
                 Celebration.show(a20Activity.this, "FLAG_18_L20{ads_are_gone}");
+                PassLog.mark(a20Activity.this, "L20");
             }
         });
         successBox.setVisibility(View.GONE);

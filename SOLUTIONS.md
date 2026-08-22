@@ -1366,6 +1366,180 @@ frida -U -n com.fatdog.reverse -l hook_l10.js
 | 12 | `FLAG_18_L12{aes_vault_unlocked}` |
 | 13 | `FLAG_18_L13{dual_param_dual_alg}` |
 | 14 | `FLAG_18_L14{triple_layer_chain}` |
+## 关卡 26：双符合璧（双向 TLS / mTLS，客户端证书）
+
+**题面**：这一关服务端在 **TLS 握手层强制验证客户端证书**（双向 TLS / mTLS）。App 不光要验服务端（内置 CA），还要**出示自己的客户端证书+私钥**——少一张，握手直接失败。抓包工具没这证书，连明文都看不到；想复刻取数，得先把 APK 里的证书"抠"出来。
+
+**考点**：客户端证书提取、PKCS12、mTLS 原理。
+
+**涉及类**：
+
+- `b26Activity`：关卡页（100 页 × 每页 10 个，分页取数求和）。
+- `Vd`：OkHttp 客户端。信任侧沿用内置 CA（`Tm.caDer()`）；出示侧用 `Mc.loadP12()` 产出 KeyManager，握手时自动出示客户端证书链。端点 `https://…:8444/api/mtls`。
+- `Zt`：HMAC 密钥前半段（^0x3C）**兼** PKCS12 密码前半段（^0x37）。
+- `Mc`：PKCS12 保险库。密码后半段（^0x5B）在本类，运行时拼出完整密码打开 `assets/mt_client.p12`。
+- `MtlsKit`：**诱饵**（假密码 `client_secret_26`、假别名，无人调用）。
+- 服务端：`:8444` 独立 app 实例 + `ssl_cert_reqs=CERT_REQUIRED`（信任 `certs/ca.crt` 签发的客户端证书）。注意 `/api/mtls` **不在** 8787/8443 上——想不带证书从老端口绕过是死路（404）。
+
+**调用链路**：
+
+```text
+loadPage → Vd.fetchPage
+  ├─ Mc.buildPassword() = Zt.pxa()(^0x37) + decodePXB()(^0x5B)   # "fatdemo_" + "mt26"
+  ├─ KeyStore("PKCS12").load(assets/mt_client.p12, password)      # 别名 fatdog-client
+  ├─ SSLContext.init(KeyManagers, TrustManagers(Tm.caDer()), …)   # 双向都齐了
+  └─ GET https://…:8444/api/mtls?page=N&ts=T&sign=HMAC-SHA256(Zt.pa()+Vd.kb(), "page=N&ts=T")
+```
+
+**解法 A：静态提取 + Python 复刻（推荐，零依赖设备）**：
+
+1. 解出两组 XOR 数组：`Zt.PA`(^0x3C→`fatdemo_`) + `Vd.KB`(^0x3C→`mtls_key`) = HMAC 密钥 `fatdemo_mtls_key`；`Zt.PXA`(^0x37→`fatdemo_`) + `Mc.PXB`(^0x5B→`mt26`) = p12 密码 `fatdemo_mt26`。
+2. 把 APK 当 zip 解开，拿走 `assets/mt_client.p12`（也可 `keytool -list -v -keystore mt_client.p12 -storetype PKCS12` 查看别名）。
+3. Python 复刻（带客户端证书 + 内置 CA，100 页求和 = `50814`）：
+
+```python
+# solve_l26.py —— pip install cryptography
+import hashlib, hmac, json, ssl, time, zipfile, io, os, tempfile
+import urllib.request
+from cryptography.hazmat.primitives.serialization import (
+    pkcs12, Encoding, PrivateFormat, NoEncryption)
+
+APK = 'FatdogReverse.apk'
+CA = 'certs/ca.crt'          # server.py 仓库里自带的内置 CA
+KEY26 = b'fatdemo_mtls_key'
+
+p12 = zipfile.ZipFile(APK).read('assets/mt_client.p12')   # 密码 fatdemo_mt26
+key, cert, _ = pkcs12.load_key_and_certificates(p12, b'fatdemo_mt26')
+d = tempfile.mkdtemp()
+crt_p, key_p = os.path.join(d, 'c.pem'), os.path.join(d, 'k.pem')
+open(crt_p, 'wb').write(cert.public_bytes(Encoding.PEM))
+open(key_p, 'wb').write(key.private_bytes(Encoding.PEM,
+        PrivateFormat.TraditionalOpenSSL, NoEncryption()))
+
+ctx = ssl.create_default_context(ssl.Purpose.SERVER_AUTH, cafile=CA)
+ctx.load_cert_chain(crt_p, key_p)                          # mTLS 的"我方名帖"
+
+total = 0
+for page in range(1, 101):
+    ts = int(time.time())
+    sign = hmac.new(KEY26, f'page={page}&ts={ts}'.encode(), hashlib.sha256).hexdigest()
+    url = f'https://127.0.0.1:8444/api/mtls?page={page}&ts={ts}&sign={sign}'
+    obj = json.load(urllib.request.urlopen(url, context=ctx, timeout=5))
+    total += sum(obj['nums'])
+print(total)   # 50814
+```
+
+> 真机环境把 `127.0.0.1` 换成 `adb reverse tcp:8444 tcp:8444` 后的地址即可。
+
+**解法 B：Frida 动态拿密码 / 抓包**：
+
+```javascript
+// 在发包瞬间把 p12 密码整个倒出来
+Java.perform(function () {
+    var Mc = Java.use('com.fatdog.reverse.Mc');
+    console.log('p12 pass =', Mc.buildPassword());   // fatdemo_mt26
+});
+```
+
+拿到密码后解开 p12 得到 client.crt/client.key，mitmproxy 即可配置上游 mTLS：
+`mitmdump -p 8080 --set upstream_cert=false --ssl-insecure -s xxx.py`，
+或直接给 mitmproxy 加 `--set connection_strategy=lazy` + 自定义 addon 在 `tls_connect` 里挂上客户端证书上下文（`context.client_certfile = ...`）。抓到明文后按 L21 的路子复刻签名取数。
+
+**为什么不能硬碰**：没有客户端证书，TLS ClientHello 后的 CertificateRequest 阶段就谈崩，任何 Hook HTTP 层的手段都没用——这就是"双符合璧"的门槛。
+
+---
+
+## 关卡 27：万法归宗（抓包→复刻全闭环）
+
+**题面**：这一关把双闸门和复合签名合到一起：HTTPS + 证书锁定挡在门外，请求参数 AES 整段加密 + HMAC 签名、响应体再加密。这一关想教你的是——**抓到明文≠采集成功**：就算放倒 pinning 把包抓了，看到的也只是 enc 密文；必须还原整条签名链复刻发包，才能取满 100 页求和。
+
+**考点**：混淆识别、字符串解密、密钥拆段拼装、TLS 双闸门绕过、签名链复刻。
+
+**涉及类**：
+
+- `c27Activity`：关卡页（100 页 × 每页 10 个，分页取数求和）。**全关唯一可读的入口**，调用链从这里进混淆包。
+- `p/Wire`：网络核心。`enc = hex(AES(req_key, "page=N&ts=T"))`、`sign = HMAC-SHA256(hmac_key, enc)`，POST 表单带 page/ts/enc/sign + client/chan/ver/dev 噪声字段；响应 `{"d": hex}` 用 rsp_key 解密成 `page=N|nums=…`。
+- `p/Gate`：TLS 双闸门。TrustManager 信内置 CA（`Tm.caDer()`）+ CertificatePinner 焊死 SPKI（pin 以 ^0x27 数组藏在素材库，无明文 sha256/）。
+- `p/Cpt`：加密原语（AES-ECB/PKCS5Padding + HmacSHA256），算法名以 ^0x31 数组藏着。
+- `p/Mk` / `p/Tail`：三把密钥各拆两半跨类拼装（全部 ^0x3C）：`fatdemo_`（Mk）+ `aeskey27` / `fin_hmac` / `rspkey27`（Tail）；路径 `/api/l27` 是 ^0x25 数组。
+- **R8 混淆**：p 包不在 r8.pro 的 keep 名单里，jadx 里全是 a/b/c 短名——先按角色认类（谁调 Cipher 谁是原语、谁建 OkHttpClient 谁是 TLS 客户端）。
+- 诱饵双份：包内 `p/Gh`（假密钥假 pin，跟着一起被混淆）+ 根包 `EndKit`（假密钥 `fatdemo_end_fake_ky`、假端点 `/api/end`）。
+- 服务端：`POST https://…:8443/api/l27`，验 ts → 验 HMAC → AES 解 enc 核对 page/ts → 返回 AES 加密的 body。
+
+**调用链路**：
+
+```text
+loadPage → p.Wire.fetchPage
+  ├─ p.Gate.get()
+  │    ├─ TrustManager(Tm.caDer())            # 第一道闸
+  │    └─ CertificatePinner(host, Mk.pin())   # 第二道闸（pin 无明文）
+  ├─ Cpt.aesEncode("page=N&ts=T", Mk.pre()+Tail.T_REQ)    # "fatdemo_aeskey27"
+  ├─ Cpt.hmacSign(enc, Mk.pre()+Tail.T_HMAC)              # "fatdemo_fin_hmac"
+  └─ POST https://…:8443/api/l27 (page/ts/enc/sign/…)
+       ← {"d": hex} → Cpt.aesDecode(d, Mk.pre()+Tail.T_RSP) # "fatdemo_rspkey27"
+```
+
+**解法 A：静态还原 + Python 复刻（推荐）**：
+
+1. jadx 打开 APK，从可读的 `c27Activity` 找到对混淆包的调用，交叉引用认出 Wire/Gate/Cpt/Mk/Tail 五个角色。
+2. 解出三组 XOR 数组并拼装密钥：`Mk.S_PRE`^0x3C + `Tail.T_REQ`^0x3C = `fatdemo_aeskey27`；同法得 `fatdemo_fin_hmac`、`fatdemo_rspkey27`；路径 `Mk.S_PATH`^0x25 = `/api/l27`。
+3. Python 复刻（带内置 CA，POST 表单，100 页求和 = **50623**）：
+
+```python
+# solve_l27.py —— pip install pycryptodome
+import hashlib, hmac, json, ssl, time, urllib.request, urllib.parse
+from Crypto.Cipher import AES
+from Crypto.Util.Padding import pad, unpad
+
+KEY_AES_REQ = b'fatdemo_aeskey27'   # Mk.pre() + Tail.T_REQ
+KEY_HMAC    = b'fatdemo_fin_hmac'   # Mk.pre() + Tail.T_HMAC
+KEY_AES_RSP = b'fatdemo_rspkey27'   # Mk.pre() + Tail.T_RSP
+
+ctx = ssl.create_default_context(cafile='certs/ca.crt')
+ctx.check_hostname = False          # 只校验信任链即可
+
+total = 0
+for page in range(1, 101):
+    ts   = int(time.time())
+    enc  = AES.new(KEY_AES_REQ, AES.MODE_ECB).encrypt(
+               pad(f'page={page}&ts={ts}'.encode(), 16)).hex()
+    sign = hmac.new(KEY_HMAC, enc.encode(), hashlib.sha256).hexdigest()
+    data = urllib.parse.urlencode({'page': page, 'ts': ts, 'enc': enc,
+                                   'sign': sign, 'client': 'android-fatdemo',
+                                   'chan': 'final', 'ver': '2.7', 'dev': '0'*16}).encode()
+    req = urllib.request.Request('https://127.0.0.1:8443/api/l27', data=data,
+                                 headers={'Content-Type': 'application/x-www-form-urlencoded'})
+    obj = json.load(urllib.request.urlopen(req, context=ctx, timeout=5))
+    clear = unpad(AES.new(KEY_AES_RSP, AES.MODE_ECB)
+                  .decrypt(bytes.fromhex(obj['d'])), 16).decode()      # page=N|nums=a,b,...
+    total += sum(int(x) for x in clear.split('|')[1].split('=')[1].split(','))
+print(total)   # 50623
+```
+
+> 真机环境把 `127.0.0.1` 换成 `adb reverse tcp:8443 tcp:8443` 后的地址即可。
+
+**解法 B：Frida 放倒双闸门抓包（体会"抓到明文≠采集成功"）**：
+
+```javascript
+Java.perform(function () {
+    // 1) TrustManager 那道闸：换成全信任（或 objection android sslpinning disable 一把梭）
+    // 2) Pinner 那道闸：OkHttp 的 check$okhttp 直接置空
+    var CP = Java.use('okhttp3.CertificatePinner');
+    CP.check.overload('java.lang.String', 'java.util.List').implementation = function (h, p) {
+        console.log('[pinner bypass]', h);
+        return;   // 不抛 CertificateException 即放行
+    };
+});
+```
+
+放倒两道闸后 mitmproxy 能抓到请求——但表单里只有 enc 密文。此时两条路：
+要么继续 Hook 解密后的返回（Hook 混淆后的 aesDecode 观察明文 `page=N|nums=…`，一页页攒数据）；
+要么回到静态路线解出三把密钥，用脚本一次取满。后者才是"复刻"的完整形态。
+
+**为什么叫万法归宗**：这关串起了第一季到第二季的全套技能——搜入口 → 认混淆 → 解 XOR → 绕 pinning → 复刻签名链。四步少一步都拿不到 50623。
+
+
+
 | 15 | `FLAG_18_L15{thousand_number_sum}`（答案=加和 `49580`） |
 | 16 | `FLAG_18_L16{rc4_stream_encrypted}`（答案=加和 `24074`） |
 | 17 | `FLAG_18_L17{sm4_sm3_form}`（答案=加和 `50636`） |
@@ -1377,5 +1551,7 @@ frida -U -n com.fatdog.reverse -l hook_l10.js
 | 23 | `FLAG_18_L23{webview_ssl_error}`（在 H5 页面 #flag 里直接可见） |
 | 24 | `FLAG_18_L24{anti_hook_pin_swap}`（答案=加和 `50225`） |
 | 25 | `FLAG_18_L25{native_jni_verify}`（答案=加和 `52674`） |
+| 26 | `FLAG_18_L26{mutual_tls_client_cert}`（加和 `50814`） |
+| 27 | `FLAG_18_L27{capture_then_replicate}`（答案=加和 `50623`） |
 
 > 关卡 9 的 else 分支里那个 `FLAG_18_L9{single_gate_not_enough}` 是诱饵，不是有效 flag。

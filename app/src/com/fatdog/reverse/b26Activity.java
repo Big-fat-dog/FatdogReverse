@@ -1,6 +1,5 @@
 package com.fatdog.reverse;
 
-
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.os.Bundle;
@@ -15,14 +14,13 @@ import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
 
-import org.json.JSONObject;
-
-import java.io.InputStream;
 import java.security.MessageDigest;
 
-// 网络关卡 21（对应教程 20/HTTPS 自定义 TrustManager）：HTTPS 自定义 TrustManager——数据只在本地服务端，分页加载。
-public class w1Activity extends Activity {
-    static final String SUM_HASH = "248566a8181606d4028be333b5230d694f91702b772bb0323ce4414e5c516bf2";
+// 网络关卡 26（对应教程 21/双向 TLS）：服务端在握手层强制验证客户端证书（mTLS），
+// App 内置 PKCS12（客户端证书+私钥，密码拆在 Mc/Zt 的异或数组里）。
+// 抓包工具不带客户端证书连握手都过不去；先逆向出证书与密码，再复刻取数。100 页 × 每页 10 个求和。
+public class b26Activity extends Activity {
+    static final String SUM_HASH = "d87f67a1cd0b971fe52271f32fdc46b4219d79e8925e6f4d5c80bd1ee28cacf3";
     static final int PAGES = 100;
     static final int PER_PAGE = 10;
 
@@ -32,12 +30,11 @@ public class w1Activity extends Activity {
     private int currentPage = 1;
     private int loadedMax = 0;
     private boolean loading = false;
-    private String base;
+    private final String base = Vd.BASE;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        base = baseUrl();
 
         LinearLayout box = new LinearLayout(this);
         box.setOrientation(LinearLayout.VERTICAL);
@@ -45,7 +42,7 @@ public class w1Activity extends Activity {
         box.setPadding(Ui.dp(16), Ui.dp(14), Ui.dp(16), Ui.dp(12));
 
         TextView tv = new TextView(this);
-        tv.setText("服务端已升级 HTTPS，App 只信一张内置的证书。\n抓包会握手失败，先 Hook 掉信任校验再抓包复刻取数。100 页 × 每页 10 个，分页取回求和。");
+        tv.setText("这一关是双向 TLS：不光你要验服务端，服务端也要验你。\nApp 出示内置的客户端证书才握得上手——抓包工具没这证书？直接被拒之门外。100 页 × 每页 10 个，分页取回求和。");
         tv.setGravity(Gravity.CENTER);
         box.addView(tv, Ui.wrap(4));
 
@@ -118,7 +115,7 @@ public class w1Activity extends Activity {
 
         box.addView(navRow, Ui.fullWidth(14));
 
-        // 跳转到指定页（L15 保留，其它关也带）
+        // 跳转到指定页
         LinearLayout jumpRow = new LinearLayout(this);
         jumpRow.setOrientation(LinearLayout.HORIZONTAL);
         jumpRow.setGravity(Gravity.CENTER_VERTICAL);
@@ -138,9 +135,9 @@ public class w1Activity extends Activity {
                 try {
                     int p = Integer.parseInt(s);
                     if (p >= 1 && p <= PAGES) loadPage(p);
-                    else Toast.makeText(w1Activity.this, "页码超出范围 1-" + PAGES, Toast.LENGTH_SHORT).show();
+                    else Toast.makeText(b26Activity.this, "页码超出范围 1-" + PAGES, Toast.LENGTH_SHORT).show();
                 } catch (Exception e) {
-                    Toast.makeText(w1Activity.this, "请输入页码", Toast.LENGTH_SHORT).show();
+                    Toast.makeText(b26Activity.this, "请输入页码", Toast.LENGTH_SHORT).show();
                 }
             }
         });
@@ -162,16 +159,16 @@ public class w1Activity extends Activity {
         hint.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                new AlertDialog.Builder(w1Activity.this)
+                new AlertDialog.Builder(b26Activity.this)
                         .setTitle("提示")
-                        .setMessage("走 HTTPS :8443 的 /api/tls（主机由 NetHost 自动选：模拟器 10.0.2.2 / 真机 127.0.0.1），HMAC 密钥前段 Km、后段 Tm。抓包需 Hook checkServerTrusted，或静态找 key 带 CA 复刻。")
+                        .setMessage("走 HTTPS :8444 的 /api/mtls（主机由 NetHost 自动选）。服务端只信由内置 CA 签发的客户端证书：APK 里就带着 mt_client.p12，但打开它的密码拆成两半藏在两个类里。解开 p12 后，用 Python 带上 client 证书+CA 复刻请求即可；mitmproxy 抓包也可以配 --set mTLS 相关选项出示抠出来的证书。")
                         .setPositiveButton("好的", null)
                         .show();
             }
         });
         box.addView(hint, Ui.wrap(10));
 
-        box.addView(Ui.banner(this, R.drawable.level_21, 150));
+        box.addView(Ui.banner(this, R.drawable.level_26, 150));
 
         setContentView(box);
         ThemeKit.apply(this);
@@ -181,10 +178,10 @@ public class w1Activity extends Activity {
             public void onClick(View v) {
                 String ans = ansIn.getText().toString().trim();
                 if (sha256Hex(ans).equals(SUM_HASH)) {
-                    Celebration.show(w1Activity.this, "FLAG_18_L21{tls_custom_trust}");
-                    PassLog.mark(w1Activity.this, "L21");
+                    Celebration.show(b26Activity.this, "FLAG_18_L26{mutual_tls_client_cert}");
+                    PassLog.mark(b26Activity.this, "L26");
                 } else {
-                    Toast.makeText(w1Activity.this,
+                    Toast.makeText(b26Activity.this,
                             "加和不对，再取数算一遍。", Toast.LENGTH_SHORT).show();
                 }
             }
@@ -197,7 +194,7 @@ public class w1Activity extends Activity {
         if (loading) return;
         loading = true;
         status.setText("正在请求第 " + page + " 页…");
-        Tm.fetchPage(base, page, new Tm.Cb() {
+        Vd.fetchPage(this, base, page, new Vd.Cb() {
             @Override
             public void onPage(final int got, final int[] nums) {
                 runOnUiThread(new Runnable() {
@@ -265,23 +262,6 @@ public class w1Activity extends Activity {
             });
             pageBar.addView(chip, new LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
-        }
-    }
-
-    private String readAssets(String name) throws Exception {
-        InputStream is = getAssets().open(name);
-        byte[] buf = new byte[4096];
-        int n = is.read(buf);
-        is.close();
-        return new String(buf, 0, n, "UTF-8");
-    }
-
-    private String baseUrl() {
-        try {
-            JSONObject cfg = new JSONObject(readAssets("config.json"));
-            return NetHost.resolve(cfg.getJSONObject("server").getString("api_base_url"), true);
-        } catch (Exception e) {
-            return Tm.BASE;
         }
     }
 

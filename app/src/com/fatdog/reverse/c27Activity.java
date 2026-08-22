@@ -1,6 +1,5 @@
 package com.fatdog.reverse;
 
-
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.os.Bundle;
@@ -15,14 +14,17 @@ import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import com.fatdog.reverse.p.Wire;
+
 import org.json.JSONObject;
 
 import java.io.InputStream;
 import java.security.MessageDigest;
 
-// 网络关卡 21（对应教程 20/HTTPS 自定义 TrustManager）：HTTPS 自定义 TrustManager——数据只在本地服务端，分页加载。
-public class w1Activity extends Activity {
-    static final String SUM_HASH = "248566a8181606d4028be333b5230d694f91702b772bb0323ce4414e5c516bf2";
+// 网络关卡 27：抓包→复刻全闭环——HTTPS 双闸门 + 复合签名（AES 参数 + HMAC，响应加密）。
+// 数据只在本地服务端；加密核心在 com.fatdog.reverse.p 包（被 R8 混淆），顺藤摸瓜从这里进。
+public class c27Activity extends Activity {
+    static final String SUM_HASH = "762fbee9bebf4fabcf3a13fbfa4b89f65caa291846aa7967c4f516a32f933bb2";
     static final int PAGES = 100;
     static final int PER_PAGE = 10;
 
@@ -30,7 +32,6 @@ public class w1Activity extends Activity {
     private final TextView[] cells = new TextView[10];
     private LinearLayout pageBar;
     private int currentPage = 1;
-    private int loadedMax = 0;
     private boolean loading = false;
     private String base;
 
@@ -45,7 +46,7 @@ public class w1Activity extends Activity {
         box.setPadding(Ui.dp(16), Ui.dp(14), Ui.dp(16), Ui.dp(12));
 
         TextView tv = new TextView(this);
-        tv.setText("服务端已升级 HTTPS，App 只信一张内置的证书。\n抓包会握手失败，先 Hook 掉信任校验再抓包复刻取数。100 页 × 每页 10 个，分页取回求和。");
+        tv.setText("万法归宗：HTTPS 双闸门之外，请求参数整体加密再签名，响应还是密文。\n抓到明文≠采集成功——复刻整条签名链，取回 100 页求和。");
         tv.setGravity(Gravity.CENTER);
         box.addView(tv, Ui.wrap(4));
 
@@ -118,7 +119,7 @@ public class w1Activity extends Activity {
 
         box.addView(navRow, Ui.fullWidth(14));
 
-        // 跳转到指定页（L15 保留，其它关也带）
+        // 跳转到指定页
         LinearLayout jumpRow = new LinearLayout(this);
         jumpRow.setOrientation(LinearLayout.HORIZONTAL);
         jumpRow.setGravity(Gravity.CENTER_VERTICAL);
@@ -138,9 +139,9 @@ public class w1Activity extends Activity {
                 try {
                     int p = Integer.parseInt(s);
                     if (p >= 1 && p <= PAGES) loadPage(p);
-                    else Toast.makeText(w1Activity.this, "页码超出范围 1-" + PAGES, Toast.LENGTH_SHORT).show();
+                    else Toast.makeText(c27Activity.this, "页码超出范围 1-" + PAGES, Toast.LENGTH_SHORT).show();
                 } catch (Exception e) {
-                    Toast.makeText(w1Activity.this, "请输入页码", Toast.LENGTH_SHORT).show();
+                    Toast.makeText(c27Activity.this, "请输入页码", Toast.LENGTH_SHORT).show();
                 }
             }
         });
@@ -162,16 +163,16 @@ public class w1Activity extends Activity {
         hint.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                new AlertDialog.Builder(w1Activity.this)
+                new AlertDialog.Builder(c27Activity.this)
                         .setTitle("提示")
-                        .setMessage("走 HTTPS :8443 的 /api/tls（主机由 NetHost 自动选：模拟器 10.0.2.2 / 真机 127.0.0.1），HMAC 密钥前段 Km、后段 Tm。抓包需 Hook checkServerTrusted，或静态找 key 带 CA 复刻。")
+                        .setMessage("走 HTTPS :8443 的 POST /api/l27（主机由 NetHost 自动选）。enc=AES(page=N&ts=T)、sign=HMAC(enc)，响应 {\"d\"} 再过一层 AES。抓包先放倒 TrustManager + CertificatePinner 两道闸；静态路线从本类的调用链摸进被混淆的包，密钥各拆两半藏在两个类里。")
                         .setPositiveButton("好的", null)
                         .show();
             }
         });
         box.addView(hint, Ui.wrap(10));
 
-        box.addView(Ui.banner(this, R.drawable.level_21, 150));
+        box.addView(Ui.banner(this, R.drawable.level_27, 150));
 
         setContentView(box);
         ThemeKit.apply(this);
@@ -181,10 +182,10 @@ public class w1Activity extends Activity {
             public void onClick(View v) {
                 String ans = ansIn.getText().toString().trim();
                 if (sha256Hex(ans).equals(SUM_HASH)) {
-                    Celebration.show(w1Activity.this, "FLAG_18_L21{tls_custom_trust}");
-                    PassLog.mark(w1Activity.this, "L21");
+                    Celebration.show(c27Activity.this, "FLAG_18_L27{capture_then_replicate}");
+                    PassLog.mark(c27Activity.this, "L27");
                 } else {
-                    Toast.makeText(w1Activity.this,
+                    Toast.makeText(c27Activity.this,
                             "加和不对，再取数算一遍。", Toast.LENGTH_SHORT).show();
                 }
             }
@@ -197,7 +198,7 @@ public class w1Activity extends Activity {
         if (loading) return;
         loading = true;
         status.setText("正在请求第 " + page + " 页…");
-        Tm.fetchPage(base, page, new Tm.Cb() {
+        Wire.fetchPage(base, page, new Wire.Cb() {
             @Override
             public void onPage(final int got, final int[] nums) {
                 runOnUiThread(new Runnable() {
@@ -205,7 +206,6 @@ public class w1Activity extends Activity {
                     public void run() {
                         loading = false;
                         currentPage = got;
-                        if (got > loadedMax) loadedMax = got;
                         render(nums);
                         renderNav();
                         status.setText("已加载第 " + got + " / " + PAGES + " 页，本页 " + nums.length + " 个数字");
@@ -281,7 +281,7 @@ public class w1Activity extends Activity {
             JSONObject cfg = new JSONObject(readAssets("config.json"));
             return NetHost.resolve(cfg.getJSONObject("server").getString("api_base_url"), true);
         } catch (Exception e) {
-            return Tm.BASE;
+            return NetHost.httpsBase();
         }
     }
 

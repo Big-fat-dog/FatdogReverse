@@ -7,11 +7,12 @@
 - **关卡 10-14** —— 教程 20《Frida Hook 实战（Java 层）》：对参数做加/解密/哈希后验证结果的实战，难度递增；
 - **关卡 15-19** —— 网络取数系列（数据只在本地服务端）：HMAC / RC4 / 国密 / RSA+DES / AES+HMAC（L19 加密类经 R8 混淆）；
 - **关卡 20** —— 教程 19 的进阶：**万恶广告劫**（改 smali 关弹窗）——进去只有一个"点此领取 1 亿大礼包"按钮，点了就弹连环牛皮癣广告：× 前 5 秒不显示、显示了也瞬移、还弹嘲讽 Toast，正常操作永远关不掉；正解是 apktool 把广告开关关掉。
-- **关卡 21-25** —— 第二季 SSL 抓包系列（HTTPS + 自定义 TrustManager / OkHttp CertificatePinner / WebView 自签证书白屏 / 反 Hook 检测 + 内存换 pin / JNI native 校验）。
+- **关卡 21-26** —— 第二季 SSL 抓包系列（HTTPS + 自定义 TrustManager / OkHttp CertificatePinner / WebView 自签证书白屏 / 反 Hook 检测 + 内存换 pin / JNI native 校验 / 双向 TLS mTLS 客户端证书）。
+- **关卡 27** —— **万法归宗**：HTTPS 双闸门（TrustManager+CertificatePinner）+ 复合签名（AES 参数加密 + HMAC，响应加密，加密包 R8 混淆），抓到明文≠采集成功，复刻整条签名链才算通关。
 
 > 所有网络关（15-22、24-25）采用**分页加载**：顶部输入/翻页条（页码窗口、上一页/下一页、跳转到指定页），下方两排数字（10 个/页）。点页码窗口会自动左移 3 格——1 2 3 消失、多出后面 3 个页码，像手掌翻页一样。关卡 23 例外：它加载的是 HTTPS H5 页，没有分页——页面白屏本身就是题面。
 
-APK 结构刻意做得和真实 App 一致：图标（5 种密度）、XML 布局、strings 资源、resources.arsc、单个 classes.dex（**R8 混淆打包**，仅关卡 19 的加密包被改名；无 classes2/classes3）、assets/config.json、双架构 so（关卡 25 的 JNI 校验在此）、META-INF 签名三件套。
+APK 结构刻意做得和真实 App 一致：图标（5 种密度）、XML 布局、strings 资源、resources.arsc、单个 classes.dex（**R8 混淆打包**，关卡 19 的 `o` 包与关卡 27 的 `p` 包被改名；无 classes2/classes3）、assets/config.json、双架构 so（关卡 25 的 JNI 校验在此）、META-INF 签名三件套。
 
 > **关于类名**：关卡 1-11 的类名是"表达功能含义"的名字（如 `VipSalonActivity`），关卡 12 开始**类名刻意变"难读"**（如 `b1Activity`、`k4Activity`、`z9Activity`、`s5Activity`），一个关卡的内容会**分散在多个类**里，还会混入**没人调用的诱饵工具类**（AesKit、Md5Tools、KeyFactory、TokenGen、DigestBox…）。"关卡 N 对应哪些类"必须靠交叉引用自己找，这本身就是逆向的一部分。
 
@@ -46,6 +47,8 @@ APK 结构刻意做得和真实 App 一致：图标（5 种密度）、XML 布�
 | 23 | 白屏迷雾 | WebView 加载 HTTPS H5，自签证书错误被 handler.cancel() 白屏；Hook onReceivedSslError → proceed() 拿 flag | 21 篇：WebView 证书错误处理 |
 | 24 | 换票迷局 | HTTPS + pin 校验带反 Hook 守卫（Hook 校验就异常），正解 Frida 内存换 pin；100 页×10 个求和 | 21 篇：反 Hook 检测 / 内存换值 |
 | 25 | 灵台证真 | HTTPS + JNI native 校验（verifyServer 门禁 + nativeSign 签名都在 libnative.so），Java Hook 无效 | 22 篇预告：native 逆向与 JNI |
+| 26 | 双符合璧 | 双向 TLS（mTLS）：服务端握手层强制验证客户端证书；APK 内置 mt_client.p12，密码拆两半藏在异或数组里 | 21 篇进阶：客户端证书提取、PKCS12、mTLS 复刻 |
+| 27 | 万法归宗 | HTTPS 双闸门 + 复合签名：AES 参数加密 + HMAC 签名 + 响应加密，加密包 R8 混淆；抓包→复刻全闭环 | 21+20 篇合卷：绕 pinning 抓密文 → 解混淆还原签名链 → 100 页取数 |
 
 每关的**解题思路分级提示**见下方折叠块；完整题解（含 Python 复刻代码与 Frida 脚本）在 `SOLUTIONS.md`（建议先自己练）。
 
@@ -103,22 +106,23 @@ Java.perform(function () {
 });
 ```
 
-**网络关卡（15-22、24-25 关统一分页加载 + 23 关 WebView H5 页）**：先启动本地服务端（FastAPI），再分析/复刻签名取数：
+**网络关卡（15-22、24-27 关统一分页加载 + 23 关 WebView H5 页）**：先启动本地服务端（FastAPI），再分析/复刻签名取数：
 
 ```
 # 终端 1：启动模拟服务端（数字只在这里，APK 里没有）
 pip install fastapi uvicorn python-multipart pycryptodome   # 首次需要
-python server.py          # HTTP :8787（15-20） + HTTPS :8443（21-25，自签 CA）
+python server.py          # HTTP :8787（15-20） + HTTPS :8443（21-25，自签 CA） + HTTPS :8444（26，mTLS 强制客户端证书）
 
 # 模拟器：App 自动请求 http://10.0.2.2:8787（NetHost 识别到模拟器，默认即可）
 # 真机：  adb reverse tcp:8787 tcp:8787（地址自动切换，无需改 config.json）
 #        HTTPS 关（21-25）同理：adb reverse tcp:8443 tcp:8443（地址自动切换）
+#        L26 的 mTLS 端口：adb reverse tcp:8444 tcp:8444
 #        L23 的 H5 页只讲 HTTPS：https://…:8443/h5/v23（HTTP 访问直接 403）
 ```
 
 地址自动切换：`config.json` 的 `api_base_url` 默认 `"AUTO"`——模拟器自动走 `10.0.2.2`、真机自动走 `127.0.0.1`（识别不出模拟器特征时按真机处理）；也可手动填 `http://局域网IP:8787` 覆盖，手机与电脑同一网络即可免 USB。
 
-各网络关要点：L15 HMAC 明文参数；L16 请求整段加密+MD5 签名、响应加密（RC4）；L17 表单 enc/sig/dog（国密 SM4+SM3，纯 Python 实现）；L18 RSA 加密请求参数 + DES 解密响应（密钥一半服务端下发）；L19 AES 加密参数 + HMAC 签名、响应加密（加密包 R8 混淆 + 字符串加密）；L21/L22 走 HTTPS + 自签 CA（TrustManager / CertificatePinner 双闸门）；L23 走 WebView 加载 https://…:8443/h5/v23（主机自动选择；仅 HTTPS，HTTP 直接 403）：自签证书不被信任 → App 在 onReceivedSslError 里 handler.cancel() → 白屏，Hook 放行后页面出现、自动通关。L24 走 HTTPS + 内置 CA + HostnameVerifier pin 校验（pin 无明文，XOR 数组藏在 Z24Core），校验链带反 Hook 守卫——Hook 校验函数直接放行会触发"完整性校验失败"，正解是 Hook Z24Core.realPin 内存换 pin（换票）。L25 走 HTTPS + JNI：发请求前调 Nx.verifyServer（native 主机白名单），签名 Nx.nativeSign 在 libnative.so 里算 HMAC-SHA256——密钥不在 Java（strings libnative.so 可见 fatdemo_jni_2026），Hook Mac/MessageDigest 无效，正路是静态逆向 so 复刻或 Frida 原生层调用。
+各网络关要点：L15 HMAC 明文参数；L16 请求整段加密+MD5 签名、响应加密（RC4）；L17 表单 enc/sig/dog（国密 SM4+SM3，纯 Python 实现）；L18 RSA 加密请求参数 + DES 解密响应（密钥一半服务端下发）；L19 AES 加密参数 + HMAC 签名、响应加密（加密包 R8 混淆 + 字符串加密）；L21/L22 走 HTTPS + 自签 CA（TrustManager / CertificatePinner 双闸门）；L23 走 WebView 加载 https://…:8443/h5/v23（主机自动选择；仅 HTTPS，HTTP 直接 403）：自签证书不被信任 → App 在 onReceivedSslError 里 handler.cancel() → 白屏，Hook 放行后页面出现、自动通关。L24 走 HTTPS + 内置 CA + HostnameVerifier pin 校验（pin 无明文，XOR 数组藏在 Z24Core），校验链带反 Hook 守卫——Hook 校验函数直接放行会触发"完整性校验失败"，正解是 Hook Z24Core.realPin 内存换 pin（换票）。L25 走 HTTPS + JNI：发请求前调 Nx.verifyServer（native 主机白名单），签名 Nx.nativeSign 在 libnative.so 里算 HMAC-SHA256——密钥不在 Java（strings libnative.so 可见 fatdemo_jni_2026），Hook Mac/MessageDigest 无效，正路是静态逆向 so 复刻或 Frida 原生层调用。**L26 走双向 TLS（mTLS）**：`https://…:8444/api/mtls`，服务端握手层强制验证客户端证书（只信内置 CA 签发的）；App 从 `assets/mt_client.p12` 加载客户端证书+私钥（密码 `fatdemo_mt26` 拆在 Zt/Mc 的异或数组里），没这张证书连握手都过不去——先抠证书解密码，再带 client 证书复刻取数（加和 50814）。**L27 万法归宗**走 HTTPS :8443 的 `POST /api/l27` + 复合签名：`enc=AES(page=N&ts=T)`、`sign=HMAC(enc)`、响应 `{"d"}` 再过一层 AES；加密核心在 `com.fatdog.reverse.p` 包（构建时被 R8 改名 + 算法名/路径/密钥全是异或串），三把密钥各拆两半跨类拼装。抓包得先放倒 TrustManager + CertificatePinner 两道闸——而且抓到的也只是 enc 密文：从 c27Activity 的调用链摸进混淆包还原签名链，才能复刻取数（加和 50623）。
 
 ## 环境准备
 
@@ -138,7 +142,7 @@ python server.py          # HTTP :8787（15-20） + HTTPS :8443（21-25，自签
    <SDK 根目录>\cmdline-tools\latest\bin\sdkmanager.bat "ndk;26.1.10909125"
    ```
    不装 NDK 也能构建出 APK，但会缺 `lib/*.so`——关卡 25 的 native 校验（verifyServer/nativeSign）就在里面，缺了进不去。
-4. **关卡 7-9 需要 apktool**；**关卡 10-16 需要 Frida**（`pip install frida-tools` + 设备端 frida-server，版本必须一致）；**网络关 15-22、24-25 需要 Python 标准库（15/16）+ pycryptodome（17/18/19），关卡 23 无需额外依赖（curl -k 或 Frida）；真机玩 15-25 网络关需 `adb reverse`（或用局域网 IP 覆盖）**；服务端需要 `pip install fastapi uvicorn python-multipart pycryptodome`。
+4. **关卡 7-9 需要 apktool**；**关卡 10-16 需要 Frida**（`pip install frida-tools` + 设备端 frida-server，版本必须一致）；**网络关 15-22、24-26 需要 Python 标准库（15/16）+ pycryptodome（17/18/19）+ cryptography（26 解 p12），关卡 23 无需额外依赖（curl -k 或 Frida）；真机玩 15-26 网络关需 `adb reverse`（或用局域网 IP 覆盖）**；服务端需要 `pip install fastapi uvicorn python-multipart pycryptodome`。
 
 ## 构建与安装
 
@@ -201,6 +205,10 @@ FatdogReverse/
         ├── y3Activity.java + Hq.java + WvKit.java        # 关卡 23（WebView/自签证书白屏；WvKit 诱饵）
         ├── z24Activity.java + Aw.java + Tk.java + Z24Core.java   # 关卡 24（HTTPS/pin + 反 Hook 守卫；Gp 诱饵）
         ├── a25Activity.java + Nx.java + By.java + libnative.so   # 关卡 25（JNI native 校验；Rj 诱饵）
+        ├── b26Activity.java + Vd.java + Mc.java + Zt.java        # 关卡 26（mTLS/双向 TLS + PKCS12；MtlsKit 诱饵）
+        ├── c27Activity.java                                      # 关卡 27（万法归宗；入口保持可读，调用链通向 p 包）
+        ├── p/Wire.java + Gate.java + Cpt.java + Mk.java + Tail.java   # 关卡 27 加密/网络核心（R8 改名；Gh 是包内诱饵）
+        ├── EndKit.java                                           # 关卡 27 根包诱饵（假密钥假端点）
         ├── ProfileActivity.java    # 个人主页：修仙境界（顶部传送带分类：基本情况/太古禁地/神念自察）
         ├── PassLog.java            # 通关进度记录（各关触发 flag 时自动打点）
         └── RewardActivity.java     # 关卡 6（大厅里没有入口）
@@ -364,8 +372,30 @@ license 链路：`base64 → AES解密(密钥A在XBox) → AES解密(密钥B在M
 
 </details>
 
+<details>
+<summary>关卡 26 · 重度提示</summary>
+
+1. 服务端 `python server.py` 后走 **HTTPS :8444** 的 `GET /api/mtls`（主机由 NetHost 自动选；8787/8443 上没有这个路由，绕不过去）。HMAC 密钥两段：`Zt.PA`（^0x3C → `fatdemo_`）+ `Vd.KB`（^0x3C → `mtls_key`），拼出 `fatdemo_mtls_key`。
+2. 握手要**出示客户端证书**：APK 解开拿走 `assets/mt_client.p12`；打开密码拆在两个类——`Zt.PXA`（^0x37 → `fatdemo_`）+ `Mc.PXB`（^0x5B → `mt26`），拼出 `fatdemo_mt26`。注意 `MtlsKit.FAKE_PASS` 是诱饵，别拿来开 p12。
+3. Python 复刻：用 cryptography 从 p12 里导出 client 证书+私钥，`ssl.create_default_context(cafile='certs/ca.crt')` + `load_cert_chain(crt, key)`，100 页求和 = **50814**。完整脚本见 SOLUTIONS.md 关卡 26。
+4. 动态：Frida 调 `Mc.buildPassword()` 直接倒出 p12 密码，再用 mitmproxy 挂上客户端证书抓包。
+5. 服务端证书由 `gen_certs.py` 重新生成时，App 内置的 CA/pin 会一起重烘焙（Tm/Pn/Z24Core 同步更新）。
+
+</details>
+
+<details>
+<summary>关卡 27 · 重度提示</summary>
+
+1. 入口 `c27Activity` 是全关唯一可读的类——跟进它的调用链会进到 `com.fatdog.reverse.p` 包，jadx 里这包已被 R8 改成 a/b/c 之类的短名：先靠交叉引用认出"加密原语/素材库/TLS 客户端/网络核心"四个角色。
+2. 三把密钥各拆两半跨类拼装（全部 ^0x3C）：前缀 `fatdemo_` 在素材库 A，后缀 `aeskey27` / `fin_hmac` / `rspkey27` 在素材库 B；路径 `/api/l27` 是 ^0x25 数组，pin 是 ^0x27 数组（无明文 sha256/）。
+3. 请求是 POST 表单：`enc=hex(AES-ECB(page=N&ts=T))`、`sign=HMAC-SHA256(enc)`，另有 client/chan/ver/dev 噪声字段；响应 `{"d": hex}` 用第三把 AES 密钥解密得 `page=N|nums=…`。
+4. 抓包路线：Frida 同时放倒 TrustManager + CertificatePinner（或 objection 全家桶）——但 mitmproxy 里看到的仍是 enc 密文，想懂明文还得解密钥。
+5. 静态正解：还原三把密钥后用 Python 带 `certs/ca.crt` 直接复刻 100 页取数求和 = **50623**。注意包内的 Gh 和根包的 EndKit 都是诱饵（假密钥假 pin），别拿来算。
+
+</details>
+
 ## 路线图
 
-- 第一季（当前）：教程 18 静态分析 6 关 + 教程 19 smali 4 关（7/8/9/20）+ 教程 20 Frida 5 关（10-14）+ 网络取数 5 关（15-19）
-- 第二季：SSL / 抓包对抗系列 21-25（已全部落地，规划见 `PLANNED.md`）
+- 第一季：教程 18 静态分析 6 关 + 教程 19 smali 4 关（7/8/9/20）+ 教程 20 Frida 5 关（10-14）+ 网络取数 5 关（15-19）
+- 第二季：SSL / 抓包对抗系列 21-27（已全部落地，规划见 `PLANNED.md`）
 - 第三季（规划）：教程 22 native 层逆向

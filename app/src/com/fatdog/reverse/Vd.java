@@ -9,26 +9,24 @@ import java.security.cert.CertificateFactory;
 import java.security.cert.X509Certificate;
 import java.util.concurrent.TimeUnit;
 
-import javax.net.ssl.HostnameVerifier;
+import javax.net.ssl.KeyManagerFactory;
 import javax.net.ssl.SSLContext;
-import javax.net.ssl.SSLSession;
 import javax.net.ssl.TrustManagerFactory;
 import javax.net.ssl.X509TrustManager;
 
 import okhttp3.Call;
 import okhttp3.Callback;
-import okhttp3.CertificatePinner;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.Response;
 import okhttp3.ResponseBody;
 
-// 关卡 22 的 TLS 客户端：自定义 TrustManager（信内置 CA，复用 Tm.caDer()）之上，
-// 再叠一层 OkHttp CertificatePinner，把服务器证书的 SPKI 焊死（pin 是明文字符串 sha256/...）。
-// 于是 mitmproxy 换证书后：TrustManager 那关过不去；就算 Hook 掉它，CertificatePinner 也过不去——双闸门。
-// 请求走 HTTPS:8443 的 /api/pin，带 HMAC 签名（密钥前半段 Kp，后半段 "pin_key" 在这里）。
-public class Pn {
-    static final String BASE = NetHost.httpsBase();   // 主机自动选择：模拟器 10.0.2.2 / 真机 127.0.0.1
+// 关卡 26 的 TLS 客户端：双向认证（mTLS）。
+// 信任侧沿用内置 CA（Tm.caDer()）；出示侧由 Mc 打开 assets/mt_client.p12 产出 KeyManager，
+// 握手时把客户端证书链交给服务端验证 —— 少一张证书，TLS 都握不上手，抓包工具直接被拒。
+// 端点 https://…:8444/api/mtls（NetHost.mtlsBase），HMAC 密钥 = Zt.pa() + 本类 kb()。
+public class Vd {
+    static final String BASE = NetHost.mtlsBase();
 
     public interface Cb {
         void onPage(int page, int[] nums);
@@ -36,73 +34,61 @@ public class Pn {
         void onError(String msg);
     }
 
-    // 服务器证书的 SPKI pin（OkHttp 的 CertificatePinner 默认格式）
-    static final String PIN = "sha256/B3Mk7KMT2PA+BI0tXRk8t8lNdgMYIo70qvZ59BzGpR4=";
+    // HMAC 密钥后半段 "mtls_key"（^0x3C）
+    static final int[] KB = {81, 72, 80, 79, 99, 87, 89, 69};
 
-    // HMAC 密钥后半段 "pin_key"（^0x3C）
-    static final int[] KB = {76, 85, 82, 99, 87, 89, 69};
-
-    private static OkHttpClient client;
+    static String kb() {
+        byte[] out = new byte[KB.length];
+        for (int i = 0; i < KB.length; i++) {
+            out[i] = (byte) (KB[i] ^ 0x3C);
+        }
+        return new String(out);
+    }
 
     static String buildKey() {
-        return Kp.partA() + new String(dec(KB, 0x3C));
+        return Zt.pa() + kb();
     }
 
     static String sign(int page, long ts) {
-        return Kp.hmacSha256Hex(buildKey(), "page=" + page + "&ts=" + ts);
+        return Zt.hmacSha256Hex(buildKey(), "page=" + page + "&ts=" + ts);
     }
 
-    private static byte[] dec(int[] in, int x) {
-        byte[] out = new byte[in.length];
-        for (int i = 0; i < in.length; i++) {
-            out[i] = (byte) (in[i] ^ x);
-        }
-        return out;
-    }
+    private static OkHttpClient client;
 
-    private static synchronized OkHttpClient pinnedClient() throws Exception {
+    private static synchronized OkHttpClient mtlsClient(android.content.Context ctx) throws Exception {
         if (client != null) {
             return client;
         }
+
+        // 信任侧：只信内置自签 CA
         CertificateFactory cf = CertificateFactory.getInstance("X.509");
         X509Certificate ca = (X509Certificate) cf.generateCertificate(
                 new ByteArrayInputStream(Tm.caDer()));
-        KeyStore ks = KeyStore.getInstance(KeyStore.getDefaultType());
-        ks.load(null, null);
-        ks.setCertificateEntry("fatdemo", ca);
+        KeyStore tks = KeyStore.getInstance(KeyStore.getDefaultType());
+        tks.load(null, null);
+        tks.setCertificateEntry("fatdemo", ca);
         TrustManagerFactory tmf = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm());
-        tmf.init(ks);
+        tmf.init(tks);
+
+        // 出示侧：PKCS12 里的客户端证书+私钥
+        KeyManagerFactory kmf = KeyManagerFactory.getInstance(KeyManagerFactory.getDefaultAlgorithm());
+        kmf.init(Mc.loadP12(ctx.getAssets().open(Mc.P12)), Mc.buildPassword().toCharArray());
+
         SSLContext sc = SSLContext.getInstance("TLS");
-        sc.init(null, tmf.getTrustManagers(), new SecureRandom());
-
-        HostnameVerifier hv = new HostnameVerifier() {
-            @Override
-            public boolean verify(String hostname, SSLSession session) {
-                return hostname != null && (hostname.equals("10.0.2.2")
-                        || hostname.equals("127.0.0.1") || hostname.equals("localhost"));
-            }
-        };
-        CertificatePinner pinner = new CertificatePinner.Builder()
-                .add("10.0.2.2", PIN)
-                .add("127.0.0.1", PIN)
-                .add("localhost", PIN)
-                .build();
-
+        sc.init(kmf.getKeyManagers(), tmf.getTrustManagers(), new SecureRandom());
         client = new OkHttpClient.Builder()
                 .sslSocketFactory(sc.getSocketFactory(), (X509TrustManager) tmf.getTrustManagers()[0])
-                .hostnameVerifier(hv)
-                .certificatePinner(pinner)
                 .connectTimeout(5, TimeUnit.SECONDS)
                 .readTimeout(5, TimeUnit.SECONDS)
                 .build();
         return client;
     }
 
-    static void fetchPage(String base, final int page, final Cb cb) {
+    static void fetchPage(final android.content.Context ctx, String base, final int page, final Cb cb) {
         try {
-            final OkHttpClient c = pinnedClient();
+            final OkHttpClient c = mtlsClient(ctx);
             long ts = System.currentTimeMillis() / 1000;
-            String url = base + "/api/pin?page=" + page + "&ts=" + ts + "&sign=" + sign(page, ts);
+            String url = base + "/api/mtls?page=" + page + "&ts=" + ts + "&sign=" + sign(page, ts);
             Request req = new Request.Builder()
                     .url(url)
                     .header("User-Agent", "Fatdemo/1.0 (Android)")
@@ -135,7 +121,7 @@ public class Pn {
                 }
             });
         } catch (Exception e) {
-            cb.onError(e == null ? "TLS 初始化失败" : e.getMessage());
+            cb.onError(e == null ? "mTLS 初始化失败" : e.getMessage());
         }
     }
 }

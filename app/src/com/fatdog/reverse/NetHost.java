@@ -29,6 +29,11 @@ public class NetHost {
         return "https://" + host() + ":8443";
     }
 
+    // 关卡 26 的 mTLS 端口：服务端在握手层强制验证客户端证书
+    public static String mtlsBase() {
+        return "https://" + host() + ":8444";
+    }
+
     // config.json 的 api_base_url 填 "AUTO"（或空）→ 按环境自动；否则用配置的地址（如局域网 IP 覆盖）。
     public static String resolve(String configured, boolean https) {
         if (configured == null) {

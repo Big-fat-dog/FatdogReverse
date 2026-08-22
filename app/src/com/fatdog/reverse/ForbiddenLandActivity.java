@@ -8,6 +8,7 @@ import android.os.Bundle;
 import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.View;
+import android.view.ViewTreeObserver;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
@@ -20,11 +21,17 @@ public class ForbiddenLandActivity extends Activity {
     private static final String[] LEVEL_IDS = {
             "L1", "L2", "L3", "L4", "L5", "L6", "L7", "L8",
             "L9", "L10", "L11", "L12", "L13", "L14", "L15", "L16",
-            "L17", "L18", "L19", "L20", "L21", "L22", "L23", "L24", "L25"};
+            "L17", "L18", "L19", "L20", "L21", "L22", "L23", "L24", "L25", "L26", "L27"};
     private static final String[] LEVEL_NAMES = {
             "第 1 层", "第 2 层", "第 3 层", "第 4 层", "第 5 层", "第 6 层", "第 7 层", "第 8 层",
             "第 9 层", "第 10 层", "第 11 层", "第 12 层", "第 13 层", "第 14 层", "第 15 层", "第 16 层",
-            "第 17 层", "第 18 层", "第 19 层", "第 20 层 · 万恶广告劫", "第 21 层", "第 22 层", "第 23 层", "第 24 层", "第 25 层"};
+            "第 17 层", "第 18 层", "第 19 层", "第 20 层 · 万恶广告劫", "第 21 层", "第 22 层", "第 23 层",
+            "第 24 层", "第 25 层", "第 26 层 · 双符合璧", "第 27 层 · 万法归宗"};
+
+    private static final int PER_ROW = 4;            // 每行格子数
+    private static final int ROWS_FIRST = 2;         // 种子行数下限
+    private static final int ROWS_BATCH = 2;         // 下滑每次追加行数
+    private static final int ROW_HEIGHT_EST_DP = 88; // 行高保守估算值
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -92,17 +99,46 @@ public class ForbiddenLandActivity extends Activity {
         return col;
     }
 
-    // 可嵌入内容：禁地格子（4 列），无页头
+    // 可嵌入内容：禁地格子（4 列），无页头。
+    // 首屏按屏幕高度直接铺满（不依赖布局回调），下滑到底部附近再继续补格子
     static View buildLandView(final Activity act) {
-        ScrollView scroll = new ScrollView(act);
-        LinearLayout list = new LinearLayout(act);
+        final ScrollView scroll = new ScrollView(act);
+        final LinearLayout list = new LinearLayout(act);
         list.setOrientation(LinearLayout.VERTICAL);
         list.setPadding(dp(act, 14), dp(act, 8), dp(act, 14), dp(act, 20));
-        int perRow = 4;
-        for (int i = 0; i < LEVEL_IDS.length; i += perRow) {
+        scroll.addView(list);
+
+        final int totalRows = (LEVEL_IDS.length + PER_ROW - 1) / PER_ROW;
+        // 行高按保守小值估算（真实约 100dp+），宁多勿少：保证种子行数一定溢出一屏
+        int screenH = act.getResources().getDisplayMetrics().heightPixels;
+        int fillRows = Math.max(ROWS_FIRST, screenH / dp(act, ROW_HEIGHT_EST_DP) + 2);
+
+        final int[] rows = {0};
+        appendRows(act, list, rows, Math.min(fillRows, totalRows));
+
+        // 布局变化（含首次）后自查：万一估算偏少没铺满，继续补到满为止
+        list.addOnLayoutChangeListener(new View.OnLayoutChangeListener() {
+            @Override
+            public void onLayoutChange(View v, int l, int t, int r, int b,
+                                       int ol, int ot, int or2, int ob) {
+                maybeLoadMore(act, list, rows, totalRows, scroll);
+            }
+        });
+        // 下滑时：接近底部（140dp 内）继续追加
+        scroll.getViewTreeObserver().addOnScrollChangedListener(new ViewTreeObserver.OnScrollChangedListener() {
+            @Override
+            public void onScrollChanged() {
+                maybeLoadMore(act, list, rows, totalRows, scroll);
+            }
+        });
+        return scroll;
+    }
+
+    private static void appendRows(Activity act, LinearLayout list, int[] rows, int until) {
+        for (int r = rows[0]; r < until; r++) {
             LinearLayout row = new LinearLayout(act);
             row.setOrientation(LinearLayout.HORIZONTAL);
-            for (int j = i; j < Math.min(i + perRow, LEVEL_IDS.length); j++) {
+            for (int j = r * PER_ROW; j < Math.min((r + 1) * PER_ROW, LEVEL_IDS.length); j++) {
                 row.addView(buildCell(act, j), new LinearLayout.LayoutParams(0,
                         LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
             }
@@ -110,8 +146,18 @@ public class ForbiddenLandActivity extends Activity {
                     LinearLayout.LayoutParams.MATCH_PARENT,
                     LinearLayout.LayoutParams.WRAP_CONTENT));
         }
-        scroll.addView(list);
-        return scroll;
+        if (until > rows[0]) rows[0] = until;
+    }
+
+    // 内容不足一屏、或滚动位置距底部 140dp 内时，再补 ROWS_BATCH 行
+    private static void maybeLoadMore(final Activity act, final LinearLayout list,
+                                      final int[] rows, final int totalRows, final ScrollView scroll) {
+        if (rows[0] >= totalRows || list.getHeight() == 0) return;
+        boolean shortPage = list.getHeight() <= scroll.getHeight();
+        boolean nearBottom = scroll.getScrollY() + scroll.getHeight()
+                >= list.getHeight() - dp(act, 140);
+        if (!shortPage && !nearBottom) return;
+        appendRows(act, list, rows, Math.min(rows[0] + ROWS_BATCH, totalRows));
     }
 
     private static View buildCell(final Activity act, final int idx) {

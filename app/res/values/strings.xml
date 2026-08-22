@@ -34,5 +34,7 @@
     <string name="btn_w23">关卡 23：白屏迷雾</string>
     <string name="btn_g24">关卡 24：换票迷局</string>
     <string name="btn_n25">关卡 25：灵台证真</string>
+    <string name="btn_m26">关卡 26：双符合璧（mTLS）</string>
+    <string name="btn_f27">关卡 27：万法归宗</string>
     <string name="tip_hidden">提示：关卡 6 的入口不在这个页面上，去 AndroidManifest.xml 里找。</string>
 </resources>

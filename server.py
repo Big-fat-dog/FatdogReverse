@@ -1,8 +1,9 @@
 # -*- coding: utf-8 -*-
 """FatdogReverse 本地模拟服务端（FastAPI 版，对齐 demo1 结构）——数字只在这里，APK 里一个都没有。
 
-  HTTP  : http://0.0.0.0:8787   （关卡 15-20）
-  HTTPS : https://0.0.0.0:8443  （关卡 21-25，自签 CA）
+  HTTP      : http://0.0.0.0:8787   （关卡 15-20）
+  HTTPS     : https://0.0.0.0:8443  （关卡 21-25、27，自签 CA）
+  HTTPS-mTLS: https://0.0.0.0:8444  （关卡 26，双向 TLS：强制客户端证书，独立 app 实例防跨端口绕过）
 
 依赖：pip install fastapi uvicorn pycryptodome   (SM3/SM4/RC4 为纯 Python 实现，无需 gmssl)
 
@@ -99,6 +100,20 @@ KEY25_HMAC = b"fatdemo_jni_2026"
 PAGES25, PER_PAGE25, SEED25 = 100, 10, 20270115
 _rng25 = random.Random(SEED25)
 NUMS25 = [_rng25.randint(1, 100) for _ in range(PAGES25 * PER_PAGE25)]
+
+# ---------------- 关卡 26：双向 TLS（mTLS，客户端证书） ----------------
+KEY26_HMAC = b"fatdemo_mtls_key"
+PAGES26, PER_PAGE26, SEED26 = 100, 10, 20270206
+_rng26 = random.Random(SEED26)
+NUMS26 = [_rng26.randint(1, 100) for _ in range(PAGES26 * PER_PAGE26)]
+
+# ---------------- 关卡 27：万法归宗（HTTPS + pinning + 复合签名，复用 L19 那套） ----------------
+KEY27_AES_REQ = b"fatdemo_aeskey27"
+KEY27_HMAC = b"fatdemo_fin_hmac"
+KEY27_AES_RSP = b"fatdemo_rspkey27"
+PAGES27, PER_PAGE27, SEED27 = 100, 10, 20270227
+_rng27 = random.Random(SEED27)
+NUMS27 = [_rng27.randint(1, 100) for _ in range(PAGES27 * PER_PAGE27)]
 
 # ---------------- 关卡 23：WebView 白屏（证书错误） ----------------
 # 页面只接受 HTTPS；HTTP 端口访问一律 403。
@@ -447,14 +462,63 @@ def h5_v23(request: Request):
         raise HTTPException(status_code=403, detail="this page only speaks https")
     return PAGE23
 
+
+# ---------------- 关卡 26：mTLS 独立实例 ----------------
+# 注意：/api/mtls 只挂在 :8444 的独立 app 上——主 app（8787/8443）里根本没有这个路由，
+# 玩家没法不带客户端证书从 8443/8787 拿到数据。8444 由 uvicorn 在握手层强制验证客户端证书
+# （ssl_cert_reqs=CERT_REQUIRED，信任 certs/ca.crt 签发的客户端证书，见 gen_certs.py）。
+mtls_app = FastAPI(title="FatdogReverse mTLS", docs_url=None, redoc_url=None, openapi_url=None)
+
+
+@mtls_app.get("/api/mtls")
+def api_mtls(page: int = Query(...), ts: int = Query(...), sign: str = Query(...)):
+    _check_page(page, PAGES26)
+    _check_ts(ts)
+    if not hmac.compare_digest(sign, hmac.new(KEY26_HMAC, f"page={page}&ts={ts}".encode(), hashlib.sha256).hexdigest()):
+        raise HTTPException(status_code=403, detail="sign invalid")
+    idx = (page - 1) * PER_PAGE26
+    return {"page": page, "nums": NUMS26[idx:idx + PER_PAGE26]}
+
+
+# ---------------- 关卡 27：万法归宗 ----------------
+# 复合签名复用 L19 那套：enc = hex(AES(req_key, "page=N&ts=T"))，sign = HMAC(hmac_key, enc)，
+# 响应体 {"d": hex} 用另一把 AES 密钥加密。App 侧走 HTTPS:8443（TrustManager + CertificatePinner 双闸门）。
+@app.post("/api/l27")
+def api_l27(page: int = Form(...), ts: int = Form(...), enc: str = Form(...), sign: str = Form(...),
+           client: str = Form(""), chan: str = Form(""), ver: str = Form(""), dev: str = Form("")):
+    if not HAVE_CRYPTO:
+        raise HTTPException(status_code=500, detail="服务端缺 pycryptodome，请 pip install pycryptodome")
+    _check_ts(ts)
+    if not hmac.compare_digest(sign, hmac.new(KEY27_HMAC, enc.encode(), hashlib.sha256).hexdigest()):
+        raise HTTPException(status_code=403, detail="sign invalid")
+    try:
+        plain = aes_dec(KEY27_AES_REQ, bytes.fromhex(enc)).decode()
+    except Exception:
+        raise HTTPException(status_code=403, detail="enc decrypt failed")
+    m = re.fullmatch(r"page=(\d+)&ts=(\d+)", plain)
+    if not m or int(m.group(1)) != page or int(m.group(2)) != ts:
+        raise HTTPException(status_code=403, detail="enc/param mismatch")
+    _check_page(page, PAGES27)
+    idx = (page - 1) * PER_PAGE27
+    body = f"page={page}|nums={','.join(str(n) for n in NUMS27[idx:idx + PER_PAGE27])}"
+    return {"d": aes_enc(KEY27_AES_RSP, body.encode()).hex()}
+
 if __name__ == "__main__":
     cert_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "certs")
-    print(f"FatdogReverse 服务端（FastAPI）：http://{HOST}:{PORT_HTTP}（15-20） https://{HOST}:{PORT_HTTPS}（21-25）")
+    print(f"FatdogReverse 服务端（FastAPI）：http://{HOST}:{PORT_HTTP}（15-20） https://{HOST}:{PORT_HTTPS}（21-27）")
     print(f"L23 页面: https://{HOST}:{PORT_HTTPS}/h5/v23 （只讲 HTTPS，HTTP 端口访问 403）")
-    print(f"数字加和：L15={sum(NUMS)} L16={sum(NUMS16)} L17={sum(NUMS17)} L18={sum(NUMS18)} L19={sum(NUMS19)} L21={sum(NUMS21)} L22={sum(NUMS22)} L24={sum(NUMS24)} L25={sum(NUMS25)}")
+    print(f"L26 mTLS: https://{HOST}:8444/api/mtls （双向 TLS：必须出示 certs/client.p12 里的客户端证书）")
+    print(f"数字加和：L15={sum(NUMS)} L16={sum(NUMS16)} L17={sum(NUMS17)} L18={sum(NUMS18)} L19={sum(NUMS19)} "
+          f"L21={sum(NUMS21)} L22={sum(NUMS22)} L24={sum(NUMS24)} L25={sum(NUMS25)} L26={sum(NUMS26)} L27={sum(NUMS27)}")
     http_cfg = uvicorn.Config(app, host=HOST, port=PORT_HTTP, log_level="info")
     threading.Thread(target=uvicorn.Server(http_cfg).run, daemon=True).start()
     https_cfg = uvicorn.Config(app, host=HOST, port=PORT_HTTPS,
                                ssl_keyfile=os.path.join(cert_dir, "server.key"),
                                ssl_certfile=os.path.join(cert_dir, "server.crt"), log_level="info")
-    uvicorn.Server(https_cfg).run()
+    threading.Thread(target=uvicorn.Server(https_cfg).run, daemon=True).start()
+    mtls_cfg = uvicorn.Config(mtls_app, host=HOST, port=8444,
+                              ssl_keyfile=os.path.join(cert_dir, "server.key"),
+                              ssl_certfile=os.path.join(cert_dir, "server.crt"),
+                              ssl_cert_reqs=2,   # ssl.CERT_REQUIRED：握手层强制客户端证书
+                              ssl_ca_certs=os.path.join(cert_dir, "ca.crt"), log_level="info")
+    uvicorn.Server(mtls_cfg).run()
