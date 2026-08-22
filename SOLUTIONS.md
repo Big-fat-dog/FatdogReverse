@@ -1862,3 +1862,190 @@ print("总和:", total)                    # 49502
 ```
 
 **坑位提醒**：`Hk.FAKE_KEY = Fatdog_vain` 是诱饵；解法①记得用 spawn 模式（attach 半路上车时基线早已建好，来不及了）。
+
+
+---
+
+## 关卡 34：万法归墟（综合卷：Feistel + HMAC + 响应 RC4）
+
+**考点**：三季所学一关收束——真身经 JNI_OnLoad 动态注册（导出表只有两个废诱饵）；参数加密用自定义 **Feistel8**（纯猜必死）；签名 HMAC-SHA256；响应体再裹一层 RC4 且密钥靠**派生**得到；外加四路反检测哨兵、CRC 自校验、记账守卫的全家桶（任一失守静默投毒一字节）。
+
+**协议还原（IDA 读 k34_pack/k34_sign/k34_unwrap）**
+
+```text
+key     = "Fatdog_grumpy"                        # UTF-16 存放，strings -el 可见
+sub_i   = SHA256(key + str(i))[:4]               # i = 0..7
+F_i(x)  = SHA256(sub_i || x)[:4]
+enc     = hex( Feistel8( payload ) )             # payload 零填充至 8 的倍数
+        # 每块 (L,R)：for i in 0..7: (L,R) = (R, L ^ F_i(L))
+sign    = hex( HMAC-SHA256(key, enc) )
+rsp_key = SHA256(key + "|rsp")[:16]              # 响应密钥靠派生
+响应体   d = hex( RC4(rsp_key, "page=N|nums=a,b,…") )
+```
+
+**路线一：纯 Frida** —— spawn 下 hook JNI_OnLoad 的 onEnter 抢先装钩子 → hook libart `_ZN3art3JNI15RegisterNatives...` 抓映射 → 按偏移 attach k34_pack/k34_sign/k34_unwrap 观察三联单 → 复刻或直接转发现成值。
+
+**路线二：patch so** —— IDA 定位 k34_scan_once 与 k34_crc_ok，把函数头改成 `mov w0, #1; ret`（或直接 nop 掉调用点），重打包安装——哨兵与体检同时失明。
+
+**路线三：unidbg（离线签名机）** —— 本关 native 不回调 Java（对比 L31），补环境最省：载入 libl34.so、调 JNI_OnLoad、然后直接 call RegisterNatives 绑定的 k34_pack 地址喂 page/ts 即得 enc/sign，吞吐量拉满且不怕任何设备端检测。
+
+**Python 全复刻（先 python server.py）**
+
+```python
+import time, hmac, hashlib, requests
+
+KEY  = b"Fatdog_grumpy"
+RSP  = hashlib.sha256(b"Fatdog_grumpy|rsp").digest()[:16]
+SUBS = [hashlib.sha256(KEY + str(i).encode()).digest()[:4] for i in range(8)]
+
+def F(i, x): return hashlib.sha256(SUBS[i] + x).digest()[:4]
+
+def feistel_enc(data: bytes) -> bytes:
+    out = bytearray()
+    for off in range(0, len(data), 8):
+        L, R = data[off:off+4], data[off+4:off+8]
+        for i in range(8):
+            L, R = R, bytes(a ^ b for a, b in zip(L, F(i, L)))
+        out += L + R
+    return bytes(out)
+
+def rc4(key: bytes, data: bytes) -> bytes:
+    S = list(range(256)); j = 0
+    for i in range(256):
+        j = (j + S[i] + key[i % len(key)]) % 256
+        S[i], S[j] = S[j], S[i]
+    out = bytearray(); a = b = 0
+    for ch in data:
+        a = (a + 1) % 256; b = (b + S[a]) % 256
+        S[a], S[b] = S[b], S[a]
+        out.append(ch ^ S[(S[a] + S[b]) % 256])
+    return bytes(out)
+
+BASE  = "https://127.0.0.1:8443"
+total = 0
+for page in range(1, 101):
+    ts   = int(time.time())
+    pad  = (-len(p := f"page={page}&ts={ts}".encode())) % 8
+    enc  = feistel_enc(p + b"\x00" * pad).hex()
+    sign = hmac.new(KEY, enc.encode(), hashlib.sha256).hexdigest()
+    r = requests.post(f"{BASE}/api/l34", verify="certs/ca.crt", timeout=10,
+                      data={"page": page, "ts": ts, "enc": enc, "sign": sign,
+                            "dev": "fatdog-sim", "ver": "3.4"})
+    body = rc4(RSP, bytes.fromhex(r.json()["d"])).decode()
+    total += sum(int(x) for x in body.split("|")[1][5:].split(","))
+print("总和:", total)                    # 49932
+```
+
+**坑位提醒**：`Ak.FAKE_KEY = Fatdog_sore` 是一字之差陷阱；两个同名/近名导出函数全是废值；别只 hook isPoisoned 关弹窗——投毒不改回来，签名照样全错。
+
+
+---
+
+## 关卡 35：双匣暗渡（手写 3DES + SM4 + 干扰包）
+
+**考点**：libl35.so 文件前半是一排无用变换函数（fake_b64_fold/dead_xor_mix/junk_pad/fake_round_mix，全部被导出当噪音），真正的 SM4 与 3DES 压在文件底部、经函数指针表派发。认算法不靠名字靠**魔数**：DES 的 S1 盒开头 `14 04 0d 01`、PC1/PC2 表；SM4 的 S 盒开头 `d6 90 e9 fe`、FK `a3b1bac6`。密钥不异或——由 UTF-16 标记 `Fatdog_sneak` 运行时派生：
+
+```text
+sm4_key = SHA256("Fatdog_sneak|sm4")[:16]
+des_key = SHA256("Fatdog_sneak|3des")[:24]
+```
+
+**请求协议**（POST 表单）：`e1 = hex(SM4(sm4_key, "page=N&ts=T" 零填充))`、`e2 = hex(3DES(des_key, 大端 ts 八字节))`、`sign = HMAC-SHA256(Fatdog_sneak, e1+"|"+e2)`——加密参数恰好两个，外加动态 ts 防重放。
+
+**干扰包甄别**（每页三连发，字段同形）：真包 / 错位包（表单页号与载荷差 1）/ 废签包。服务端裁决与 L31 同款：真钥全对返回数字，其余返回 `nums:[]` 形似而空；用近亲假钥 `Fatdog_skulk` 完整构造的请求会被点名 403。
+
+**第一步：拿标记**
+
+```text
+strings -el libl35.so     # UTF-16 扫描：Fatdog_sneak 现形
+```
+
+**第二步：Python 全复刻（先 python server.py）**
+
+```python
+import time, hmac, hashlib, requests
+from Crypto.Cipher import DES as _D
+
+def sm4_encrypt(data: bytes, key: bytes) -> bytes:
+    # 纯 Python SM4-ECB：与服务端 server.py 的实现一致，可直接照抄该文件
+    ...
+
+def des3_ecb_encrypt(key24: bytes, data8: bytes) -> bytes:
+    d1 = _D.new(key24[0:8],  _D.MODE_ECB)
+    d2 = _D.new(key24[8:16], _D.MODE_ECB)
+    d3 = _D.new(key24[16:24],_D.MODE_ECB)
+    return d3.encrypt(d2.decrypt(d1.encrypt(data8)))
+
+MK   = b"Fatdog_sneak"
+SM4K = hashlib.sha256(MK + b"|sm4").digest()[:16]
+DSK  = hashlib.sha256(MK + b"|3des").digest()[:24]
+
+BASE  = "https://127.0.0.1:8443"
+total = 0
+for page in range(1, 101):
+    ts  = int(time.time())
+    payload = f"page={page}&ts={ts}".encode()
+    payload += b"\x00" * ((-len(payload)) % 16)
+    e1  = sm4_encrypt(payload, SM4K).hex()
+    e2  = des3_ecb_encrypt(DSK, ts.to_bytes(8, "big")).hex()
+    sign = hmac.new(MK, (e1 + "|" + e2).encode(), hashlib.sha256).hexdigest()
+    r = requests.post(f"{BASE}/api/l35", verify="certs/ca.crt", timeout=10,
+                      data={"page": page, "ts": ts, "e1": e1, "e2": e2,
+                            "sign": sign})
+    total += sum(r.json()["nums"])       # 只发真包；干扰包留给自己玩甄别
+print("总和:", total)                     # 51217
+```
+
+（sm4_encrypt 可直接从 server.py 抄纯 Python 实现；3DES 用 pycryptodome 拼 EDE 即可，无需手写轮函数。）
+
+**动态路线**：偏移 Hook `k35_sm4_ecb` / `k35_des3_ecb`（IDA 里顺着函数指针表找），onEnter 直接 hexdump 明文入参——比静态还原省事得多。注意前半文件的 `k35_fake_*` / `k35_junk_pad` 是无人调用的诱饵，Hook 它们永远不触发。
+
+
+---
+
+## 关卡 36：查表识君（手写 AES-128 + Base64 藏钥）
+
+**考点**：libl36.so 文件前半是三个无人调用的诱饵变换函数（k36_fake_swap_pairs/fake_acc_mix/fake_rev），真正的 AES-128 压在文件底部经指针表派发。认算法靠魔数：S 盒开头 `63 7c 77 7b f2 6b 6f c5`。密钥藏法不走异或——`.rodata` 里躺着一个 24 字符、以 `==` 结尾的 **Base64 串**，运行时 b64decode 得到 16 字节 AES 钥匙（Base64 不是加密，教程 02 的老朋友换个战场）。
+
+**协议还原**
+
+```text
+key     = base64decode("tE5zEyf1b+fe49uJN4cY7w==")     # strings 直接可见的"藏宝图"
+enc     = hex( AES-128-ECB(key, "page=N&ts=T" 零填充) )
+sign    = hex( HMAC-SHA256(mac, enc) )                  # mac = SHA256("Fatdog_break|mac")
+```
+
+**第一步：找钥匙**
+
+```text
+strings libl36.so | findstr "=="
+# tE5zEyf1b+fe49uJN4cY7w==   ← 24 字符、等号结尾：教科书式 Base64
+```
+
+**第二步：Python 全复刻（先 python server.py）**
+
+```python
+import time, hmac, hashlib, requests, base64
+from Crypto.Cipher import AES
+
+KEY  = base64.b64decode("tE5zEyf1b+fe49uJN4cY7w==")      # 16 字节 AES-128 钥匙
+MAC  = hashlib.sha256(b"Fatdog_break|mac").digest()
+BASE = "https://127.0.0.1:8443"
+
+total = 0
+for page in range(1, 101):
+    ts   = int(time.time())
+    payload = f"page={page}&ts={ts}".encode()
+    payload += b"\x00" * ((-len(payload)) % 16)
+    enc  = AES.new(KEY, AES.MODE_ECB).encrypt(payload).hex()
+    sign = hmac.new(MAC, enc.encode(), hashlib.sha256).hexdigest()
+    r = requests.get(f"{BASE}/api/l36",
+                     params={"page": page, "ts": ts, "enc": enc, "sign": sign},
+                     verify="certs/ca.crt", timeout=10)
+    total += sum(r.json()["nums"])
+print("总和:", total)                     # 49495
+```
+
+**动态路线**：IDA 里顺着唯一导出入口看到指针表派发 → 底部 `k36_ecb` 就是 AES 本体（偏移 Hook 后 onEnter hexdump 入参直接看明文）。注意前半文件的 `k36_fake_*` 是无人调用的诱饵，Hook 它们永远不触发。
+
+**坑位提醒**：`Oo.FAKE_KEY = Fatdog_bluff` 是一字之差陷阱（命中即 403）；别把 Base64 当加密去"破解"——解码就够了。

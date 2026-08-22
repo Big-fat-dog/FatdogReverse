@@ -55,6 +55,9 @@
         <activity android:name=".g31Activity" android:exported="false" />
         <activity android:name=".h32Activity" android:exported="false" />
         <activity android:name=".i33Activity" android:exported="false" />
+        <activity android:name=".j34Activity" android:exported="false" />
+        <activity android:name=".k35Activity" android:exported="false" />
+        <activity android:name=".l36Activity" android:exported="false" />
         <activity android:name=".a20Activity" android:exported="false" />
         <activity android:name=".ProfileActivity" android:exported="false" />
 

@@ -40,3 +40,21 @@ include $(CLEAR_VARS)
 LOCAL_MODULE := l33
 LOCAL_SRC_FILES := l33.c
 include $(BUILD_SHARED_LIBRARY)
+
+# 关卡 34：万法归墟（综合卷：动态注册+Feistel+哨兵+CRC+响应RC4）
+include $(CLEAR_VARS)
+LOCAL_MODULE := l34
+LOCAL_SRC_FILES := l34.c
+include $(BUILD_SHARED_LIBRARY)
+
+# 关卡 35：双匣暗渡（手写 3DES+SM4 常量识别 + 干扰包）
+include $(CLEAR_VARS)
+LOCAL_MODULE := l35
+LOCAL_SRC_FILES := l35.c
+include $(BUILD_SHARED_LIBRARY)
+
+# 关卡 36：查表识君（手写 AES-128，Base64 藏钥）
+include $(CLEAR_VARS)
+LOCAL_MODULE := l36
+LOCAL_SRC_FILES := l36.c
+include $(BUILD_SHARED_LIBRARY)

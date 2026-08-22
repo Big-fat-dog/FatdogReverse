@@ -152,6 +152,133 @@ PAGES33, PER_PAGE33, SEED33 = 100, 10, 20270901
 _rng33 = random.Random(SEED33)
 NUMS33 = [_rng33.randint(1, 100) for _ in range(PAGES33 * PER_PAGE33)]
 
+
+# ---------------- 关卡 34：万法归墟（Feistel + HMAC + 响应 RC4，综合卷） ----------------
+KEY34_HMAC = b"Fatdog_grumpy"
+RSP34_KEY = hashlib.sha256(b"Fatdog_grumpy|rsp").digest()[:16]
+PAGES34, PER_PAGE34, SEED34 = 100, 10, 20271015
+_rng34 = random.Random(SEED34)
+NUMS34 = [_rng34.randint(1, 100) for _ in range(PAGES34 * PER_PAGE34)]
+
+
+# ---------------- 关卡 35：双匣暗渡（手写 3DES+SM4 + 干扰包） ----------------
+KEY35_MASTER = b"Fatdog_sneak"
+DECOY35_KEYS = [b"Fatdog_skulk"]
+PAGES35, PER_PAGE35, SEED35 = 100, 10, 20271111
+_rng35 = random.Random(SEED35)
+NUMS35 = [_rng35.randint(1, 100) for _ in range(PAGES35 * PER_PAGE35)]
+
+# ---------------- 关卡 36：查表识君（手写 AES-128 + Base64 藏钥） ----------------
+KEY36_MASTER = b"Fatdog_break"
+DECOY36_KEYS = [b"Fatdog_bluff"]
+PAGES36, PER_PAGE36, SEED36 = 100, 10, 20271125
+_rng36 = random.Random(SEED36)
+NUMS36 = [_rng36.randint(1, 100) for _ in range(PAGES36 * PER_PAGE36)]
+
+
+def _aes128_ecb_encrypt(key16: bytes, data: bytes) -> bytes:
+    c = _AES.new(key16, _AES.MODE_ECB)
+    return c.encrypt(data)
+
+
+def _aes128_ecb_decrypt(key16: bytes, data: bytes) -> bytes:
+    c = _AES.new(key16, _AES.MODE_ECB)
+    return c.decrypt(data)
+
+
+def _l36_try(master: str, page: int, ts: int, enc: str, sign: str) -> bool:
+    mk = master.encode()
+    akey = hashlib.sha256(mk + b"|key").digest()[:16]
+    mack = hashlib.sha256(mk + b"|mac").digest()
+    if not hmac.compare_digest(sign, hmac.new(mack, enc.encode(), hashlib.sha256).hexdigest()):
+        return False
+    try:
+        p = _aes128_ecb_decrypt(akey, bytes.fromhex(enc))
+        plain = p.split(b"\x00")[0].decode("utf-8", "ignore")
+    except Exception:
+        return False
+    m = re.fullmatch(r"page=(\d+)&ts=(\d+)", plain or "")
+    return bool(m) and int(m.group(1)) == page and int(m.group(2)) == ts
+
+
+@app.get("/api/l36")
+def api_l36(page: int = Query(...), ts: int = Query(...), enc: str = Query(...),
+            sign: str = Query(...)):
+    _check_ts(ts)
+    if _l36_try("Fatdog_break", page, ts, enc, sign):
+        _check_page(page, PAGES36)
+        idx = (page - 1) * PER_PAGE36
+        return {"page": page, "nums": NUMS36[idx:idx + PER_PAGE36]}
+    for dk in DECOY36_KEYS:
+        if _l36_try(dk, page, ts, enc, sign):
+            raise HTTPException(status_code=403, detail="sign invalid")
+    return {"page": page, "nums": []}
+
+
+def _des3_ecb_encrypt_py(key24: bytes, data8: bytes) -> bytes:
+    d1 = _DES.new(key24[0:8], _DES.MODE_ECB)
+    d2 = _DES.new(key24[8:16], _DES.MODE_ECB)
+    d3 = _D.new(key24[16:24], _DES.MODE_ECB)
+    return d3.encrypt(d2.decrypt(d1.encrypt(data8)))
+
+
+def _des3_ecb_decrypt_py(key24: bytes, data8: bytes) -> bytes:
+    d1 = _DES.new(key24[0:8], _DES.MODE_ECB)
+    d2 = _DES.new(key24[8:16], _DES.MODE_ECB)
+    d3 = _D.new(key24[16:24], _DES.MODE_ECB)
+    return d1.decrypt(d2.encrypt(d3.decrypt(data8)))
+
+
+def _l35_try(master: str, page: int, ts: int, e1: str, e2: str, sign: str) -> bool:
+    mk = master.encode()
+    smk = hashlib.sha256(mk + b"|sm4").digest()[:16]
+    dsk = hashlib.sha256(mk + b"|3des").digest()[:24]
+    if not hmac.compare_digest(sign, hmac.new(mk, (e1 + "|" + e2).encode(), hashlib.sha256).hexdigest()):
+        return False
+    try:
+        p = sm4_decrypt(smk, bytes.fromhex(e1))
+        plain = p.split(b"\x00")[0].decode("utf-8", "ignore")
+    except Exception:
+        return False
+    m = re.fullmatch(r"page=(\d+)&ts=(\d+)", plain or "")
+    if not m or int(m.group(1)) != page or int(m.group(2)) != ts:
+        return False
+    try:
+        if _des3_ecb_decrypt_py(dsk, bytes.fromhex(e2)) != ts.to_bytes(8, "big"):
+            return False
+    except Exception:
+        return False
+    return True
+
+
+@app.post("/api/l35")
+def api_l35(page: int = Form(...), ts: int = Form(...), e1: str = Form(...),
+            e2: str = Form(...), sign: str = Form(...)):
+    _check_ts(ts)
+    if _l35_try("Fatdog_sneak", page, ts, e1, e2, sign):
+        _check_page(page, PAGES35)
+        idx = (page - 1) * PER_PAGE35
+        return {"page": page, "nums": NUMS35[idx:idx + PER_PAGE35]}
+    for dk in DECOY35_KEYS:
+        if _l35_try(dk, page, ts, e1, e2, sign):
+            raise HTTPException(status_code=403, detail="sign invalid")
+    return {"page": page, "nums": []}
+_K34_SUBS = [hashlib.sha256(KEY34_HMAC + str(i).encode()).digest()[:4] for i in range(8)]
+
+
+def _k34_f(i: int, x: bytes) -> bytes:
+    return hashlib.sha256(_K34_SUBS[i] + x).digest()[:4]
+
+
+def k34_feistel_dec(data: bytes) -> bytes:
+    out = bytearray()
+    for off in range(0, len(data) - len(data) % 8, 8):
+        L, R = data[off:off + 4], data[off + 4:off + 8]
+        for i in reversed(range(8)):
+            L, R = bytes(x ^ y for x, y in zip(R, _k34_f(i, L))), L
+        out += L + R
+    return bytes(out)
+
 # ---------------- 关卡 23：WebView 白屏（证书错误） ----------------
 # 页面只接受 HTTPS；HTTP 端口访问一律 403。
 # App 端 WebView 不信任自签证书 → onReceivedSslError → handler.cancel() 白屏；
@@ -563,6 +690,25 @@ def api_l33(page: int = Query(...), ts: int = Query(...), sign: str = Query(...)
     idx = (page - 1) * PER_PAGE33
     return {"page": page, "nums": NUMS33[idx:idx + PER_PAGE33]}
 
+@app.post("/api/l34")
+def api_l34(page: int = Form(...), ts: int = Form(...), enc: str = Form(...), sign: str = Form(...),
+            dev: str = Form("x"), ver: str = Form("1")):
+    _check_ts(ts)
+    if not hmac.compare_digest(sign, hmac.new(KEY34_HMAC, enc.encode(), hashlib.sha256).hexdigest()):
+        raise HTTPException(status_code=403, detail="sign invalid")
+    try:
+        raw = k34_feistel_dec(bytes.fromhex(enc))
+    except Exception:
+        raise HTTPException(status_code=403, detail="enc invalid")
+    plain = raw.split(b"\x00")[0].decode("utf-8", "ignore")
+    m = re.fullmatch(r"page=(\d+)&ts=(\d+)", plain or "")
+    if not m or int(m.group(1)) != page or int(m.group(2)) != ts:
+        raise HTTPException(status_code=403, detail="param mismatch")
+    _check_page(page, PAGES34)
+    idx = (page - 1) * PER_PAGE34
+    body = f"page={page}|nums={','.join(str(n) for n in NUMS34[idx:idx + PER_PAGE34])}"
+    return {"d": rc4(RSP34_KEY, body.encode()).hex()}
+
 
 @app.get("/h5/v23", response_class=HTMLResponse)
 def h5_v23(request: Request):
@@ -620,7 +766,7 @@ if __name__ == "__main__":
     print(f"L26 mTLS: https://{HOST}:8444/api/mtls （双向 TLS：必须出示 certs/client.p12 里的客户端证书）")
     print(f"数字加和：L15={sum(NUMS)} L16={sum(NUMS16)} L17={sum(NUMS17)} L18={sum(NUMS18)} L19={sum(NUMS19)} "
           f"L21={sum(NUMS21)} L22={sum(NUMS22)} L24={sum(NUMS24)} L25={sum(NUMS25)} L26={sum(NUMS26)} L27={sum(NUMS27)} "
-          f"L28={sum(NUMS28)} L29={sum(NUMS29)} L30={sum(NUMS30)} L31={sum(NUMS31)} L32={sum(NUMS32)} L33={sum(NUMS33)}")
+          f"L28={sum(NUMS28)} L29={sum(NUMS29)} L30={sum(NUMS30)} L31={sum(NUMS31)} L32={sum(NUMS32)} L33={sum(NUMS33)} L34={sum(NUMS34)} L35={sum(NUMS35)} L36={sum(NUMS36)}")
     http_cfg = uvicorn.Config(app, host=HOST, port=PORT_HTTP, log_level="info")
     threading.Thread(target=uvicorn.Server(http_cfg).run, daemon=True).start()
     https_cfg = uvicorn.Config(app, host=HOST, port=PORT_HTTPS,

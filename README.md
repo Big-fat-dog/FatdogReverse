@@ -56,6 +56,9 @@ APK 结构刻意做得和真实 App 一致：图标（5 种密度）、XML 布�
 | 31 | 两界穿针 | 密钥跨层拼装（Java 改名 q 包持 Fatdog_ + so 持 lonely，native 回调取件）；RC4 参数加密 + HMAC；每页连发 4 个同形包辨真假 | 22 篇：JNIEnv 回调分析 + 响应内容甄别 |
 | 32 | 心魔哨兵 | 四路反检测哨兵（maps/端口/线程名/TracerPid）随 so 启动轮询；挂 Frida 即静默投毒一字节、签名全错，App 仅弹一次警告 | 22 篇 §14：反调试指纹与洗地对抗 |
 | 33 | 金刚不坏 | 可执行段 CRC32 自校验（基线建于 JNI_OnLoad）+ assertGuard 记账守卫；任何 inline hook 都被抓，三解全开（抢跑建基线/hook 校验器/改基线变量） | 22 篇：自完整性校验与时机对抗 |
+| 34 | 万法归墟 | 综合卷：动态注册 + 无名 Feistel8 参数加密 + HMAC + 四路哨兵 + CRC + 记账 + 响应 RC4（密钥派生）；官方路线 Frida/patch so/unidbg 三选一 | 22 篇合卷：三季所学一关收束 |
+| 35 | 双匣暗渡 | 手写 3DES+SM4 藏进满屏诱饵函数，认算法靠 S 盒魔数（14,4,13,1… / d6 90 e9 fe…）；双密文参数 + 动态 ts；每页三连包辨真假 | 13+15 篇：密码学指纹识别 |
+| 36 | 查表识君 | 手写 AES-128 沉底派发（S 盒 637c777b…）；钥匙藏在 .rodata 的 Base64 串里，解码即得——Base64 不是加密 | 02+12 篇：编码伪装与 AES 指纹 |
 
 每关的**解题思路分级提示**见下方折叠块；完整题解（含 Python 复刻代码与 Frida 脚本）在 `SOLUTIONS.md`（建议先自己练）。
 
@@ -129,7 +132,7 @@ python server.py          # HTTP :8787（15-20） + HTTPS :8443（21-25，自签
 
 地址自动切换：`config.json` 的 `api_base_url` 默认 `"AUTO"`——模拟器自动走 `10.0.2.2`、真机自动走 `127.0.0.1`（识别不出模拟器特征时按真机处理）；也可手动填 `http://局域网IP:8787` 覆盖，手机与电脑同一网络即可免 USB。
 
-各网络关要点：L15 HMAC 明文参数；L16 请求整段加密+MD5 签名、响应加密（RC4）；L17 表单 enc/sig/dog（国密 SM4+SM3，纯 Python 实现）；L18 RSA 加密请求参数 + DES 解密响应（密钥一半服务端下发）；L19 AES 加密参数 + HMAC 签名、响应加密（加密包 R8 混淆 + 字符串加密）；L21/L22 走 HTTPS + 自签 CA（TrustManager / CertificatePinner 双闸门）；L23 走 WebView 加载 https://…:8443/h5/v23（主机自动选择；仅 HTTPS，HTTP 直接 403）：自签证书不被信任 → App 在 onReceivedSslError 里 handler.cancel() → 白屏，Hook 放行后页面出现、自动通关。L24 走 HTTPS + 内置 CA + HostnameVerifier pin 校验（pin 无明文，XOR 数组藏在 Z24Core），校验链带反 Hook 守卫——Hook 校验函数直接放行会触发"完整性校验失败"，正解是 Hook Z24Core.realPin 内存换 pin（换票）。L25 走 HTTPS + JNI：发请求前调 Nx.verifyServer（native 主机白名单），签名 Nx.nativeSign 在 libnative.so 里算 HMAC-SHA256——密钥不在 Java（strings libnative.so 可见 fatdemo_jni_2026），Hook Mac/MessageDigest 无效，正路是静态逆向 so 复刻或 Frida 原生层调用。**L26 走双向 TLS（mTLS）**：`https://…:8444/api/mtls`，服务端握手层强制验证客户端证书（只信内置 CA 签发的）；App 从 `assets/mt_client.p12` 加载客户端证书+私钥（密码 `fatdemo_mt26` 拆在 Zt/Mc 的异或数组里），没这张证书连握手都过不去——先抠证书解密码，再带 client 证书复刻取数（加和 50814）。**L27 万法归宗**走 HTTPS :8443 的 `POST /api/l27` + 复合签名：`enc=AES(page=N&ts=T)`、`sign=HMAC(enc)`、响应 `{"d"}` 再过一层 AES；加密核心在 `com.fatdog.reverse.p` 包（构建时被 R8 改名 + 算法名/路径/密钥全是异或串），三把密钥各拆两半跨类拼装。抓包得先放倒 TrustManager + CertificatePinner 两道闸——而且抓到的也只是 enc 密文：从 c27Activity 的调用链摸进混淆包还原签名链，才能复刻取数（加和 50623）。L28 走 native 字符串加密：密钥 ^0x5C 藏 libl28.so（strings 只见诱饵 Fatdog_silent），IDA 还原 Fatdog_unhappy 或 Frida 运行时搜明文，加和 49750；L29 走动态注册：导出表两个假 nativeSign 全是坑，真身无名靠 spawn+hook libart RegisterNatives 抓映射，密钥 Fatdog_angry 异或藏 .data，加和 50208。L30 走无名派发：四候选同形函数挂函数指针表、UTF-16 密钥躲过默认 strings（`strings -el` 可破），真钥 Fatdog_gloomy，加和 51127。L31 走跨层拼装：Fatdog_ 藏在 R8 改名的 q 包、lonely 是 so 里的 UTF-16 数组，native 回调 Java 取件；每页连发 1 真 + 3 干扰同形包（错位/废签/噪声），假包要么 403 要么 nums 为空，加和 50768。L32 走反检测：四路哨兵扫 maps/探端口/查线程名/盯 TracerPid，挂着 Frida 就静默投毒一字节（签名全错），App 只弹一次警告；静态复刻党全程免疫，动态党得先让哨兵闭嘴，加和 51745。L33 走自完整性校验：可执行段 CRC 基线 + 记账守卫，纯观察钩子也会被抓，三解全开（JNI_OnLoad 抢跑/hook 校验器/改基线），加和 49502。
+各网络关要点：L15 HMAC 明文参数；L16 请求整段加密+MD5 签名、响应加密（RC4）；L17 表单 enc/sig/dog（国密 SM4+SM3，纯 Python 实现）；L18 RSA 加密请求参数 + DES 解密响应（密钥一半服务端下发）；L19 AES 加密参数 + HMAC 签名、响应加密（加密包 R8 混淆 + 字符串加密）；L21/L22 走 HTTPS + 自签 CA（TrustManager / CertificatePinner 双闸门）；L23 走 WebView 加载 https://…:8443/h5/v23（主机自动选择；仅 HTTPS，HTTP 直接 403）：自签证书不被信任 → App 在 onReceivedSslError 里 handler.cancel() → 白屏，Hook 放行后页面出现、自动通关。L24 走 HTTPS + 内置 CA + HostnameVerifier pin 校验（pin 无明文，XOR 数组藏在 Z24Core），校验链带反 Hook 守卫——Hook 校验函数直接放行会触发"完整性校验失败"，正解是 Hook Z24Core.realPin 内存换 pin（换票）。L25 走 HTTPS + JNI：发请求前调 Nx.verifyServer（native 主机白名单），签名 Nx.nativeSign 在 libnative.so 里算 HMAC-SHA256——密钥不在 Java（strings libnative.so 可见 fatdemo_jni_2026），Hook Mac/MessageDigest 无效，正路是静态逆向 so 复刻或 Frida 原生层调用。**L26 走双向 TLS（mTLS）**：`https://…:8444/api/mtls`，服务端握手层强制验证客户端证书（只信内置 CA 签发的）；App 从 `assets/mt_client.p12` 加载客户端证书+私钥（密码 `fatdemo_mt26` 拆在 Zt/Mc 的异或数组里），没这张证书连握手都过不去——先抠证书解密码，再带 client 证书复刻取数（加和 50814）。**L27 万法归宗**走 HTTPS :8443 的 `POST /api/l27` + 复合签名：`enc=AES(page=N&ts=T)`、`sign=HMAC(enc)`、响应 `{"d"}` 再过一层 AES；加密核心在 `com.fatdog.reverse.p` 包（构建时被 R8 改名 + 算法名/路径/密钥全是异或串），三把密钥各拆两半跨类拼装。抓包得先放倒 TrustManager + CertificatePinner 两道闸——而且抓到的也只是 enc 密文：从 c27Activity 的调用链摸进混淆包还原签名链，才能复刻取数（加和 50623）。L28 走 native 字符串加密：密钥 ^0x5C 藏 libl28.so（strings 只见诱饵 Fatdog_silent），IDA 还原 Fatdog_unhappy 或 Frida 运行时搜明文，加和 49750；L29 走动态注册：导出表两个假 nativeSign 全是坑，真身无名靠 spawn+hook libart RegisterNatives 抓映射，密钥 Fatdog_angry 异或藏 .data，加和 50208。L30 走无名派发：四候选同形函数挂函数指针表、UTF-16 密钥躲过默认 strings（`strings -el` 可破），真钥 Fatdog_gloomy，加和 51127。L31 走跨层拼装：Fatdog_ 藏在 R8 改名的 q 包、lonely 是 so 里的 UTF-16 数组，native 回调 Java 取件；每页连发 1 真 + 3 干扰同形包（错位/废签/噪声），假包要么 403 要么 nums 为空，加和 50768。L32 走反检测：四路哨兵扫 maps/探端口/查线程名/盯 TracerPid，挂着 Frida 就静默投毒一字节（签名全错），App 只弹一次警告；静态复刻党全程免疫，动态党得先让哨兵闭嘴，加和 51745。L33 走自完整性校验：可执行段 CRC 基线 + 记账守卫，纯观察钩子也会被抓，三解全开（JNI_OnLoad 抢跑/hook 校验器/改基线），加和 49502。L34 万法归墟收官：Feistel8 参数加密让纯猜必死、响应再裹一层 RC4（密钥派生）、守卫全家桶伺候——Frida/patch so/unidbg 三路皆通，加和 49932。L35 手写 3DES+SM4 埋进诱饵堆里，靠 S 盒魔数认阵（strings -el 先拿 Fatdog_sneak 再派生双钥）；双密文参数 + 动态 ts + 三连包辨真假，加和 51217。L36 手写 AES-128 沉底，钥匙是 so 里那串 == 结尾的 Base64——解开就是 16 字节真钥，Python 复刻取数加和 49495。
 
 ## 环境准备
 
@@ -438,6 +441,37 @@ license 链路：`base64 → AES解密(密钥A在XBox) → AES解密(密钥B在M
 </details>
 
 <details>
+<summary>关卡 36 · 中度提示</summary>
+
+1. strings libl36.so 找到 24 字符、以 == 结尾的 Base64 串（tE5zEyf1b+fe49uJN4cY7w==）——它就是藏宝图：base64 解码即得 16 字节 AES-128 钥匙。
+2. IDA 认算法看 S 盒开头 63 7c 77 7b；真身 k36_ecb 经指针表派发在文件底部，前面 k36_fake_* 全是无人调用的诱饵。
+3. 协议：enc=hex(AES-ECB(key,"page=N&ts=T" 零填充))、sign=HMAC-SHA256(mac,enc)，mac 由 Fatdog_break+"|mac" 运行时派生。Oo.FAKE_KEY=Fatdog_bluff 是一字之差陷阱。
+4. 静态抄近道：Python 用 pycryptodome AES-ECB 复刻取数求和 = 49495。
+
+</details>
+
+<details>
+<summary>关卡 35 · 中度提示</summary>
+
+1. strings -el libl35.so 先拿到标记 Fatdog_sneak（UTF-16 存放）；两把钥匙都由它派生：SHA256("Fatdog_sneak|sm4")[:16] 与 SHA256("Fatdog_sneak|3des")[:24]。Kq.FAKE_KEY=Fatdog_skulk 是一字之差陷阱（命中即 403）。
+2. IDA 认算法看魔数：DES 的 S1 盒开头 14,04,0d,01 与 PC1/PC2 表；SM4 的 S 盒开头 d6,90,e9,fe 与 FK a3b1bac6。真身 k35_sm4_ecb/k35_des3_ecb 经函数指针表派发，前面一堆 fake_*/junk_* 全是无人调用的诱饵（它们反而被导出了，正好当噪音）。
+3. 协议：e1=hex(SM4(key,"page=N&ts=T" 零填充))、e2=hex(3DES(key,大端 ts))、sign=HMAC(Fatdog_sneak, e1+"|"+e2)。每页三连包只有响应 nums 非空的是真包。
+4. 静态抄近道：Python 复刻双算法取数求和 = 51217（服务端 sm4_decrypt 与 pycryptodome DES3 可直接对照）。
+
+</details>
+
+<details>
+<summary>关卡 34 · 重度提示</summary>
+
+1. jadx：Yh 五个方法全是声明（真身动态注册）；导出表只有 JNI_OnLoad + 两个废诱饵 + K34_ZONE 锚点。strings -el 只见 UTF-16 的 Fatdog_grumpy——但光有它不够：参数走 Feistel8、响应是 RC4 密文。
+2. 算法三件套（IDA 从 k34_pack/k34_sign/k34_unwrap 读）：enc=hex(Feistel8(key,payload))、sign=HMAC(key,enc)、响应 rsp_key=SHA256(key+"|rsp")[:16] 再 RC4。Feistel 轮函数 F_i=SHA256(sub_i||x)[:4]，sub_i=SHA256(key+str(i))[:4]，8 轮、零填充到 8 字节倍数。
+3. 路线一（Frida）：spawn 下 hook JNI_OnLoad onEnter 抢先装钩子 → libart RegisterNatives 抓映射 → 偏移观察三联单拿现成 enc/sign/d 解包结果 → 复刻或直接转发。
+4. 路线二（patch）：定位 k34_scan_once/k34_crc_ok 改字节废守卫。路线三（unidbg）：so 不回调 Java，补环境最省——离线喂 page/ts 直接收 enc/sign。
+5. Python 全复刻参考 SOLUTIONS 关卡 34；100 页求和 = 49932。Ak.FAKE_KEY=Fatdog_sore 是一字之差陷阱。
+
+</details>
+
+<details>
 <summary>关卡 33 · 中度提示</summary>
 
 1. 症状：任何 Frida 钩子一挂（哪怕只 attach 观察不出手），签名立刻全错、App 报"完整性校验失败"——so 在给自己做 CRC 体检。
@@ -461,5 +495,5 @@ license 链路：`base64 → AES解密(密钥A在XBox) → AES解密(密钥B在M
 
 - 第一季：教程 18 静态分析 6 关 + 教程 19 smali 4 关（7/8/9/20）+ 教程 20 Frida 5 关（10-14）+ 网络取数 5 关（15-19）
 - 第二季：SSL / 抓包对抗系列 21-27（已全部落地，规划见 `PLANNED.md`）
-- 第三季：native 层系列（L28-L33 已落地；规划至 L37，见 PLANNED.md 第三季章节）；大厅新增「Native 试炼」分区
+- 第三季：native 层系列（L28-L36 已落地；规划至 L37，见 PLANNED.md 第三季章节）；大厅新增「Native 试炼」分区
 - **标记变更（自 L28 起）**：密钥/口令等标记弃用 `fatdemo_` 前缀，改用 `Fatdog_<情绪词>`（情绪词用尽换动词，如 `Fatdog_unhappy` / `Fatdog_sneak`）；L1-27 保持不变，完整规范见 `SKILL.md` §四

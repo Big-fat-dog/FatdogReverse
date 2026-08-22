@@ -34,6 +34,9 @@
 | 31 | 两界穿针 | RC4 加密参数 + HMAC 签名；密钥跨层拼装（Java q 包 R8 改名类持 Fatdog_，so 持 UTF-16 lonely，native 回调取件）；每页连发 4 个同形包（1 真 + 错位/废签/噪声） | POST https://…/api/l31 | 50768 | FLAG_18_L31{cross_layer_key} |
 | 32 | 心魔哨兵 | HMAC-SHA256 + 四路反检测哨兵（maps/端口/线程名/TracerPid + ptrace 占坑）；中招静默投毒一字节，App 弹一次警告不封禁 | GET https://…/api/l32 | 51745 | FLAG_18_L32{silent_poison_defused} |
 | 33 | 金刚不坏 | HMAC-SHA256 + 自完整性校验（可执行段 CRC32 基线比对，校验器区间挖洞排除）+ 记账守卫防整体替换；三解全开（JNI_OnLoad 抢跑 / hook 校验器 / 改基线） | GET https://…/api/l33 | 49502 | FLAG_18_L33{crc_guard_bypassed} |
+| 34 | 万法归墟 | 综合卷：动态注册 + 无名 Feistel8 参数加密 + HMAC 签名 + 四路哨兵 + CRC 自校验 + 记账守卫 + 响应 RC4（密钥派生）；三条官方路线（Frida/patch/unidbg） | POST https://…/api/l34 | 49932 | FLAG_18_L34{guixu_all_in_one} |
+| 35 | 双匣暗渡 | 手写 3DES+SM4（魔数认阵：S1 盒/FK·CK/S 盒），文件前半诱饵函数垫底、真身指针表派发；双密文参数 e1/e2 + 动态 ts；每页三连包辨真假 | POST https://…/api/l35 | 51217 | FLAG_18_L35{sbox_tells_all} |
+| 36 | 查表识君 | 手写 AES-128（S 盒 637c777b…）沉底派发；钥匙藏 .rodata 的 Base64 串（解码即 16 字节真钥——Base64 不是加密）；enc=hex(AES-ECB)+sign=HMAC(mac) | GET https://…/api/l36 | 49495 | FLAG_18_L36{base64_is_not_encryption} |
 
 > 加和 = 全部页数字的总和，App 用内置校验比对通过后才展示 flag。
 
@@ -57,6 +60,9 @@
 - L31：`g31Activity` + `Zr`（JNI 桥）+ `Xd`（干扰包分发器）+ `q/Ke`（R8 改名的 Java 半截）+ `libl31.so`（诱饵 `Pw`）
 - L32：`h32Activity`（含环境异常警告窗）+ `Bt`（JNI 桥：nativeSign/isPoisoned）+ `Cm` + `libl32.so`（诱饵 `Dn`；so 内四路哨兵守护线程）
 - L33：`i33Activity` + `Fh`（nativeSign/assertGuard/isPoisoned）+ `Gi`（发包前过记账守卫）+ `libl33.so`（诱饵 `Hk`；K33_ZONE_START/END 锚点即 CRC 挖洞线索）
+- L34：`j34Activity` + `Yh`（五方法全动态注册：pack/sign/unwrap/assertGuard/isPoisoned）+ `Zi`（POST + 响应解包）+ `libl34.so`（诱饵 `Ak`；导出仅 JNI_OnLoad + 双诱饵 + 区间锚点）
+- L35：`k35Activity` + `Ir`（nativeEncSm4/nativeEncDes/nativeSign，静态注册）+ `Js`（三连包分发器）+ `libl35.so`（诱饵 `Kq`；so 内四个诱饵变换函数可见导出——按设计当噪音）
+- L36：`l36Activity` + `Mn`（nativeEnc/nativeSign）+ `Nn`（GET 客户端）+ `libl36.so`（诱饵 `Oo`；K36_KEY_B64 明文可见即藏宝图）
 
 ## 关卡 20 设计明细（万恶广告劫：改 smali 关弹窗）
 
@@ -194,6 +200,32 @@
 - **三条官方解法全开**：① spawn 下 hook JNI_OnLoad 于 onEnter 装完钩子（基线带钩建立永远一致）；② 按偏移 hook k33_check；③ Memory 找 g_baseline 写入当前实值。记账守卫另挡"整体替换"流。
 - **服务端**：`GET /api/l33` 标准验签（KEY33_HMAC=Fatdog_jealous），SEED33=20270901，加和 49502。
 
+## 关卡 34 设计明细（万法归墟：综合卷，已落地）
+
+- **请求链**：POST 表单 page/ts/enc/sign(+dev/ver 噪声)；payload="page=N&ts=T" 零填充至 8 的倍数 → **Feistel8** 加密（轮函数 F_i(x)=SHA256(sub_i||x)[:4]，sub_i=SHA256(Fatdog_grumpy||str(i))[:4]）→ enc=hex；sign=HMAC-SHA256(Fatdog_grumpy, enc)。纯猜必死——必须还原 Feistel 或借用 oracle。
+- **响应链**：{"d": hex(RC4(rsp_key,"page=N|nums=…"))}，rsp_key=SHA256("Fatdog_grumpy|rsp")[:16] 密钥派生；App 经 Yh.nativeUnwrap 在 native 解包。注意：派生种子必须运行时拼装——明文字面量会被 strings 一把梭（开发时踩过并已修复）。
+- **守卫全家桶**：JNI_OnLoad 里 ptrace 占坑 → RegisterNatives 动态注册五个真身（static 无名）→ CRC 建基线（K34_ZONE 挖洞）→ 起四路哨兵守护线程；任一失守静默投毒一字节 + App 弹一次警告。
+- **诱饵**：导出表 Java_com_fatdog_reverse_Yh_nativePack（固定废 hex）/ Yh_sign（近名废值），全被动态覆盖；Java 层 Ak.FAKE_KEY=Fatdog_sore。
+- **服务端**：POST /api/l34 验签 → Feistel 解密核对载荷与表单一致 → 返回 RC4 密文（SEED34=20271015，加和 49932）。server.py 内置 k34_feistel_dec 与 C 实现互为镜像。
+- **三条官方路线**：① 纯 Frida：spawn 抢跑装钩子 → RegisterNatives 抓映射 → 偏移观察三联单 → 复刻三件套；② patch so：IDA 废掉扫描函数与 CRC 检查后重打包；③ unidbg：libl34.so 无 Java 回调依赖，补环境最省，离线批量签名。
+
+## 关卡 35 设计明细（双匣暗渡：手写 3DES+SM4 + 干扰包，已落地）
+
+- **App 端**：`k35Activity` ＋ `Ir`（三个 native 入口）＋ `Js`（每页三连包分发器：真包/错位包/废签包）。响应为明文 JSON，只有真包 nums 非空。
+- **libl35.so**（由脚本生成，表格先过 NIST 已知向量自测）：文件前半四个无用变换函数（fake_b64_fold/dead_xor_mix/junk_pad/fake_round_mix，全部导出当噪音）；中段手写 SM4（S 盒 d690e9fe…、FK a3b1bac6…、CK 表）与 3DES（IP/E/P/S1-S8/PC1/PC2）；底部经函数指针表 K35_SM4_TBL/K35_DES_TBL 派发。
+- **密钥派生**（不异或）：sm4_key=SHA256("Fatdog_sneak|sm4")[:16]；des_key=SHA256("Fatdog_sneak|3des")[:24]；master 即 Fatdog_sneak。标记以 UTF-16 存放（strings 默认盲）。
+- **请求协议**：POST page/ts/e1/e2/sign；e1=hex(SM4(sm4_key,"page=N&ts=T"零填充))、e2=hex(3DES(des_key,大端ts 八字节))、sign=HMAC(master,e1+"|"+e2)。加密参数恰 2 个 + 动态 ts。
+- **服务端**：POST /api/l35 用纯 Python sm4_decrypt + pycryptodome 拼 3DES 解密核对；近亲假钥 Fatdog_skulk 命中即 403，其余假包返回 nums:[] 形似而空。SEED35=20271111，加和 51217。
+- **破解点**：① strings -el 拿 Fatdog_sneak → 派生双钥 → Python 复刻（SM4/DES3 服务端同款实现可参考）；② IDA 靠魔数定位两套算法 → 偏移 Hook k35_sm4_ecb/k35_des3_ecb 观察明文入参；③ 三连包甄别同 L31。陷阱：Kq.FAKE_KEY=Fatdog_skulk。
+
+## 关卡 36 设计明细（查表识君：手写 AES-128 + Base64 藏钥，已落地）
+
+- **App 端**：`l36Activity` ＋ `Mn`（nativeEnc/nativeSign）＋ `Nn`（GET /api/l36?page&ts&enc&sign）。响应明文 JSON。
+- **libl36.so**：前半三个诱饵变换函数（fake_swap_pairs/fake_acc_mix/fake_rev，导出当噪音）；底部手写 **AES-128**（S 盒 637c777b…、Rcon、列主序 state、ShiftRows/MixColumns），经 K36_TBL[2] 指针表派发（volatile 槽位防折叠）。
+- **Base64 藏钥**（不异或）：.rodata 明文躺着 24 字符 Base64 串 `tE5zEyf1b+fe49uJN4cY7w==`——运行时 b64decode 即得 16 字节 AES 钥匙；串本身是 SHA256("Fatdog_break|key")[:16] 的编码。mac=SHA256(Fatdog_break|"mac")。教学点：Base64 不是加密，但看着像乱码的串值得先试一手。
+- **服务端**：`GET /api/l36` 验签+AES 解密核对载荷（pycryptodome AES-ECB）；近亲假钥 Fatdog_bluff 命中即 403。SEED36=20271125，加和 49495。
+- **破解点**：① strings libl36.so 找 == 结尾的 24 字符串 → base64 解码 → Python 复刻 AES-ECB+HMAC 取数；② IDA 靠 S 盒魔数定位 k36_ecb → 偏移 Hook 观察明文入参。
+
 ## 实现清单（每关落地时已做）
 
 1. `server.py` 加对应接口（验签/加解密/页面逻辑只在服务端，数字/flag 不进 APK）。
@@ -233,8 +265,8 @@
 | 31 | 两界穿针 | 密钥跨层拼装（native 回调 Java，Java 半截进 R8 改名子包 q）＋干扰包 | Fatdog_lonely | ★★★★ | POST /api/l31 | 已落地（加和 50768） |
 | 32 | 心魔哨兵 | 反检测四路哨兵 + 静默投毒；中招仅弹窗警告（不拉黑） | Fatdog_anxious | ★★★★ | GET /api/l32 | 已落地（加和 51745） |
 | 33 | 金刚不坏 | .text CRC 自校验 + 记账守卫；三条解法全开 | Fatdog_jealous | ★★★★★ | GET /api/l33 | 已落地（加和 49502） |
-| 34 | 万法归墟 | 综合卷：动态注册+无名 Feistel+反检测+CRC+响应加密；Frida / patch so / unidbg 三条官方路线 | Fatdog_grumpy | ★★★★★★ | POST /api/l34 | 规划 |
-| 35 | 双匣暗渡 | C 手写 3DES + SM4 常量识别＋干扰包 | Fatdog_sneak | ★★★★ | POST /api/l35 | 规划 |
+| 34 | 万法归墟 | 综合卷：动态注册+无名 Feistel+反检测+CRC+响应加密；Frida / patch so / unidbg 三条官方路线 | Fatdog_grumpy | ★★★★★★ | POST /api/l34 | 已落地（加和 49932） |
+| 35 | 双匣暗渡 | C 手写 3DES + SM4 常量识别＋干扰包 | Fatdog_sneak | ★★★★ | POST /api/l35 | 已落地（加和 51217） |
 | 36 | 查表识君 | C 手写 AES，真身藏在无用方法底下 | Fatdog_break | ★★★ | GET /api/l36 | 规划 |
 | 37 | 雪崩之谜 | C 手写 SHA-256 变体（改 IV/加盐），认骨架找改动点 | Fatdog_dodge | ★★★ | GET /api/l37 | 规划 |
 

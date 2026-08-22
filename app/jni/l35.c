@@ -1,0 +1,519 @@
+#include <jni.h>
+#include <string.h>
+#include <stdio.h>
+#include <stdlib.h>
+
+// ============================================================================
+// 关卡 35：双匣暗渡（手写 3DES + SM4 常量识别 + 干扰包）
+//   考点：文件前半是一堆无用变换函数；真加密压在最底部、经函数指针表派发。
+//   密钥不异或——由 UTF-16 标记 Fatdog_sneak 运行时派生：
+//     sm4_key = SHA256("Fatdog_sneak|sm4")[:16]
+//     des_key = SHA256("Fatdog_sneak|3des")[:24]
+//   认算法靠魔数：DES 的 S1 盒 14,4,13,1… 与 PC1/PC2；SM4 的 S 盒 d6 90 e9 fe…
+//   与 FK a3b1bac6…。（表格经 NIST 已知向量自测后由脚本生成）
+// ============================================================================
+
+/* 标记 "Fatdog_sneak"，UTF-16LE 码元（非 const 全局防折叠） */
+unsigned short KEY35[] = {0x0046,0x0061,0x0074,0x0064,0x006f,0x0067,0x005f,
+                          0x0073,0x006e,0x0065,0x0061,0x006b};
+
+static unsigned char k35_sm4_key[16];
+static unsigned char k35_des_key[24];
+static unsigned char k35_master[12];
+
+/* ================= 前半：无用变换函数群（诱饵垫底） ================= */
+
+__attribute__((noinline)) int k35_fake_b64_fold(unsigned char *p, int n) {
+    int i;
+    for (i = 0; i + 3 < n; i += 4) { p[i] ^= p[i+3]; p[i+3] ^= p[i]; }
+    return n;
+}
+__attribute__((noinline)) int k35_dead_xor_mix(unsigned char *p, int n) {
+    unsigned char acc = 0x5A; int i;
+    for (i = 0; i < n; i++) { acc = (unsigned char)(acc * 31 + p[i]); p[i] ^= acc; }
+    return acc;
+}
+__attribute__((noinline)) int k35_junk_pad(unsigned char *p, int n, int want) {
+    while (n < want) p[n++] = 0xEE;
+    return n;
+}
+__attribute__((noinline)) int k35_fake_round_mix(unsigned char *p, int n) {
+    int i;
+    for (i = 0; i < n - 1; i += 2) { unsigned char t = p[i]; p[i] = p[i+1]; p[i+1] = t; }
+    return n / 2;
+}
+
+/* ================= SM4 手写实现（S 盒/FK/CK 魔数认阵） ================= 
+/* ---------------- SHA-256 / HMAC-SHA256（紧凑实现，供派生/签名复用） ---------------- */
+typedef struct {
+    unsigned int h[8];
+    unsigned char buf[64];
+    unsigned long long total;
+} sha256_ctx;
+
+static const unsigned int K256[64] = {
+    0x428a2f98u, 0x71374491u, 0xb5c0fbcfu, 0xe9b5dba5u,
+    0x3956c25bu, 0x59f111f1u, 0x923f82a4u, 0xab1c5ed5u,
+    0xd807aa98u, 0x12835b01u, 0x243185beu, 0x550c7dc3u,
+    0x72be5d74u, 0x80deb1feu, 0x9bdc06a7u, 0xc19bf174u,
+    0xe49b69c1u, 0xefbe4786u, 0x0fc19dc6u, 0x240ca1ccu,
+    0x2de92c6fu, 0x4a7484aau, 0x5cb0a9dcu, 0x76f988dau,
+    0x983e5152u, 0xa831c66du, 0xb00327c8u, 0xbf597fc7u,
+    0xc6e00bf3u, 0xd5a79147u, 0x06ca6351u, 0x14292967u,
+    0x27b70a85u, 0x2e1b2138u, 0x4d2c6dfcu, 0x53380d13u,
+    0x650a7354u, 0x766a0abbu, 0x81c2c92eu, 0x92722c85u,
+    0xa2bfe8a1u, 0xa81a664bu, 0xc24b8b70u, 0xc76c51a3u,
+    0xd192e819u, 0xd6990624u, 0xf40e3585u, 0x106aa070u,
+    0x19a4c116u, 0x1e376c08u, 0x2748774cu, 0x34b0bcb5u,
+    0x391c0cb3u, 0x4ed8aa4au, 0x5b9cca4fu, 0x682e6ff3u,
+    0x748f82eeu, 0x78a5636fu, 0x84c87814u, 0x8cc70208u,
+    0x90befffau, 0xa4506cebu, 0xbef9a3f7u, 0xc67178f2u
+};
+
+static unsigned int rotr(unsigned int x, int n) {
+    return (x >> n) | (x << (32 - n));
+}
+
+static void sha256_block(sha256_ctx *c, const unsigned char *p) {
+    unsigned int w[64];
+    int i;
+    for (i = 0; i < 16; i++) {
+        w[i] = ((unsigned int) p[i * 4] << 24) | ((unsigned int) p[i * 4 + 1] << 16)
+             | ((unsigned int) p[i * 4 + 2] << 8) | (unsigned int) p[i * 4 + 3];
+    }
+    for (i = 16; i < 64; i++) {
+        unsigned int s0 = rotr(w[i - 15], 7) ^ rotr(w[i - 15], 18) ^ (w[i - 15] >> 3);
+        unsigned int s1 = rotr(w[i - 2], 17) ^ rotr(w[i - 2], 19) ^ (w[i - 2] >> 10);
+        w[i] = w[i - 16] + s0 + w[i - 7] + s1;
+    }
+    {
+        unsigned int a = c->h[0], b = c->h[1], cc = c->h[2], d = c->h[3];
+        unsigned int e = c->h[4], f = c->h[5], g = c->h[6], h = c->h[7];
+        for (i = 0; i < 64; i++) {
+            unsigned int S1 = rotr(e, 6) ^ rotr(e, 11) ^ rotr(e, 25);
+            unsigned int ch = (e & f) ^ ((~e) & g);
+            unsigned int t1 = h + S1 + ch + K256[i] + w[i];
+            unsigned int S0 = rotr(a, 2) ^ rotr(a, 13) ^ rotr(a, 22);
+            unsigned int maj = (a & b) ^ (a & cc) ^ (b & cc);
+            unsigned int t2 = S0 + maj;
+            h = g; g = f; f = e; e = d + t1;
+            d = cc; cc = b; b = a; a = t1 + t2;
+        }
+        c->h[0] += a; c->h[1] += b; c->h[2] += cc; c->h[3] += d;
+        c->h[4] += e; c->h[5] += f; c->h[6] += g; c->h[7] += h;
+    }
+}
+
+static void sha256_init(sha256_ctx *c) {
+    c->h[0] = 0x6a09e667u; c->h[1] = 0xbb67ae85u;
+    c->h[2] = 0x3c6ef372u; c->h[3] = 0xa54ff53au;
+    c->h[4] = 0x510e527fu; c->h[5] = 0x9b05688cu;
+    c->h[6] = 0x1f83d9abu; c->h[7] = 0x5be0cd19u;
+    c->total = 0;
+}
+
+static void sha256_update(sha256_ctx *c, const unsigned char *data, size_t len) {
+    size_t used, rem, i;
+    c->total += len;
+    used = (size_t) ((c->total - len) & 63);
+    rem = 64 - used;
+    if (len >= rem) {
+        memcpy(c->buf + used, data, rem);
+        sha256_block(c, c->buf);
+        for (i = rem; i + 64 <= len; i += 64) {
+            sha256_block(c, data + i);
+        }
+        data += i;
+        len -= i;
+        used = 0;
+    }
+    memcpy(c->buf + used, data, len);
+}
+
+static void sha256_final(sha256_ctx *c, unsigned char out[32]) {
+    unsigned long long bits = c->total * 8;
+    unsigned char pad[128];
+    size_t used = (size_t) (c->total & 63);
+    size_t padlen = (used < 56) ? (56 - used) : (120 - used);
+    int i;
+    memset(pad, 0, sizeof(pad));
+    pad[0] = 0x80;
+    for (i = 0; i < 8; i++) {
+        pad[padlen + i] = (unsigned char) (bits >> (56 - 8 * i));
+    }
+    sha256_update(c, pad, padlen + 8);
+    for (i = 0; i < 8; i++) {
+        out[i * 4]     = (unsigned char) (c->h[i] >> 24);
+        out[i * 4 + 1] = (unsigned char) (c->h[i] >> 16);
+        out[i * 4 + 2] = (unsigned char) (c->h[i] >> 8);
+        out[i * 4 + 3] = (unsigned char) (c->h[i]);
+    }
+}
+
+static void hmac_sha256(const unsigned char *key, size_t klen,
+                        const unsigned char *msg, size_t mlen,
+                        unsigned char out[32]) {
+    unsigned char k[64];
+    unsigned char ipad[64], opad[64], inner[32];
+    sha256_ctx c;
+    int i;
+    memset(k, 0, sizeof(k));
+    if (klen > 64) {
+        sha256_init(&c); sha256_update(&c, key, klen); sha256_final(&c, k);
+    } else {
+        memcpy(k, key, klen);
+    }
+    for (i = 0; i < 64; i++) { ipad[i] = k[i] ^ 0x36; opad[i] = k[i] ^ 0x5c; }
+    sha256_init(&c); sha256_update(&c, ipad, 64);
+    sha256_update(&c, msg, mlen); sha256_final(&c, inner);
+    sha256_init(&c); sha256_update(&c, opad, 64);
+    sha256_update(&c, inner, 32); sha256_final(&c, out);
+}
+
+
+
+static void k35_keys_init(void) {
+    /* 由标记派生三把钥匙（运行时拼装，明文不进 .rodata） */
+    unsigned char seed[24];
+    static const char t_sm4[] = {'|','s','m','4'};
+    static const char t_des[] = {'|','3','d','e','s'};
+    int i;
+    for (i = 0; i < 12; i++) {
+        seed[i]           = (char)(KEY35[i] & 0xFF);
+        k35_master[i]     = (char)(KEY35[i] & 0xFF);
+    }
+    memcpy(seed+12, t_sm4, 4);
+    { sha256_ctx c; unsigned char d[32];
+      sha256_init(&c); sha256_update(&c, seed, 16); sha256_final(&c, d);
+      memcpy(k35_sm4_key, d, 16); }
+    memcpy(seed+12, t_des, 5);
+    { sha256_ctx c; unsigned char d[32];
+      sha256_init(&c); sha256_update(&c, seed, 17); sha256_final(&c, d);
+      memcpy(k35_des_key, d, 24); }
+}
+
+static const unsigned char K35_SM4_SBOX[256] = {
+        0xd6, 0x90, 0xe9, 0xfe, 0xcc, 0xe1, 0x3d, 0xb7, 0x16, 0xb6, 0x14, 0xc2, 0x28, 0xfb, 0x2c, 0x05,
+        0x2b, 0x67, 0x9a, 0x76, 0x2a, 0xbe, 0x04, 0xc3, 0xaa, 0x44, 0x13, 0x26, 0x49, 0x86, 0x06, 0x99,
+        0x9c, 0x42, 0x50, 0xf4, 0x91, 0xef, 0x98, 0x7a, 0x33, 0x54, 0x0b, 0x43, 0xed, 0xcf, 0xac, 0x62,
+        0xe4, 0xb3, 0x1c, 0xa9, 0xc9, 0x08, 0xe8, 0x95, 0x80, 0xdf, 0x94, 0xfa, 0x75, 0x8f, 0x3f, 0xa6,
+        0x47, 0x07, 0xa7, 0xfc, 0xf3, 0x73, 0x17, 0xba, 0x83, 0x59, 0x3c, 0x19, 0xe6, 0x85, 0x4f, 0xa8,
+        0x68, 0x6b, 0x81, 0xb2, 0x71, 0x64, 0xda, 0x8b, 0xf8, 0xeb, 0x0f, 0x4b, 0x70, 0x56, 0x9d, 0x35,
+        0x1e, 0x24, 0x0e, 0x5e, 0x63, 0x58, 0xd1, 0xa2, 0x25, 0x22, 0x7c, 0x3b, 0x01, 0x21, 0x78, 0x87,
+        0xd4, 0x00, 0x46, 0x57, 0x9f, 0xd3, 0x27, 0x52, 0x4c, 0x36, 0x02, 0xe7, 0xa0, 0xc4, 0xc8, 0x9e,
+        0xea, 0xbf, 0x8a, 0xd2, 0x40, 0xc7, 0x38, 0xb5, 0xa3, 0xf7, 0xf2, 0xce, 0xf9, 0x61, 0x15, 0xa1,
+        0xe0, 0xae, 0x5d, 0xa4, 0x9b, 0x34, 0x1a, 0x55, 0xad, 0x93, 0x32, 0x30, 0xf5, 0x8c, 0xb1, 0xe3,
+        0x1d, 0xf6, 0xe2, 0x2e, 0x82, 0x66, 0xca, 0x60, 0xc0, 0x29, 0x23, 0xab, 0x0d, 0x53, 0x4e, 0x6f,
+        0xd5, 0xdb, 0x37, 0x45, 0xde, 0xfd, 0x8e, 0x2f, 0x03, 0xff, 0x6a, 0x72, 0x6d, 0x6c, 0x5b, 0x51,
+        0x8d, 0x1b, 0xaf, 0x92, 0xbb, 0xdd, 0xbc, 0x7f, 0x11, 0xd9, 0x5c, 0x41, 0x1f, 0x10, 0x5a, 0xd8,
+        0x0a, 0xc1, 0x31, 0x88, 0xa5, 0xcd, 0x7b, 0xbd, 0x2d, 0x74, 0xd0, 0x12, 0xb8, 0xe5, 0xb4, 0xb0,
+        0x89, 0x69, 0x97, 0x4a, 0x0c, 0x96, 0x77, 0x7e, 0x65, 0xb9, 0xf1, 0x09, 0xc5, 0x6e, 0xc6, 0x84,
+        0x18, 0xf0, 0x7d, 0xec, 0x3a, 0xdc, 0x4d, 0x20, 0x79, 0xee, 0x5f, 0x3e, 0xd7, 0xcb, 0x39, 0x48,
+};
+static const unsigned int K35_SM4_FK[4] = {
+        0xa3b1bac6u, 0x56aa3350u, 0x677d9197u, 0xb27022dcu,
+};
+static const unsigned int K35_SM4_CK[32] = {
+        0x00070e15u, 0x1c232a31u, 0x383f464du, 0x545b6269u, 0x70777e85u, 0x8c939aa1u, 0xa8afb6bdu, 0xc4cbd2d9u,
+        0xe0e7eef5u, 0xfc030a11u, 0x181f262du, 0x343b4249u, 0x50575e65u, 0x6c737a81u, 0x888f969du, 0xa4abb2b9u,
+        0xc0c7ced5u, 0xdce3eaf1u, 0xf8ff060du, 0x141b2229u, 0x30373e45u, 0x4c535a61u, 0x686f767du, 0x848b9299u,
+        0xa0a7aeb5u, 0xbcc3cad1u, 0xd8dfe6edu, 0xf4fb0209u, 0x10171e25u, 0x2c333a41u, 0x484f565du, 0x646b7279u,
+};
+
+static unsigned int k35_rotl(unsigned int x, int n){ return (x << n) | (x >> (32 - n)); }
+static unsigned int k35_sm4_tau(unsigned int a){
+    return ((unsigned int)K35_SM4_SBOX[a >> 24] << 24)
+         | ((unsigned int)K35_SM4_SBOX[(a >> 16) & 0xFF] << 16)
+         | ((unsigned int)K35_SM4_SBOX[(a >> 8) & 0xFF] << 8)
+         |  (unsigned int)K35_SM4_SBOX[a & 0xFF];
+}
+static unsigned int k35_sm4_Lenc(unsigned int b){ return b ^ k35_rotl(b,2) ^ k35_rotl(b,10) ^ k35_rotl(b,18) ^ k35_rotl(b,24); }
+static unsigned int k35_sm4_Lkey(unsigned int b){ return b ^ k35_rotl(b,13) ^ k35_rotl(b,23); }
+
+static void k35_sm4_block(unsigned char blk[16], const unsigned char mk[16]) {
+    unsigned int X[36], rk[32], tmp;
+    int i, j;
+    for (j = 0; j < 4; j++) {
+        X[j] = ((unsigned int)mk[j*4] << 24) | ((unsigned int)mk[j*4+1] << 16)
+             | ((unsigned int)mk[j*4+2] << 8) |  (unsigned int)mk[j*4+3];
+        X[j] ^= K35_SM4_FK[j];
+    }
+    for (i = 0; i < 32; i++) {
+        tmp = X[i+1] ^ X[i+2] ^ X[i+3] ^ K35_SM4_CK[i];
+        rk[i] = X[i] ^ k35_sm4_Lkey(k35_sm4_tau(tmp));
+    }
+    for (i = 0; i < 32; i++) {
+        tmp = X[i+1] ^ X[i+2] ^ X[i+3] ^ rk[i];
+        X[i+4] = X[i] ^ k35_sm4_Lenc(k35_sm4_tau(tmp));
+    }
+    for (j = 0; j < 4; j++) {
+        unsigned int w = X[35 - j];
+        blk[j*4]   = (unsigned char)(w >> 24);
+        blk[j*4+1] = (unsigned char)(w >> 16);
+        blk[j*4+2] = (unsigned char)(w >> 8);
+        blk[j*4+3] = (unsigned char)(w);
+    }
+}
+
+/* 加密 len 字节（len 为 16 的倍数） */
+__attribute__((noinline)) void k35_sm4_ecb(const unsigned char *in, size_t n,
+                                           const unsigned char *key16,
+                                           unsigned char *out) {
+    size_t off;
+    for (off = 0; off < n; off += 16) {
+        memcpy(out + off, in + off, 16);
+        k35_sm4_block(out + off, key16);
+    }
+}
+
+/* ================= 3DES 手写实现（IP/E/P/S1-S8/PC1/PC2 魔数认阵） ================= */
+
+
+static const unsigned char K35_IP[64] = {
+        0x3a, 0x32, 0x2a, 0x22, 0x1a, 0x12, 0x0a, 0x02, 0x3c, 0x34, 0x2c, 0x24, 0x1c, 0x14, 0x0c, 0x04,
+        0x3e, 0x36, 0x2e, 0x26, 0x1e, 0x16, 0x0e, 0x06, 0x40, 0x38, 0x30, 0x28, 0x20, 0x18, 0x10, 0x08,
+        0x39, 0x31, 0x29, 0x21, 0x19, 0x11, 0x09, 0x01, 0x3b, 0x33, 0x2b, 0x23, 0x1b, 0x13, 0x0b, 0x03,
+        0x3d, 0x35, 0x2d, 0x25, 0x1d, 0x15, 0x0d, 0x05, 0x3f, 0x37, 0x2f, 0x27, 0x1f, 0x17, 0x0f, 0x07,
+};
+static const unsigned char K35_FP[64] = {
+        0x28, 0x08, 0x30, 0x10, 0x38, 0x18, 0x40, 0x20, 0x27, 0x07, 0x2f, 0x0f, 0x37, 0x17, 0x3f, 0x1f,
+        0x26, 0x06, 0x2e, 0x0e, 0x36, 0x16, 0x3e, 0x1e, 0x25, 0x05, 0x2d, 0x0d, 0x35, 0x15, 0x3d, 0x1d,
+        0x24, 0x04, 0x2c, 0x0c, 0x34, 0x14, 0x3c, 0x1c, 0x23, 0x03, 0x2b, 0x0b, 0x33, 0x13, 0x3b, 0x1b,
+        0x22, 0x02, 0x2a, 0x0a, 0x32, 0x12, 0x3a, 0x1a, 0x21, 0x01, 0x29, 0x09, 0x31, 0x11, 0x39, 0x19,
+};
+static const unsigned char K35_E[48] = {
+        0x20, 0x01, 0x02, 0x03, 0x04, 0x05, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09,
+        0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0c, 0x0d, 0x0e, 0x0f, 0x10, 0x11,
+        0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19,
+        0x18, 0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1c, 0x1d, 0x1e, 0x1f, 0x20, 0x01,
+};
+static const unsigned char K35_P[32] = {
+        0x10, 0x07, 0x14, 0x15, 0x1d, 0x0c, 0x1c, 0x11, 0x01, 0x0f, 0x17, 0x1a,
+        0x05, 0x12, 0x1f, 0x0a, 0x02, 0x08, 0x18, 0x0e, 0x20, 0x1b, 0x03, 0x09,
+        0x13, 0x0d, 0x1e, 0x06, 0x16, 0x0b, 0x04, 0x19,
+};
+static const unsigned char K35_PC1[56] = {
+        0x39, 0x31, 0x29, 0x21, 0x19, 0x11, 0x09, 0x01, 0x3a, 0x32, 0x2a, 0x22, 0x1a, 0x12,
+        0x0a, 0x02, 0x3b, 0x33, 0x2b, 0x23, 0x1b, 0x13, 0x0b, 0x03, 0x3c, 0x34, 0x2c, 0x24,
+        0x3f, 0x37, 0x2f, 0x27, 0x1f, 0x17, 0x0f, 0x07, 0x3e, 0x36, 0x2e, 0x26, 0x1e, 0x16,
+        0x0e, 0x06, 0x3d, 0x35, 0x2d, 0x25, 0x1d, 0x15, 0x0d, 0x05, 0x1c, 0x14, 0x0c, 0x04,
+};
+static const unsigned char K35_PC2[48] = {
+        0x0e, 0x11, 0x0b, 0x18, 0x01, 0x05, 0x03, 0x1c, 0x0f, 0x06, 0x15, 0x0a,
+        0x17, 0x13, 0x0c, 0x04, 0x1a, 0x08, 0x10, 0x07, 0x1b, 0x14, 0x0d, 0x02,
+        0x29, 0x34, 0x1f, 0x25, 0x2f, 0x37, 0x1e, 0x28, 0x33, 0x2d, 0x21, 0x30,
+        0x2c, 0x31, 0x27, 0x38, 0x22, 0x35, 0x2e, 0x2a, 0x32, 0x24, 0x1d, 0x20,
+};
+static const unsigned char K35_SBOX[512] = {
+        0x0e, 0x04, 0x0d, 0x01, 0x02, 0x0f, 0x0b, 0x08, 0x03, 0x0a, 0x06, 0x0c, 0x05, 0x09, 0x00, 0x07,
+        0x00, 0x0f, 0x07, 0x04, 0x0e, 0x02, 0x0d, 0x01, 0x0a, 0x06, 0x0c, 0x0b, 0x09, 0x05, 0x03, 0x08,
+        0x04, 0x01, 0x0e, 0x08, 0x0d, 0x06, 0x02, 0x0b, 0x0f, 0x0c, 0x09, 0x07, 0x03, 0x0a, 0x05, 0x00,
+        0x0f, 0x0c, 0x08, 0x02, 0x04, 0x09, 0x01, 0x07, 0x05, 0x0b, 0x03, 0x0e, 0x0a, 0x00, 0x06, 0x0d,
+        0x0f, 0x01, 0x08, 0x0e, 0x06, 0x0b, 0x03, 0x04, 0x09, 0x07, 0x02, 0x0d, 0x0c, 0x00, 0x05, 0x0a,
+        0x03, 0x0d, 0x04, 0x07, 0x0f, 0x02, 0x08, 0x0e, 0x0c, 0x00, 0x01, 0x0a, 0x06, 0x09, 0x0b, 0x05,
+        0x00, 0x0e, 0x07, 0x0b, 0x0a, 0x04, 0x0d, 0x01, 0x05, 0x08, 0x0c, 0x06, 0x09, 0x03, 0x02, 0x0f,
+        0x0d, 0x08, 0x0a, 0x01, 0x03, 0x0f, 0x04, 0x02, 0x0b, 0x06, 0x07, 0x0c, 0x00, 0x05, 0x0e, 0x09,
+        0x0a, 0x00, 0x09, 0x0e, 0x06, 0x03, 0x0f, 0x05, 0x01, 0x0d, 0x0c, 0x07, 0x0b, 0x04, 0x02, 0x08,
+        0x0d, 0x07, 0x00, 0x09, 0x03, 0x04, 0x06, 0x0a, 0x02, 0x08, 0x05, 0x0e, 0x0c, 0x0b, 0x0f, 0x01,
+        0x0d, 0x06, 0x04, 0x09, 0x08, 0x0f, 0x03, 0x00, 0x0b, 0x01, 0x02, 0x0c, 0x05, 0x0a, 0x0e, 0x07,
+        0x01, 0x0a, 0x0d, 0x00, 0x06, 0x09, 0x08, 0x07, 0x04, 0x0f, 0x0e, 0x03, 0x0b, 0x05, 0x02, 0x0c,
+        0x07, 0x0d, 0x0e, 0x03, 0x00, 0x06, 0x09, 0x0a, 0x01, 0x02, 0x08, 0x05, 0x0b, 0x0c, 0x04, 0x0f,
+        0x0d, 0x08, 0x0b, 0x05, 0x06, 0x0f, 0x00, 0x03, 0x04, 0x07, 0x02, 0x0c, 0x01, 0x0a, 0x0e, 0x09,
+        0x0a, 0x06, 0x09, 0x00, 0x0c, 0x0b, 0x07, 0x0d, 0x0f, 0x01, 0x03, 0x0e, 0x05, 0x02, 0x08, 0x04,
+        0x03, 0x0f, 0x00, 0x06, 0x0a, 0x01, 0x0d, 0x08, 0x09, 0x04, 0x05, 0x0b, 0x0c, 0x07, 0x02, 0x0e,
+        0x02, 0x0c, 0x04, 0x01, 0x07, 0x0a, 0x0b, 0x06, 0x08, 0x05, 0x03, 0x0f, 0x0d, 0x00, 0x0e, 0x09,
+        0x0e, 0x0b, 0x02, 0x0c, 0x04, 0x07, 0x0d, 0x01, 0x05, 0x00, 0x0f, 0x0a, 0x03, 0x09, 0x08, 0x06,
+        0x04, 0x02, 0x01, 0x0b, 0x0a, 0x0d, 0x07, 0x08, 0x0f, 0x09, 0x0c, 0x05, 0x06, 0x03, 0x00, 0x0e,
+        0x0b, 0x08, 0x0c, 0x07, 0x01, 0x0e, 0x02, 0x0d, 0x06, 0x0f, 0x00, 0x09, 0x0a, 0x04, 0x05, 0x03,
+        0x0c, 0x01, 0x0a, 0x0f, 0x09, 0x02, 0x06, 0x08, 0x00, 0x0d, 0x03, 0x04, 0x0e, 0x07, 0x05, 0x0b,
+        0x0a, 0x0f, 0x04, 0x02, 0x07, 0x0c, 0x09, 0x05, 0x06, 0x01, 0x0d, 0x0e, 0x00, 0x0b, 0x03, 0x08,
+        0x09, 0x0e, 0x0f, 0x05, 0x02, 0x08, 0x0c, 0x03, 0x07, 0x00, 0x04, 0x0a, 0x01, 0x0d, 0x0b, 0x06,
+        0x04, 0x03, 0x02, 0x0c, 0x09, 0x05, 0x0f, 0x0a, 0x0b, 0x0e, 0x01, 0x07, 0x06, 0x00, 0x08, 0x0d,
+        0x04, 0x0b, 0x02, 0x0e, 0x0f, 0x00, 0x08, 0x0d, 0x03, 0x0c, 0x09, 0x07, 0x05, 0x0a, 0x06, 0x01,
+        0x0d, 0x00, 0x0b, 0x07, 0x04, 0x09, 0x01, 0x0a, 0x0e, 0x03, 0x05, 0x0c, 0x02, 0x0f, 0x08, 0x06,
+        0x01, 0x04, 0x0b, 0x0d, 0x0c, 0x03, 0x07, 0x0e, 0x0a, 0x0f, 0x06, 0x08, 0x00, 0x05, 0x09, 0x02,
+        0x06, 0x0b, 0x0d, 0x08, 0x01, 0x04, 0x0a, 0x07, 0x09, 0x05, 0x00, 0x0f, 0x0e, 0x02, 0x03, 0x0c,
+        0x0d, 0x02, 0x08, 0x04, 0x06, 0x0f, 0x0b, 0x01, 0x0a, 0x09, 0x03, 0x0e, 0x05, 0x00, 0x0c, 0x07,
+        0x01, 0x0f, 0x0d, 0x08, 0x0a, 0x03, 0x07, 0x04, 0x0c, 0x05, 0x06, 0x0b, 0x00, 0x0e, 0x09, 0x02,
+        0x07, 0x0b, 0x04, 0x01, 0x09, 0x0c, 0x0e, 0x02, 0x00, 0x06, 0x0a, 0x0d, 0x0f, 0x03, 0x05, 0x08,
+        0x02, 0x01, 0x0e, 0x07, 0x04, 0x0a, 0x08, 0x0d, 0x0f, 0x0c, 0x09, 0x00, 0x03, 0x05, 0x06, 0x0b,
+};
+static const unsigned char K35_SHIFTS[16] = {
+        0x01, 0x01, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x01, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x01,
+};
+
+/* 通用位重排：table 为 1 起始位序（与教材一致），MSB-first */
+static void k35_permute(const unsigned char *in, unsigned char *out,
+                        const unsigned char *tbl, int nbits) {
+    int i, bit, byte_i, off;
+    memset(out, 0, (size_t)((nbits + 7) / 8));
+    for (i = 0; i < nbits; i++) {
+        bit = tbl[i] - 1;
+        byte_i = bit / 8; off = 7 - bit % 8;
+        if ((in[byte_i] >> off) & 1) out[i / 8] |= (unsigned char)(1 << (7 - i % 8));
+    }
+}
+
+static void k35_des_keysched(const unsigned char key8[8],
+                             unsigned char sub[16][6]) {
+    unsigned char cd[7], pc1out[7], pc2out[7], buf[8];
+    unsigned int C, D;
+    int r, k, bit;
+    k35_permute(key8, pc1out, K35_PC1, 56);
+    memcpy(cd, pc1out, 7);
+    C = ((unsigned int)cd[0]<<20)|((unsigned int)cd[1]<<12)|((unsigned int)cd[2]<<4)|((unsigned int)cd[3]>>4);
+    D = ((unsigned int)(cd[3]&0xF)<<24)|((unsigned int)cd[4]<<16)|((unsigned int)cd[5]<<8)|(unsigned int)cd[6];
+    for (r = 0; r < 16; r++) {
+        int sh = K35_SHIFTS[r];
+        C = ((C << sh) | (C >> (28 - sh))) & 0x0FFFFFFFu;
+        D = ((D << sh) | (D >> (28 - sh))) & 0x0FFFFFFFu;
+        buf[0]=(unsigned char)(C>>20); buf[1]=(unsigned char)(C>>12);
+        buf[2]=(unsigned char)(C>>4);  buf[3]=(unsigned char)(((C&0xF)<<4)|((D>>24)&0xF));
+        buf[4]=(unsigned char)(D>>16); buf[5]=(unsigned char)(D>>8);  buf[6]=(unsigned char)(D);
+        k35_permute(buf, pc2out, K35_PC2, 48);
+        for (k = 0; k < 6; k++) sub[r][k] = pc2out[k];
+        (void)bit;
+    }
+}
+
+static int k35_getbit(const unsigned char *buf, int pos) {   /* pos 从 1 起 */
+    --pos;
+    return (buf[pos / 8] >> (7 - pos % 8)) & 1;
+}
+static void k35_setbit(unsigned char *buf, int pos, int v) {
+    --pos;
+    if (v) buf[pos / 8] |= (unsigned char)(1 << (7 - pos % 8));
+    else   buf[pos / 8] &= (unsigned char)~(1 << (7 - pos % 8));
+}
+
+static void k35_des_sbox_f(const unsigned char e48[6], const unsigned char sub48[6],
+                           unsigned char f32[4]) {
+    unsigned char x[6], sout[4];
+    int g, j;
+    for (j = 0; j < 6; j++) x[j] = (unsigned char)(e48[j] ^ sub48[j]);
+    memset(sout, 0, 4);
+    for (g = 0; g < 8; g++) {
+        int base = g * 6;
+        int row = (k35_getbit(x, base + 1) << 1) | k35_getbit(x, base + 6);
+        int col = (k35_getbit(x, base + 2) << 3) | (k35_getbit(x, base + 3) << 2)
+                | (k35_getbit(x, base + 4) << 1) |  k35_getbit(x, base + 5);
+        int v = K35_SBOX[g * 64 + row * 16 + col];
+        for (j = 0; j < 4; j++)
+            k35_setbit(sout, g * 4 + j + 1, (v >> (3 - j)) & 1);
+    }
+    k35_permute(sout, f32, K35_P, 32);
+}
+
+static void k35_des_block(const unsigned char in[8], const unsigned char sub[16][6],
+                          unsigned char out[8]) {
+    unsigned char joined[8], fpout[8], e48[6], f32[4];
+    unsigned char L[4], R[4], newR[4];
+    int r, j;
+    k35_permute(in, joined, K35_IP, 64);
+    memcpy(L, joined, 4); memcpy(R, joined + 4, 4);
+    for (r = 0; r < 16; r++) {
+        k35_permute(R, e48, K35_E, 48);
+        k35_des_sbox_f(e48, sub[r], f32);
+        for (j = 0; j < 4; j++) newR[j] = (unsigned char)(L[j] ^ f32[j]);
+        memcpy(L, R, 4); memcpy(R, newR, 4);
+    }
+    memcpy(joined, R, 4); memcpy(joined + 4, L, 4);       /* 终轮交换 */
+    k35_permute(joined, fpout, K35_FP, 64);
+    memcpy(out, fpout, 8);
+}
+
+/* 3DES-EDE：E_k1 → D_k2 → E_k3（解密即反向） */
+__attribute__((noinline)) void k35_des3_ecb(const unsigned char *in, size_t n,
+                                            const unsigned char key24[24],
+                                            unsigned char *out) {
+    unsigned char s1[16][6], s2[16][6], s3[16][6];
+    size_t off;
+    k35_des_keysched(key24,      s1);
+    k35_des_keysched(key24 + 8,  s2);
+    k35_des_keysched(key24 + 16, s3);
+    for (off = 0; off < n; off += 8) {
+        unsigned char t[8];
+        k35_des_block(in + off, s1, t);
+        {   /* D_k2：子密钥逆序即解密 */
+            unsigned char rev[16][6]; int r, k;
+            for (r = 0; r < 16; r++) for (k = 0; k < 6; k++) rev[r][k] = s2[15 - r][k];
+            k35_des_block(t, rev, t);
+        }
+        k35_des_block(t, s3, out + off);
+    }
+}
+
+/* ================= 底部：派发表 + JNI 入口 ================= */
+
+
+typedef void (*k35_sm4_fn)(const unsigned char *, size_t, const unsigned char *, unsigned char *);
+typedef void (*k35_des_fn)(const unsigned char *, size_t, const unsigned char *, unsigned char *);
+
+/* 派发表：真身藏在槽位里，IDA 里要顺着初始化代码才能锁定 */
+static const k35_sm4_fn K35_SM4_TBL[3] = { NULL, NULL, k35_sm4_ecb };
+static volatile int K35_SLOT_SM4 = 2;
+static const k35_des_fn K35_DES_TBL[2] = { NULL, k35_des3_ecb };
+static volatile int K35_SLOT_DES = 1;
+
+static void to_hex(const unsigned char *d, int n, char *hex) {
+    static const char h[] = "0123456789abcdef";
+    int i;
+    for (i = 0; i < n; i++) {
+        hex[i * 2]     = h[d[i] >> 4];
+        hex[i * 2 + 1] = h[d[i] & 0x0f];
+    }
+    hex[n * 2] = '\0';
+}
+
+/* HMAC-SHA256 复用同文件紧凑实现（略——见下方公共区） */
+
+JNIEXPORT jstring JNICALL
+Java_com_fatdog_reverse_Ir_nativeEncSm4(JNIEnv *env, jclass clazz, jint page, jlong ts) {
+    char msg[64];
+    unsigned char padded[64], out[64];
+    char hex[129];
+    int mlen, padded_n;
+    (void) clazz;
+    mlen = snprintf(msg, sizeof(msg), "page=%d&ts=%lld", (int) page, (long long) ts);
+    padded_n = (mlen + 15) / 16 * 16;
+    memset(padded, 0, (size_t) padded_n);
+    memcpy(padded, msg, (size_t) mlen);
+    K35_SM4_TBL[K35_SLOT_SM4](padded, (size_t) padded_n, k35_sm4_key, out);
+    to_hex(out, padded_n, hex);
+    return (*env)->NewStringUTF(env, hex);
+}
+
+JNIEXPORT jstring JNICALL
+Java_com_fatdog_reverse_Ir_nativeEncDes(JNIEnv *env, jclass clazz, jlong ts) {
+    unsigned char blk[8], out[8];
+    char hex[17];
+    long long v = (long long) ts;
+    int i;
+    (void) clazz;
+    for (i = 0; i < 8; i++) blk[i] = (unsigned char)((v >> (56 - 8 * i)) & 0xFF);
+    K35_DES_TBL[K35_SLOT_DES](blk, 8, k35_des_key, out);
+    to_hex(out, 8, hex);
+    return (*env)->NewStringUTF(env, hex);
+}
+
+JNIEXPORT jstring JNICALL
+Java_com_fatdog_reverse_Ir_nativeSign(JNIEnv *env, jclass clazz,
+                                      jstring e1Hex, jstring e2Hex) {
+    const char *e1, *e2;
+    unsigned char mac[32];
+    char hex[65], cat[512];
+    size_t l1, l2;
+    (void) clazz;
+    e1 = (*env)->GetStringUTFChars(env, e1Hex, NULL);
+    e2 = (*env)->GetStringUTFChars(env, e2Hex, NULL);
+    if (e1 == NULL || e2 == NULL) return (*env)->NewStringUTF(env, "");
+    l1 = strlen(e1); l2 = strlen(e2);
+    if (l1 + l2 + 2 > sizeof(cat)) { l1 = sizeof(cat) - l2 - 2; }
+    memcpy(cat, e1, l1); cat[l1] = '|';
+    memcpy(cat + l1 + 1, e2, l2);
+    hmac_sha256(k35_master, 12, (const unsigned char *) cat, l1 + 1 + l2, mac);
+    (*env)->ReleaseStringUTFChars(env, e1Hex, e1);
+    (*env)->ReleaseStringUTFChars(env, e2Hex, e2);
+    to_hex(mac, 32, hex);
+    return (*env)->NewStringUTF(env, hex);
+}
