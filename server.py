@@ -133,6 +133,25 @@ PAGES30, PER_PAGE30, SEED30 = 100, 10, 20270520
 _rng30 = random.Random(SEED30)
 NUMS30 = [_rng30.randint(1, 100) for _ in range(PAGES30 * PER_PAGE30)]
 
+# ---------------- 关卡 31：两界穿针（跨层密钥 + 干扰包，POST 表单） ----------------
+KEY31_HMAC = b"Fatdog_lonely"
+DECOY31_KEYS = [b"Fatdog_lovely"]      # 近亲假钥：命中即点名 403
+PAGES31, PER_PAGE31, SEED31 = 100, 10, 20270618
+_rng31 = random.Random(SEED31)
+NUMS31 = [_rng31.randint(1, 100) for _ in range(PAGES31 * PER_PAGE31)]
+
+# ---------------- 关卡 32：心魔哨兵（native 反检测 + 静默投毒） ----------------
+KEY32_HMAC = b"Fatdog_anxious"
+PAGES32, PER_PAGE32, SEED32 = 100, 10, 20270726
+_rng32 = random.Random(SEED32)
+NUMS32 = [_rng32.randint(1, 100) for _ in range(PAGES32 * PER_PAGE32)]
+
+# ---------------- 关卡 33：金刚不坏（CRC 自校验 + 记账守卫） ----------------
+KEY33_HMAC = b"Fatdog_jealous"
+PAGES33, PER_PAGE33, SEED33 = 100, 10, 20270901
+_rng33 = random.Random(SEED33)
+NUMS33 = [_rng33.randint(1, 100) for _ in range(PAGES33 * PER_PAGE33)]
+
 # ---------------- 关卡 23：WebView 白屏（证书错误） ----------------
 # 页面只接受 HTTPS；HTTP 端口访问一律 403。
 # App 端 WebView 不信任自签证书 → onReceivedSslError → handler.cancel() 白屏；
@@ -501,6 +520,49 @@ def api_l30(page: int = Query(...), ts: int = Query(...), sign: str = Query(...)
     idx = (page - 1) * PER_PAGE30
     return {"page": page, "nums": NUMS30[idx:idx + PER_PAGE30]}
 
+def _l31_try(k, page, ts, enc, sign):
+    """用候选密钥 k 完整验证一包：HMAC 对 + RC4 解密出的载荷与表单一致"""
+    if not hmac.compare_digest(sign, hmac.new(k, enc.encode(), hashlib.sha256).hexdigest()):
+        return False
+    try:
+        plain = rc4(k, bytes.fromhex(enc)).decode("utf-8", "ignore")
+    except Exception:
+        return False
+    m = re.fullmatch(r"page=(\d+)&ts=(\d+)", plain or "")
+    return bool(m) and int(m.group(1)) == page and int(m.group(2)) == ts
+
+
+@app.post("/api/l31")
+def api_l31(page: int = Form(...), ts: int = Form(...), enc: str = Form(...), sign: str = Form(...)):
+    _check_ts(ts)
+    if _l31_try(KEY31_HMAC, page, ts, enc, sign):
+        _check_page(page, PAGES31)
+        idx = (page - 1) * PER_PAGE31
+        return {"page": page, "nums": NUMS31[idx:idx + PER_PAGE31]}
+    for dk in DECOY31_KEYS:
+        if _l31_try(dk, page, ts, enc, sign):
+            raise HTTPException(status_code=403, detail="sign invalid")
+    # 其余一律"形似而空"：200 但没有数字——逼玩家靠内容分辨真假包
+    return {"page": page, "nums": []}
+
+@app.get("/api/l32")
+def api_l32(page: int = Query(...), ts: int = Query(...), sign: str = Query(...)):
+    _check_page(page, PAGES32)
+    _check_ts(ts)
+    if not hmac.compare_digest(sign, hmac.new(KEY32_HMAC, f"page={page}&ts={ts}".encode(), hashlib.sha256).hexdigest()):
+        raise HTTPException(status_code=403, detail="sign invalid")
+    idx = (page - 1) * PER_PAGE32
+    return {"page": page, "nums": NUMS32[idx:idx + PER_PAGE32]}
+
+@app.get("/api/l33")
+def api_l33(page: int = Query(...), ts: int = Query(...), sign: str = Query(...)):
+    _check_page(page, PAGES33)
+    _check_ts(ts)
+    if not hmac.compare_digest(sign, hmac.new(KEY33_HMAC, f"page={page}&ts={ts}".encode(), hashlib.sha256).hexdigest()):
+        raise HTTPException(status_code=403, detail="sign invalid")
+    idx = (page - 1) * PER_PAGE33
+    return {"page": page, "nums": NUMS33[idx:idx + PER_PAGE33]}
+
 
 @app.get("/h5/v23", response_class=HTMLResponse)
 def h5_v23(request: Request):
@@ -558,7 +620,7 @@ if __name__ == "__main__":
     print(f"L26 mTLS: https://{HOST}:8444/api/mtls （双向 TLS：必须出示 certs/client.p12 里的客户端证书）")
     print(f"数字加和：L15={sum(NUMS)} L16={sum(NUMS16)} L17={sum(NUMS17)} L18={sum(NUMS18)} L19={sum(NUMS19)} "
           f"L21={sum(NUMS21)} L22={sum(NUMS22)} L24={sum(NUMS24)} L25={sum(NUMS25)} L26={sum(NUMS26)} L27={sum(NUMS27)} "
-          f"L28={sum(NUMS28)} L29={sum(NUMS29)} L30={sum(NUMS30)}")
+          f"L28={sum(NUMS28)} L29={sum(NUMS29)} L30={sum(NUMS30)} L31={sum(NUMS31)} L32={sum(NUMS32)} L33={sum(NUMS33)}")
     http_cfg = uvicorn.Config(app, host=HOST, port=PORT_HTTP, log_level="info")
     threading.Thread(target=uvicorn.Server(http_cfg).run, daemon=True).start()
     https_cfg = uvicorn.Config(app, host=HOST, port=PORT_HTTPS,

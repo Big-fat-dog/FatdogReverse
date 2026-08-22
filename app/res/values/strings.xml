@@ -39,5 +39,8 @@
     <string name="btn_l28">关卡 28：缄默之钥</string>
     <string name="btn_l29">关卡 29：隐姓埋名</string>
     <string name="btn_l30">关卡 30：无名剑冢</string>
+    <string name="btn_l31">关卡 31：两界穿针</string>
+    <string name="btn_l32">关卡 32：心魔哨兵</string>
+    <string name="btn_l33">关卡 33：金刚不坏</string>
     <string name="tip_hidden">提示：关卡 6 的入口不在这个页面上，去 AndroidManifest.xml 里找。</string>
 </resources>

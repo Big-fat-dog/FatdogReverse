@@ -30,7 +30,7 @@ import java.util.ArrayList;
 // 个人主页：顶部"传送带"式分类条（基本情况 / 太古禁地 / 神念自察），可横向滑动；
 // 下方内容随分类切换。基本情况 = 头像 + 境界 + 修仙进度；右上角昼夜切换；背景图。
 public class ProfileActivity extends Activity {
-    private static final int TOTAL_LEVELS = 30;   // 关卡 1-28（含 L20，L21-27 属 SSL/抓包系列，L28 起 native 第三季）
+    private static final int TOTAL_LEVELS = 33;   // 关卡 1-28（含 L20，L21-27 属 SSL/抓包系列，L28 起 native 第三季）
     // 炼气~元婴：每 5 关一层（1-20）；化神起：每 10 关一个大境界，第 10 层为"圆满"；
     // 高阶四境之后是终点"独断万古"——通关数再多也停在它上面。
     private static final String[] BIG_REALMS = {"炼气", "筑基", "金丹", "元婴"};

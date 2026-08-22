@@ -17,3 +17,6 @@
 
 # 注：com.fatdog.reverse.o.** 不在此列 → R8 会把 Encrypt/Keys/Api/Dummy 重命名为 a/b/c，
 # 算法名/路径/密钥仍是异或加密串（字符串加密在源码里手动做了，R8 本身不加密字符串）。
+
+# 关卡 31：q 包类整体交给 R8 改名，但 native 回调依赖的方法名必须保留
+-keepclassmembers class com.fatdog.reverse.q.Ke { public static java.lang.String partA(); }

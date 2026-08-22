@@ -31,6 +31,9 @@
 | 28 | 缄默之钥 | HMAC-SHA256，密钥 ^0x5C 异或藏进 libl28.so 的 .rodata（strings 只有诱饵 Fatdog_silent） | GET https://…/api/l28 | 49750 | FLAG_18_L28{runtime_decoded_key} |
 | 29 | 隐姓埋名 | HMAC-SHA256，真身经 JNI_OnLoad 动态注册绑定（无名 static 函数；导出表两个假 nativeSign 全是坑） | GET https://…/api/l29 | 50208 | FLAG_18_L29{register_natives_caught} |
 | 30 | 无名剑冢 | HMAC-SHA256，四同形签名函数经函数指针表派发（间接调用模糊 xref）；密钥 UTF-16LE 码元藏匿（默认 strings 盲区） | GET https://…/api/l30 | 51127 | FLAG_18_L30{nameless_dispatch} |
+| 31 | 两界穿针 | RC4 加密参数 + HMAC 签名；密钥跨层拼装（Java q 包 R8 改名类持 Fatdog_，so 持 UTF-16 lonely，native 回调取件）；每页连发 4 个同形包（1 真 + 错位/废签/噪声） | POST https://…/api/l31 | 50768 | FLAG_18_L31{cross_layer_key} |
+| 32 | 心魔哨兵 | HMAC-SHA256 + 四路反检测哨兵（maps/端口/线程名/TracerPid + ptrace 占坑）；中招静默投毒一字节，App 弹一次警告不封禁 | GET https://…/api/l32 | 51745 | FLAG_18_L32{silent_poison_defused} |
+| 33 | 金刚不坏 | HMAC-SHA256 + 自完整性校验（可执行段 CRC32 基线比对，校验器区间挖洞排除）+ 记账守卫防整体替换；三解全开（JNI_OnLoad 抢跑 / hook 校验器 / 改基线） | GET https://…/api/l33 | 49502 | FLAG_18_L33{crc_guard_bypassed} |
 
 > 加和 = 全部页数字的总和，App 用内置校验比对通过后才展示 flag。
 
@@ -51,6 +54,9 @@
 - L28：`d28Activity` + `Zk` + `Ct` + `libl28.so`（诱饵 `Fk`；so 内另埋明文诱钥 `Fatdog_silent`）
 - L29：`e29Activity` + `Wq` + `Xs` + `libl29.so`（诱饵 `Yd`；so 导出表只有 JNI_OnLoad 与两个假 nativeSign）
 - L30：`f30Activity` + `Vn` + `Wo` + `libl30.so`（诱饵 `Xk`；so 内四个同形签名函数 + UTF-16 密钥库，导出仅一个 JNI 入口）
+- L31：`g31Activity` + `Zr`（JNI 桥）+ `Xd`（干扰包分发器）+ `q/Ke`（R8 改名的 Java 半截）+ `libl31.so`（诱饵 `Pw`）
+- L32：`h32Activity`（含环境异常警告窗）+ `Bt`（JNI 桥：nativeSign/isPoisoned）+ `Cm` + `libl32.so`（诱饵 `Dn`；so 内四路哨兵守护线程）
+- L33：`i33Activity` + `Fh`（nativeSign/assertGuard/isPoisoned）+ `Gi`（发包前过记账守卫）+ `libl33.so`（诱饵 `Hk`；K33_ZONE_START/END 锚点即 CRC 挖洞线索）
 
 ## 关卡 20 设计明细（万恶广告劫：改 smali 关弹窗）
 
@@ -164,6 +170,30 @@
 - **服务端**：`GET /api/l30` 验签（KEY30_HMAC=Fatdog_gloomy），SEED30=20270520，加和 51127。
 - **破解点**：① IDA 定位派发表与四个码元数组 → 还原 Fatdog_gloomy → Python 复刻；② 按偏移逐个 Hook 四候选观察返回值，服务器验真（错候选一律 403）；③ `strings -el libl30.so` 直接收 UTF-16 明文（本关教学点：编码藏匿挡不住 -el）。
 
+## 关卡 31 设计明细（两界穿针：跨层拼装 + 干扰包，已落地）
+
+- **App 端**：`g31Activity` ＋ `Zr`（JNI 桥：bindKeyClass/nativeEnc/nativeSign）＋ `Xd`（每页连发 4 个同形 POST 包的分发器）＋ `q/Ke`（Java 半截密钥，int[] 码点表；q 子包被 R8 整体改名，但 partA 方法名经 r8.pro 的 keepclassmembers 保留——native 要按名字回调它）。
+- **libl31.so**：`JNI_OnLoad` 接住 JavaVM 存全局；`bindKeyClass(Class<?>)` 把 Ke 的 jclass 缓存成 GlobalRef（jclass 直传绕开 FindClass 按名查找，不怕 R8 改名）；每次 nativeEnc/nativeSign 都经 GetStaticMethodID → CallStaticObjectMethod → partA 取前半 "Fatdog_"，与 so 内 UTF-16 后半 "lonely" 拼成完整密钥。请求形态：`enc=hex(RC4(key,"page=N&ts=T"))`、`sign=HMAC(key,enc)`、动态 ts。
+- **干扰包规格**：真包 + 错位包（表单页号与载荷差 1）+ 废签包（摆设签名）+ 噪声包（enc 全零），字段名完全一致。服务端裁决：真钥全对 → 返回数字；近亲假钥 Fatdog_lovely 命中 → 点名 403；其余一律 200 + `nums:[]`（形似而空，逼玩家靠内容分辨）。
+- **服务端**：`POST /api/l31`（KEY31_HMAC=Fatdog_lonely），SEED31=20270618，加和 50768。
+- **破解点**：① hook Zr.nativeEnc/nativeSign 拿现成参数直接复刻；② hook libart CallStaticObjectMethod 观察跨层取件；③ 静态：jadx 在改名后的 q 包里找 int[] 码点表 + IDA 读 KEY31_B 与 RC4，Python 只发真包取数。陷阱：Pw.FAKE_KEY=Fatdog_lovely 与真钥一字之差。
+
+## 关卡 32 设计明细（心魔哨兵：native 反检测 + 静默投毒，已落地）
+
+- **App 端**：`h32Activity` ＋ `Bt`（nativeSign / isPoisoned）＋ `Cm`（OkHttp 客户端，GET /api/l32）。onError 时查 `isPoisoned()`——首次命中弹"环境异常警告"窗（教学向：只警告，不拉黑不封号），之后照常运行。
+- **libl32.so**：四路哨兵随 JNI_OnLoad 启动并起守护线程每 2s 轮询——① fopen/fgets 扫 /proc/self/maps 搜 frida/gadget；② connect 试探 127.0.0.1:27042/27043；③ opendir /proc/self/task 枚举线程 comm 找 gum-js-loop/gmain/gdbus；④ /proc/self/status 的 TracerPid 非 0 报警。另有 `ptrace(PTRACE_TRACEME)` 自占调试位（只挡 gdb/IDA attach，挡不了 Frida——教学点）。
+- **静默投毒**：任一哨兵命中即置 g_poison，之后每次签名把密钥第 5 字节异或 0x01（Fatdog_anxious → Fatdng_anxious 一字之差），签名全错但 App 无任何崩溃表现。
+- **服务端**：`GET /api/l32` 标准验签（KEY32_HMAC=Fatdog_anxious），SEED32=20270726，加和 51745。被投毒的签名自然全部 403。
+- **破解点**：① 静态复刻党全程免疫（Python 直接算 Fatdog_anxious 的 HMAC）；② 动态党拆法三层——改名换端口 frida-server + strongR-frida 洗指纹 / IDA 定位 `k32_scan_once` 偏移 hook 成空函数 / hook fopen·fgets 给 maps 洗地（滤掉含 frida 的行、TracerPid 改 0）。
+
+## 关卡 33 设计明细（金刚不坏：CRC 自校验 + 记账守卫，已落地）
+
+- **App 端**：`i33Activity` ＋ `Fh`（nativeSign/assertGuard(minTicks)/isPoisoned）＋ `Gi`（OkHttp 客户端，发包前先过 assertGuard——整体替换 nativeSign 会因 ticks 踏步而现形）。onError 时 isPoisoned 首次命中弹"完整性校验失败"警告窗。
+- **libl33.so**：`JNI_OnLoad` 用 dladdr 定位自身基址 → 解析 PT_LOAD/PF_X 段 → 对可执行段算 **CRC32 存 g_baseline**；每次 nativeSign 重算比对，不一致即投毒一字节（Fatdog_jealous→一字之差）。守护线程每 2s 复查。
+- **挖洞设计**：CRC 计算挖掉 `K33_ZONE_START ~ K33_ZONE_END` 区间（校验器本体所在）——两个空函数锚点直接导出在符号表里，就是给 IDA 玩家的明示线索；也因此解法②（hook 校验器 k33_check）不会触发 CRC。
+- **三条官方解法全开**：① spawn 下 hook JNI_OnLoad 于 onEnter 装完钩子（基线带钩建立永远一致）；② 按偏移 hook k33_check；③ Memory 找 g_baseline 写入当前实值。记账守卫另挡"整体替换"流。
+- **服务端**：`GET /api/l33` 标准验签（KEY33_HMAC=Fatdog_jealous），SEED33=20270901，加和 49502。
+
 ## 实现清单（每关落地时已做）
 
 1. `server.py` 加对应接口（验签/加解密/页面逻辑只在服务端，数字/flag 不进 APK）。
@@ -200,9 +230,9 @@
 | 28 | 缄默之钥 | so 字符串加密，strings 失效 | Fatdog_unhappy | ★☆ | GET /api/l28 | 已落地（加和 49750） |
 | 29 | 隐姓埋名 | 动态注册 RegisterNatives + 假导出陷阱 | Fatdog_angry | ★★ | GET /api/l29 | 已落地（加和 50208） |
 | 30 | 无名剑冢 | strip 私有函数偏移 Hook + 诱饵函数（服务器当裁判） | Fatdog_gloomy | ★★★ | GET /api/l30 | 已落地（加和 51127） |
-| 31 | 两界穿针 | 密钥跨层拼装（native 回调 Java，Java 半截进 R8 改名子包 q）＋干扰包 | Fatdog_lonely | ★★★★ | POST /api/l31 | 规划 |
-| 32 | 心魔哨兵 | 反检测四路哨兵 + 静默投毒；中招仅弹窗警告（不拉黑） | Fatdog_anxious | ★★★★ | GET /api/l32 | 规划 |
-| 33 | 金刚不坏 | .text CRC 自校验 + 记账守卫；三条解法全开 | Fatdog_jealous | ★★★★★ | GET /api/l33 | 规划 |
+| 31 | 两界穿针 | 密钥跨层拼装（native 回调 Java，Java 半截进 R8 改名子包 q）＋干扰包 | Fatdog_lonely | ★★★★ | POST /api/l31 | 已落地（加和 50768） |
+| 32 | 心魔哨兵 | 反检测四路哨兵 + 静默投毒；中招仅弹窗警告（不拉黑） | Fatdog_anxious | ★★★★ | GET /api/l32 | 已落地（加和 51745） |
+| 33 | 金刚不坏 | .text CRC 自校验 + 记账守卫；三条解法全开 | Fatdog_jealous | ★★★★★ | GET /api/l33 | 已落地（加和 49502） |
 | 34 | 万法归墟 | 综合卷：动态注册+无名 Feistel+反检测+CRC+响应加密；Frida / patch so / unidbg 三条官方路线 | Fatdog_grumpy | ★★★★★★ | POST /api/l34 | 规划 |
 | 35 | 双匣暗渡 | C 手写 3DES + SM4 常量识别＋干扰包 | Fatdog_sneak | ★★★★ | POST /api/l35 | 规划 |
 | 36 | 查表识君 | C 手写 AES，真身藏在无用方法底下 | Fatdog_break | ★★★ | GET /api/l36 | 规划 |

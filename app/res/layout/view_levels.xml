@@ -367,6 +367,39 @@
                     android:textSize="15sp"
                     android:textStyle="bold" />
 
+                <Button
+                    android:id="@+id/btn_l31"
+                    android:layout_width="match_parent"
+                    android:layout_height="52dp"
+                    android:layout_marginTop="14dp"
+                    android:background="@drawable/bg_level_btn"
+                    android:text="@string/btn_l31"
+                    android:textColor="#ECECF2"
+                    android:textSize="15sp"
+                    android:textStyle="bold" />
+
+                <Button
+                    android:id="@+id/btn_l32"
+                    android:layout_width="match_parent"
+                    android:layout_height="52dp"
+                    android:layout_marginTop="14dp"
+                    android:background="@drawable/bg_level_btn"
+                    android:text="@string/btn_l32"
+                    android:textColor="#ECECF2"
+                    android:textSize="15sp"
+                    android:textStyle="bold" />
+
+                <Button
+                    android:id="@+id/btn_l33"
+                    android:layout_width="match_parent"
+                    android:layout_height="52dp"
+                    android:layout_marginTop="14dp"
+                    android:background="@drawable/bg_level_btn"
+                    android:text="@string/btn_l33"
+                    android:textColor="#ECECF2"
+                    android:textSize="15sp"
+                    android:textStyle="bold" />
+
 
                 <TextView
                     android:id="@+id/tip_hidden"

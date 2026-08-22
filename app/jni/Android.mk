@@ -22,3 +22,21 @@ include $(CLEAR_VARS)
 LOCAL_MODULE := l30
 LOCAL_SRC_FILES := l30.c
 include $(BUILD_SHARED_LIBRARY)
+
+# 关卡 31：两界穿针（跨层拼装 + 干扰包）
+include $(CLEAR_VARS)
+LOCAL_MODULE := l31
+LOCAL_SRC_FILES := l31.c
+include $(BUILD_SHARED_LIBRARY)
+
+# 关卡 32：心魔哨兵（四路反检测 + 静默投毒）
+include $(CLEAR_VARS)
+LOCAL_MODULE := l32
+LOCAL_SRC_FILES := l32.c
+include $(BUILD_SHARED_LIBRARY)
+
+# 关卡 33：金刚不坏（CRC 自校验 + 记账守卫，三解全开）
+include $(CLEAR_VARS)
+LOCAL_MODULE := l33
+LOCAL_SRC_FILES := l33.c
+include $(BUILD_SHARED_LIBRARY)

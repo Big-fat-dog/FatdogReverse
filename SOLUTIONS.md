@@ -1709,3 +1709,156 @@ print("总和:", total)                    # 51127
 对拍样例：`HMAC(Fatdog_gloomy, "page=1&ts=1787013761") = bb55d7beb95497d2c541d18d6607c1788ce0a57261dbe9d6ba5e44bfe7b173c5`。
 
 **坑位提醒**：`Xk.FAKE_KEY = Fatdog_mute` 正是槽 3 的假钥匙——Java 层搜到的"密钥"十有八九是它。
+
+
+---
+
+## 关卡 31：两界穿针（跨层密钥 + 干扰包）
+
+**考点**：完整密钥任何单侧都不存在——前半 `Fatdog_` 藏在被 R8 改名的 q 包类里（int[] 码点表 {0x46,0x61,0x74,0x64,0x6f,0x67,0x5f}），后半 `lonely` 是 libl31.so 里的 UTF-16 码元数组；Java 启动时把 Ke.class 递给 native 缓存成全局引用，之后每次签名/加密 native 都回调 `partA()` 取件拼装。请求是 POST 表单 `page/ts/enc/sign`：`enc=hex(RC4(key,"page=N&ts=T"))`、`sign=HMAC-SHA256(key,enc)`。且每页连发 4 个同形包：真包 / 错位包 / 废签包 / 噪声包——假包要么 403 要么返回 `nums:[]`。
+
+**识别干扰包**（抓包或 hook OkHttp 响应）：
+
+| 包 | 特征 | 服务端反应 |
+|---|---|---|
+| 真包 | 页号/载荷/签名三者一致 | 200 + 数字 |
+| 错位包 | 表单 page 与载荷里的 page 差 1 | 200 + nums:[] |
+| 废签包 | sign 是固定摆设串 | 200 + nums:[] |
+| 噪声包 | enc 全零 | 200 + nums:[] |
+| 近亲假钥包 | 用 Fatdog_lovely 完整构造 | **点名 403** |
+
+**静态路线**
+
+1. jadx：根包全部可读，找到 `Zr.bindKeyClass(com.fatdog.reverse.q.Ke.class)`——顺着进 q 包（已被改名的类里找带 int[] 码点表的），还原前半 `Fatdog_`。
+2. IDA 打开 libl31.so：导出表有 `Zr_bindKeyClass / nativeEnc / nativeSign / JNI_OnLoad`；`.data` 里 `KEY31_B`（UTF-16LE）读出后半 `lonely`；拼合即 `Fatdog_lonely`。
+3. Python 复刻（先 `python server.py`，只发真包）：
+
+```python
+import time, hmac, hashlib, requests
+
+def rc4(key: bytes, data: bytes) -> bytes:
+    S = list(range(256)); j = 0
+    for i in range(256):
+        j = (j + S[i] + key[i % len(key)]) % 256
+        S[i], S[j] = S[j], S[i]
+    out = bytearray(); a = b = 0
+    for ch in data:
+        a = (a + 1) % 256; b = (b + S[a]) % 256
+        S[a], S[b] = S[b], S[a]
+        out.append(ch ^ S[(S[a] + S[b]) % 256])
+    return bytes(out)
+
+KEY  = b"Fatdog_lonely"
+BASE = "https://127.0.0.1:8443"
+
+total = 0
+for page in range(1, 101):
+    ts   = int(time.time())
+    enc  = rc4(KEY, f"page={page}&ts={ts}".encode()).hex()
+    sign = hmac.new(KEY, enc.encode(), hashlib.sha256).hexdigest()
+    r = requests.post(f"{BASE}/api/l31",
+                      data={"page": page, "ts": ts, "enc": enc, "sign": sign},
+                      verify="certs/ca.crt", timeout=10)
+    total += sum(r.json()["nums"])          # 假包返回空列表，sum 自然为 0
+print("总和:", total)                        # 50768
+```
+
+**Frida 动态路线**：hook `Zr.nativeEnc`/`nativeSign` 直接拿现成 enc/sign（连算法都不用懂）；想看跨层取件瞬间就 hook libart 的 `CallStaticObjectMethod`。陷阱：`Pw.FAKE_KEY = Fatdog_lovely` 与真钥一字之差，用它构造的包会被服务器点名 403。
+
+
+---
+
+## 关卡 32：心魔哨兵（native 反检测 + 静默投毒）
+
+**考点**：libl32.so 的 JNI_OnLoad 会启动四路反检测哨兵并每 2 秒轮询——① `/proc/self/maps` 搜 frida/gadget；② 试连本机 27042/27043；③ 枚举 `/proc/self/task/*/comm` 找 gum-js-loop/gmain/gdbus；④ TracerPid 非 0 报警（另加 ptrace 占坑，只挡 gdb）。**任何一路命中都不闪退**：全局 g_poison 置位后，每次签名把密钥第 5 字节异或 0x01（Fatdog_anxious → 一字之差），签出来的名全部无效；App 仅在首次确认污染时弹一次"环境异常警告"。
+
+**症状识别**：挂着 Frida 时所有页请求 403、App 有"环境异常警告"弹窗 → 哨兵在投毒，不是网络问题。
+
+**路线 A：静态复刻（全程免疫）**
+
+完全不碰运行时就没有投毒：
+
+```python
+import time, hmac, hashlib, requests
+
+KEY  = b"Fatdog_anxious"                # strings -el libl32.so 可见（UTF-16 存放）
+BASE = "https://127.0.0.1:8443"
+
+total = 0
+for page in range(1, 101):
+    ts   = int(time.time())
+    sign = hmac.new(KEY, f"page={page}&ts={ts}".encode(), hashlib.sha256).hexdigest()
+    r = requests.get(f"{BASE}/api/l32", params={"page": page, "ts": ts, "sign": sign},
+                     verify="certs/ca.crt", timeout=10)
+    total += sum(r.json()["nums"])
+print("总和:", total)                    # 51745
+```
+
+**路线 B：动态党拆哨兵（三选一）**
+
+1. **洗指纹**：frida-server 改名换监听端口（`./fs -l 0.0.0.0:6666` + `adb forward`），配合 strongR-frida 去掉 LIBFRIDA 魔数与特征线程名——四路哨兵全部失明。
+2. **偏移 Hook**：IDA 定位 `k32_scan_once`（引用了 "/proc/self/maps" 与 "TracerPid:" 字符串的函数），`Interceptor.replace(mod.base.add(偏移), new NativeCallback(function(){}, 'void', []))` 让扫描变成空操作。
+3. **洗地流**：hook libc 的 `fopen`/`fgets`——读到含 frida 的 maps 行就跳过、读到 TracerPid 行就改写成 0（教程 22 §14 的泛化版）。
+
+**坑位提醒**：`Dn.FAKE_KEY = Fatdog_tense` 是诱饵；别看到"环境异常"就去 hook isPoisoned——那只是关掉弹窗，签名照样是错的，服务器依然 403。
+
+
+---
+
+## 关卡 33：金刚不坏（CRC 自校验 + 记账守卫）
+
+**考点**：libl33.so 在 `JNI_OnLoad` 里用 dladdr 定位自身基址、解析 ELF 程序头找到可执行段（PT_LOAD/PF_X），对整段算 **CRC32 存入全局基线 g_baseline**；此后每次 `nativeSign` 都重算比对，不一致即静默投毒（密钥第 8 字节异或 0x01）——**连只观察的 inline hook 都会改字节而被抓**。另有 `assertGuard(minTicks)` 记账守卫：ticks 不递增（说明有人整体替换了 nativeSign）同样判负。
+
+**关键线索（IDA 可见）**：导出表里有一对空函数 `K33_ZONE_START / K33_ZONE_END`——CRC 计算把这段区间**挖掉了**（校验器 k33_check 就住在里面）。这个洞既是提示，也是解法②的安全保证。
+
+**三条官方解法（全开，任选其一）**
+
+```javascript
+// 解法①（推荐）：spawn 注入，抢在体检之前完成伪装
+// frida -U -f com.fatdog.reverse -l hook33.js   （CLI 敲 %resume）
+Java.perform(function () {
+    var onLoad = Module.findExportByName('libl33.so', 'JNI_OnLoad');
+    Interceptor.attach(onLoad, {
+        onEnter: function (args) {          // 此刻还没建基线
+            var mod = Process.findModuleByName('libl33.so');
+            var sign = Module.findExportByName('libl33.so',
+                        'Java_com_fatdog_reverse_Fh_nativeSign');
+            if (sign) Interceptor.attach(sign, { /* 三联单观察 */ });
+            // 这里装的所有钩子都会进入随后的基线 → 永远一致
+        }
+    });
+});
+
+// 解法②：偏移 hook 校验器 k33_check（它在挖洞区间内，改它不动 CRC）
+// var mod = Process.findModuleByName('libl33.so');
+// Interceptor.attach(mod.base.add(k33_check_offset), {
+//     onLeave: function (retval) { retval.replace(1); } });
+
+// 解法③：找到 g_baseline 全局变量（IDA 里看谁写了 k33_text_crc 的返回值），
+// Memory 写入当前实值：
+// Memory.protect(addr, 4, 'rw-'); addr.writeU32(mod.base.add(...).readU32());
+```
+
+注意：`Interceptor.replace` 整体替换 nativeSign 会被 `assertGuard` 抓包（ticks 踏步）——要么别替换只观察，要么连记账一起伪造。
+
+**静态路线（全程免疫）**
+
+完全不碰运行时就没有体检压力：
+
+```python
+import time, hmac, hashlib, requests
+
+KEY  = b"Fatdog_jealous"                # strings -el libl33.so 可见
+BASE = "https://127.0.0.1:8443"
+
+total = 0
+for page in range(1, 101):
+    ts   = int(time.time())
+    sign = hmac.new(KEY, f"page={page}&ts={ts}".encode(), hashlib.sha256).hexdigest()
+    r = requests.get(f"{BASE}/api/l33", params={"page": page, "ts": ts, "sign": sign},
+                     verify="certs/ca.crt", timeout=10)
+    total += sum(r.json()["nums"])
+print("总和:", total)                    # 49502
+```
+
+**坑位提醒**：`Hk.FAKE_KEY = Fatdog_vain` 是诱饵；解法①记得用 spawn 模式（attach 半路上车时基线早已建好，来不及了）。

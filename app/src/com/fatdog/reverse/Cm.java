@@ -22,9 +22,9 @@ import okhttp3.Request;
 import okhttp3.Response;
 import okhttp3.ResponseBody;
 
-// 关卡 30 的 TLS 客户端：信任链复用内置 CA（Tm.caDer()），
-// 请求签名由 Vn.nativeSign 在 libl30.so 里算（函数指针表派发的真身）。
-public class Wo {
+// 关卡 32 的 TLS 客户端：信任链复用内置 CA（Tm.caDer()），
+// 请求签名由 Bt.nativeSign 在 libl32.so 里算——若哨兵已投毒则全部错签。
+public class Cm {
     static final String BASE = NetHost.httpsBase();   // 主机自动选择：模拟器 10.0.2.2 / 真机 127.0.0.1
 
     public interface Cb {
@@ -68,10 +68,10 @@ public class Wo {
 
     static void fetchPage(String base, final int page, final Cb cb) {
         final long ts = System.currentTimeMillis() / 1000;
-        final String sign = Vn.nativeSign(page, ts);   // 签名全在 native 算
+        final String sign = Bt.nativeSign(page, ts);   // 签名全在 native 算
         try {
             final OkHttpClient c = trustClient();
-            String url = base + "/api/l30?page=" + page + "&ts=" + ts + "&sign=" + sign;
+            String url = base + "/api/l32?page=" + page + "&ts=" + ts + "&sign=" + sign;
             Request req = new Request.Builder()
                     .url(url)
                     .header("User-Agent", "Fatdog/1.0 (Android)")
