@@ -399,3 +399,4 @@ license 链路：`base64 → AES解密(密钥A在XBox) → AES解密(密钥B在M
 - 第一季：教程 18 静态分析 6 关 + 教程 19 smali 4 关（7/8/9/20）+ 教程 20 Frida 5 关（10-14）+ 网络取数 5 关（15-19）
 - 第二季：SSL / 抓包对抗系列 21-27（已全部落地，规划见 `PLANNED.md`）
 - 第三季（规划）：教程 22 native 层逆向
+- **标记变更（自 L28 起）**：密钥/口令等标记弃用 `fatdemo_` 前缀，改用 `Fatdog_<情绪词>`（情绪词用尽换动词，如 `Fatdog_unhappy` / `Fatdog_sneak`）；L1-27 保持不变，完整规范见 `SKILL.md` §四

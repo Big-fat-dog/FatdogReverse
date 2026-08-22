@@ -36,5 +36,6 @@
     <string name="btn_n25">关卡 25：灵台证真</string>
     <string name="btn_m26">关卡 26：双符合璧（mTLS）</string>
     <string name="btn_f27">关卡 27：万法归宗</string>
+    <string name="btn_l28">关卡 28：缄默之钥</string>
     <string name="tip_hidden">提示：关卡 6 的入口不在这个页面上，去 AndroidManifest.xml 里找。</string>
 </resources>

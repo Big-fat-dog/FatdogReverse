@@ -19,14 +19,14 @@ public class DivineReflectionActivity extends Activity {
     private static final String[] LEVEL_IDS = {
             "L1", "L2", "L3", "L4", "L5", "L6", "L7", "L8",
             "L9", "L10", "L11", "L12", "L13", "L14", "L15", "L16",
-            "L17", "L18", "L19", "L20", "L21", "L22", "L23", "L24", "L25", "L26", "L27"};
+            "L17", "L18", "L19", "L20", "L21", "L22", "L23", "L24", "L25", "L26", "L27", "L28"};
     private static final String[] NAMES = {
             "破妄神瞳", "观微心诀", "算尽天机", "溯源追魂",
             "地脉搜灵", "九遁身法", "移花接木", "解钥神指",
             "阴阳玄关", "万法归一", "契约心经", "破阵天光",
             "双龙出海", "三才归一", "隔空取物", "逆流断脉",
             "奇门暗渡", "双钥破天", "雾隐摘星", "广告心魔",
-            "偷天换日", "拔钉破罩", "拨云见日", "李代桃僵", "玄功夺舍", "双符合璧", "万法归宗"};
+            "偷天换日", "拔钉破罩", "拨云见日", "李代桃僵", "玄功夺舍", "双符合璧", "万法归宗", "缄默诀"};
     private static final String[] DESCS = {
             "明文藏宝：一眼看穿藏匿之处",
             "Base64 马甲：编码无处遁形",
@@ -54,12 +54,13 @@ public class DivineReflectionActivity extends Activity {
             "换票迷局：反 Hook 与内存换值",
             "灵台证真：native 门禁与 JNI 签名",
             "双符合璧：互验名帖，双向 TLS 通玄",
-            "万法归宗：抓包明文仍需复刻签名"};
+            "万法归宗：抓包明文仍需复刻签名",
+            "缄默之钥：异或藏钥，strings 哑火"};
     private static final String[] CAT_NAMES = {
             "静态分析 · 观物之能", "Smali 挑战 · 篡改之道", "Frida Hook · 附身之术", "网络对抗 · 取数之法", "终极试炼 · 破阵之威"};
     private static final int[] CAT_COLORS = {0xFF409EFF, 0xFF67C23A, 0xFFFB7299, 0xFFE6A23C, 0xFFB37FEB};
     private static final int[][] CAT_LEVELS = {
-            {0, 1, 2, 3, 4, 5}, {6, 7, 8}, {9, 10, 11, 12, 13},             {14, 15, 16, 17, 18}, {19, 20, 21, 22, 23, 24, 25, 26}};
+            {0, 1, 2, 3, 4, 5}, {6, 7, 8}, {9, 10, 11, 12, 13},             {14, 15, 16, 17, 18}, {19, 20, 21, 22, 23, 24, 25, 26, 27}};
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {

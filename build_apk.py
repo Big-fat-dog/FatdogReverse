@@ -187,7 +187,7 @@ def main():
          '--output', dex_r8,
          classes_jar] + lib_jars)
 
-    # 4) 可选：NDK 编译 libnative.so（关卡 25 的 JNI 校验 + 结构装饰）
+    # 4) 可选：NDK 编译各关 so（L25 libnative.so；第三季起每关独立 so，防剧透）
     ndk = find_ndk(sdk)
     libs = {}
     if ndk:
@@ -195,14 +195,14 @@ def main():
         if os.path.isfile(ndk_build):
             run([ndk_build, '-C', APP])
             for abi in ('arm64-v8a', 'armeabi-v7a'):
-                so = os.path.join(APP, 'libs', abi, 'libnative.so')
-                if os.path.isfile(so):
-                    libs[abi] = so
-            print('NDK 产物:', ', '.join(libs.keys()) or '无')
+                for so in sorted(glob.glob(os.path.join(APP, 'libs', abi, '*.so'))):
+                    libs.setdefault(abi, []).append(so)
+            total = sum(len(v) for v in libs.values())
+            print('NDK 产物:', total, '个 so' if total else '无')
         else:
             print('警告: 找到 NDK 目录但缺少 ndk-build.cmd，跳过 so 编译')
     else:
-        print('提示: 未找到 NDK，跳过 libnative.so（APK 仍可构建，只是少了 lib/ 目录的结构装饰）。')
+        print('提示: 未找到 NDK，跳过 lib/*.so（APK 仍可构建，只是少了 lib/ 目录的结构装饰）。')
         print('      安装: sdkmanager "ndk;26.1.10909125"（或设置 ANDROID_NDK_ROOT）')
 
     # 5) 把 dex / so 塞进 APK
@@ -210,8 +210,10 @@ def main():
     with zipfile.ZipFile(unsigned, 'a') as z:
         for df in sorted(glob.glob(os.path.join(dex_r8, 'classes*.dex'))):
             z.write(df, os.path.basename(df))
-        for abi, so in libs.items():
-            z.write(so, 'lib/%s/libnative.so' % abi, compress_type=zipfile.ZIP_STORED)
+        for abi, sos in libs.items():
+            for so in sos:
+                z.write(so, 'lib/%s/%s' % (abi, os.path.basename(so)),
+                        compress_type=zipfile.ZIP_STORED)
 
     # 6) zipalign 对齐
     aligned = os.path.join(BUILD, 'aligned.apk')

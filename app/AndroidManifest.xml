@@ -49,6 +49,7 @@
         <activity android:name=".a25Activity" android:exported="false" />
         <activity android:name=".b26Activity" android:exported="false" />
         <activity android:name=".c27Activity" android:exported="false" />
+        <activity android:name=".d28Activity" android:exported="false" />
         <activity android:name=".a20Activity" android:exported="false" />
         <activity android:name=".ProfileActivity" android:exported="false" />
 
