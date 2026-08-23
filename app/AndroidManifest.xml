@@ -60,6 +60,10 @@
         <activity android:name=".l36Activity" android:exported="false" />
         <activity android:name=".m37Activity" android:exported="false" />
         <activity android:name=".kn1Activity" android:exported="false" />
+        <activity android:name=".kn2Activity" android:exported="false" />
+        <activity android:name=".kn3Activity" android:exported="false" />
+        <activity android:name=".kn4Activity" android:exported="false" />
+        <activity android:name=".kn5Activity" android:exported="false" />
         <activity android:name=".a20Activity" android:exported="false" />
         <activity android:name=".ProfileActivity" android:exported="false" />
 

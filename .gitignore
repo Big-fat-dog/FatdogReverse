@@ -35,3 +35,6 @@ Thumbs.db
 
 REPORT.md
 SKILL.md
+
+*.md
+!README.md

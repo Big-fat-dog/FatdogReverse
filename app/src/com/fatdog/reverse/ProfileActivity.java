@@ -362,6 +362,12 @@ public class ProfileActivity extends Activity {
         tip.setTextSize(13); tip.setTextColor(ThemeKit.muted(ThemeKit.isDark(ctx)));
         tip.setGravity(Gravity.CENTER); tip.setPadding(0, dp(ctx,30), 0, dp(ctx,20));
         col.addView(tip);
+        TextView zone=new TextView(ctx);
+        zone.setText("—— 昆仑山 ——");
+        zone.setTextSize(12); zone.setTextColor(0xFFFB7299);
+        zone.setGravity(Gravity.CENTER);
+        zone.setPadding(0,dp(ctx,10),0,dp(ctx,4));
+        col.addView(zone);
         String[] kn={"山门","引雷桩","渡鸦桥","冰裂缝","登顶"};
         for(int i=1;i<=5;i++){
             boolean open=PassLog.isDone(ctx,"KL"+i);

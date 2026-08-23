@@ -70,3 +70,27 @@ include $(CLEAR_VARS)
 LOCAL_MODULE := kunlun1
 LOCAL_SRC_FILES := kunlun1.c
 include $(BUILD_SHARED_LIBRARY)
+
+# 昆仑 KL2
+include $(CLEAR_VARS)
+LOCAL_MODULE := kunlun2
+LOCAL_SRC_FILES := kunlun2.c
+include $(BUILD_SHARED_LIBRARY)
+
+# 昆仑 KL3
+include $(CLEAR_VARS)
+LOCAL_MODULE := kunlun3
+LOCAL_SRC_FILES := kunlun3.c
+include $(BUILD_SHARED_LIBRARY)
+
+# 昆仑 KL4
+include $(CLEAR_VARS)
+LOCAL_MODULE := kunlun4
+LOCAL_SRC_FILES := kunlun4.c
+include $(BUILD_SHARED_LIBRARY)
+
+# 昆仑 KL5
+include $(CLEAR_VARS)
+LOCAL_MODULE := kunlun5
+LOCAL_SRC_FILES := kunlun5.c
+include $(BUILD_SHARED_LIBRARY)

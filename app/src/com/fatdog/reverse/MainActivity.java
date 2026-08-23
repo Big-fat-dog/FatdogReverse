@@ -469,7 +469,7 @@ public class MainActivity extends Activity {
                 boolean open = PassLog.isDone(this, "KL" + i);
                 Button b = new Button(this);
                 b.setText("KL" + i + " · " + names[i - 1] + (open ? " ✔" : ""));
-                b.setEnabled(lv == 1 || open);
+                b.setEnabled(lv == 1 || (lv == 2 && PassLog.isDone(this, "KL1")) || (lv == 3 && PassLog.isDone(this, "KL2")) || (lv == 4 && PassLog.isDone(this, "KL3")) || (lv == 5 && PassLog.isDone(this, "KL4")) || open);
                 b.setAlpha(b.isEnabled() ? 1f : 0.55f);
                 Ui.styleButton(b);
                 LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
@@ -479,6 +479,26 @@ public class MainActivity extends Activity {
                 if (lv == 1) b.setOnClickListener(new View.OnClickListener() {
                     @Override public void onClick(View v) {
                         startActivity(new Intent(MainActivity.this, kn1Activity.class));
+                    }
+                });
+                else if (lv == 2 && PassLog.isDone(this, "KL1")) b.setOnClickListener(new View.OnClickListener() {
+                    @Override public void onClick(View v) {
+                        startActivity(new Intent(MainActivity.this, kn2Activity.class));
+                    }
+                });
+                else if (lv == 3 && PassLog.isDone(this, "KL2")) b.setOnClickListener(new View.OnClickListener() {
+                    @Override public void onClick(View v) {
+                        startActivity(new Intent(MainActivity.this, kn3Activity.class));
+                    }
+                });
+                else if (lv == 4 && PassLog.isDone(this, "KL3")) b.setOnClickListener(new View.OnClickListener() {
+                    @Override public void onClick(View v) {
+                        startActivity(new Intent(MainActivity.this, kn4Activity.class));
+                    }
+                });
+                else if (lv == 5 && PassLog.isDone(this, "KL4")) b.setOnClickListener(new View.OnClickListener() {
+                    @Override public void onClick(View v) {
+                        startActivity(new Intent(MainActivity.this, kn5Activity.class));
                     }
                 });
             }
