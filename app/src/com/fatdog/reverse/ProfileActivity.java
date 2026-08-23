@@ -4,6 +4,7 @@ import android.animation.AnimatorSet;
 import android.animation.ObjectAnimator;
 import android.animation.ValueAnimator;
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.content.Context;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
@@ -23,6 +24,7 @@ import android.widget.ImageButton;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
+import android.widget.EditText;
 import android.widget.TextView;
 
 import java.io.File;
@@ -31,7 +33,7 @@ import java.util.ArrayList;
 // 个人主页：顶部"传送带"式分类条（基本情况 / 太古禁地 / 神念自察），可横向滑动；
 // 下方内容随分类切换。基本情况 = 头像 + 境界 + 修仙进度；右上角昼夜切换；背景图。
 public class ProfileActivity extends Activity {
-    private static final int TOTAL_LEVELS = 37;   // 关卡 1-28（含 L20，L21-27 属 SSL/抓包系列，L28 起 native 第三季）
+    private static final int TOTAL_LEVELS = 47;   // 关卡 1-28（含 L20，L21-27 属 SSL/抓包系列，L28 起 native 第三季）
     // 炼气~元婴：每 5 关一层（1-20）；化神起：每 10 关一个大境界，第 10 层为"圆满"；
     // 高阶四境之后是终点"独断万古"——通关数再多也停在它上面。
     private static final String[] BIG_REALMS = {"炼气", "筑基", "金丹", "元婴"};
@@ -153,6 +155,7 @@ public class ProfileActivity extends Activity {
             chip.setOnClickListener(new View.OnClickListener() {
                 @Override
                 public void onClick(View v) {
+                    if ((idx == 1 || idx == 3) && !checkGate(ctx, idx)) return;
                     selectPage(ctx, idx, chips, pages);
                 }
             });
@@ -187,6 +190,20 @@ public class ProfileActivity extends Activity {
         }
 
         return root;
+    }
+
+    /* 门禁检查：太古禁地(idx=1)需通关40关或密令；天地秘境(idx=3)需通关37关或密令 */
+    private static boolean checkGate(Context ctx, int which) {
+        int need = (which == 1) ? 40 : 37;
+        String label = (which == 1) ? "太古禁地" : "天地秘境";
+        int passed = 0;
+        for (String id : DivineReflectionActivity.LEVEL_IDS)
+            if (PassLog.isDone(ctx, id)) passed++;
+        if (passed >= need) return true;
+        android.widget.Toast.makeText(ctx,
+            label + " 需通关全部 " + need + " 关方可踏入（当前 " + passed + "）",
+            android.widget.Toast.LENGTH_LONG).show();
+        return false;
     }
 
     // 切换分类：更新胶囊样式 + 内容可见性

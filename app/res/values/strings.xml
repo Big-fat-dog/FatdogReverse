@@ -46,5 +46,10 @@
     <string name="btn_l35">关卡 35：双匣暗渡</string>
     <string name="btn_l36">关卡 36：查表识君</string>
     <string name="btn_l37">关卡 37：雪崩之谜</string>
+    <string name="btn_x38">关卡 38：初探模块</string>
+    <string name="btn_x39">关卡 39：偷梁换柱</string>
+    <string name="btn_x40">关卡 40：探囊取物</string>
+    <string name="btn_x41">关卡 41：斩关夺隘</string>
+    <string name="btn_x42">关卡 42：万剑归宗</string>
     <string name="tip_hidden">提示：关卡 6 的入口不在这个页面上，去 AndroidManifest.xml 里找。</string>
 </resources>

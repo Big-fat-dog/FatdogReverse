@@ -32,11 +32,12 @@ public class MainActivity extends Activity {
     private static final int ACTIVE_COLOR = 0xFFFB7299;   // bilibili 粉
     private static final int REQ_AVATAR = 1001;
 
-    private static final String[] CATS = {"静态分析", "Smali 挑战", "Frida Hook（Java 层）", "网络对抗", "SSL 抓包", "Native 试炼"};
+    private static final String[] CATS = {"静态分析", "Smali 挑战", "Frida Hook（Java 层）", "Xposed 实战", "网络对抗", "SSL 抓包", "Native 试炼"};
     private static final int[][] CAT_IDS = {
             {R.id.btn_vault, R.id.btn_note, R.id.btn_puzzle, R.id.btn_gate, R.id.btn_config},
             {R.id.btn_vip, R.id.btn_activate, R.id.btn_pro, R.id.btn_ad20},
             {R.id.btn_h10, R.id.btn_h11, R.id.btn_aes12, R.id.btn_dual13, R.id.btn_chain14},
+            {R.id.btn_x38, R.id.btn_x39, R.id.btn_x40, R.id.btn_x41, R.id.btn_x42},
             {R.id.btn_pages15, R.id.btn_rc16, R.id.btn_f17, R.id.btn_r18, R.id.btn_l19},
             {R.id.btn_t21, R.id.btn_p22, R.id.btn_w23, R.id.btn_g24, R.id.btn_n25, R.id.btn_m26, R.id.btn_f27},
             {R.id.btn_l28, R.id.btn_l29, R.id.btn_l30, R.id.btn_l31, R.id.btn_l32, R.id.btn_l33, R.id.btn_l34, R.id.btn_l35, R.id.btn_l36, R.id.btn_l37},
@@ -260,6 +261,11 @@ public class MainActivity extends Activity {
         bind(R.id.btn_aes12, b1Activity.class);
         bind(R.id.btn_dual13, k4Activity.class);
         bind(R.id.btn_chain14, z9Activity.class);
+        bind(R.id.btn_x38, xp38Activity.class);
+        bind(R.id.btn_x39, xp39Activity.class);
+        bind(R.id.btn_x40, xp40Activity.class);
+        bind(R.id.btn_x41, xp41Activity.class);
+        bind(R.id.btn_x42, xp42Activity.class);
         bind(R.id.btn_pages15, s5Activity.class);
         bind(R.id.btn_rc16, t6Activity.class);
         bind(R.id.btn_f17, u7Activity.class);
@@ -298,7 +304,7 @@ public class MainActivity extends Activity {
     // ================= 天地秘境（KL 独立编号，不计入境界） =================
 
     private boolean tryEnterKunlun() {
-        if (!kunlunOpen && passDoneCount() >= 37) kunlunOpen = true;
+        if (!kunlunOpen && passDoneCount() >= 40) kunlunOpen = true;
         if (kunlunOpen) return true;
         showGateDialog();
         return false;
@@ -328,7 +334,7 @@ public class MainActivity extends Activity {
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
 
         TextView m = new TextView(this);
-        m.setText("雪线之上别有洞天。\n通关全部 37 关方可踏入；\n或持密令者先行。");
+        m.setText("雪线之上别有洞天。\n通关全部 40 关方可踏入；\n或持密令者先行。");
         m.setTextSize(13);
         m.setTextColor(dark ? 0xFFB9B9C2 : 0xFF666670);
         m.setGravity(Gravity.CENTER);

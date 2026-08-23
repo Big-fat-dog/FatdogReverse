@@ -194,6 +194,56 @@
                     android:textColor="#ECECF2"
                     android:textSize="15sp"
                     android:textStyle="bold" />
+                <Button
+                    android:id="@+id/btn_x38"
+                    android:layout_width="match_parent"
+                    android:layout_height="52dp"
+                    android:layout_marginTop="14dp"
+                    android:background="@drawable/bg_level_btn"
+                    android:text="@string/btn_x38"
+                    android:textColor="#ECECF2"
+                    android:textSize="15sp"
+                    android:textStyle="bold" />
+                <Button
+                    android:id="@+id/btn_x39"
+                    android:layout_width="match_parent"
+                    android:layout_height="52dp"
+                    android:layout_marginTop="14dp"
+                    android:background="@drawable/bg_level_btn"
+                    android:text="@string/btn_x39"
+                    android:textColor="#ECECF2"
+                    android:textSize="15sp"
+                    android:textStyle="bold" />
+                <Button
+                    android:id="@+id/btn_x40"
+                    android:layout_width="match_parent"
+                    android:layout_height="52dp"
+                    android:layout_marginTop="14dp"
+                    android:background="@drawable/bg_level_btn"
+                    android:text="@string/btn_x40"
+                    android:textColor="#ECECF2"
+                    android:textSize="15sp"
+                    android:textStyle="bold" />
+                <Button
+                    android:id="@+id/btn_x41"
+                    android:layout_width="match_parent"
+                    android:layout_height="52dp"
+                    android:layout_marginTop="14dp"
+                    android:background="@drawable/bg_level_btn"
+                    android:text="@string/btn_x41"
+                    android:textColor="#ECECF2"
+                    android:textSize="15sp"
+                    android:textStyle="bold" />
+                <Button
+                    android:id="@+id/btn_x42"
+                    android:layout_width="match_parent"
+                    android:layout_height="52dp"
+                    android:layout_marginTop="14dp"
+                    android:background="@drawable/bg_level_btn"
+                    android:text="@string/btn_x42"
+                    android:textColor="#ECECF2"
+                    android:textSize="15sp"
+                    android:textStyle="bold" />
 
 <Button
                 android:id="@+id/btn_pages15"
