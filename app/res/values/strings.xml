@@ -5,9 +5,9 @@
 （对应教程 18：APK 结构与 jadx 静态分析入门、教程 19：逆向 Java 基础与 smali、教程 20：Frida Hook 实战）</string>
 
     <string name="tab_levels">基本关卡</string>
-    <string name="tab_kunlun">昆仑山</string>
+    <string name="tab_kunlun">天地秘境</string>
     <string name="tab_profile">个人主页</string>
-    <string name="kunlun_title">昆仑山 · 困难关卡</string>
+    <string name="kunlun_title">天地秘境</string>
     <string name="kunlun_waiting">敬请期待</string>
 
     <string name="btn_vault">关卡 1：明文藏宝</string>

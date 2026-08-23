@@ -22,6 +22,7 @@ import android.widget.HorizontalScrollView;
 import android.widget.ImageButton;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
+import android.widget.ScrollView;
 import android.widget.TextView;
 
 import java.io.File;
@@ -72,9 +73,9 @@ public class ProfileActivity extends Activity {
             "✦ 一念无量，光寿无涯",
             "✦ 万古长夜，我为天明",
     };
-    private static final String[] CAT_NAMES = {"基本情况", "太古禁地", "神念自察"};
-    private static final int[] CAT_ICONS = {R.drawable.ic_tab_profile, R.drawable.ic_forbidden, R.drawable.ic_eye};
-    private static final int[] CAT_COLORS = {0xFFFB7299, 0xFFFB7299, 0xFF409EFF};
+    private static final String[] CAT_NAMES = {"基本情况", "太古禁地", "神念自察", "天地秘境"};
+    private static final int[] CAT_ICONS = {R.drawable.ic_tab_profile, R.drawable.ic_forbidden, R.drawable.ic_eye, R.drawable.ic_lock};
+    private static final int[] CAT_COLORS = {0xFFFB7299, 0xFFFB7299, 0xFF409EFF, 0xFF00BFA5};
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -124,10 +125,11 @@ public class ProfileActivity extends Activity {
                 LinearLayout.LayoutParams.MATCH_PARENT));
         column.addView(contentHost);
 
-        final View[] pages = new View[3];
+        final View[] pages = new View[4];
         pages[0] = buildBasicInfo(ctx, avatarClick);
         pages[1] = ForbiddenLandActivity.buildLandView((Activity) ctx);
         pages[2] = DivineReflectionActivity.buildReflectionView((Activity) ctx);
+        pages[3] = buildKunlunPlaceholder(ctx);
         for (View p : pages) {
             contentHost.addView(p, new FrameLayout.LayoutParams(
                     FrameLayout.LayoutParams.MATCH_PARENT,
@@ -168,7 +170,7 @@ public class ProfileActivity extends Activity {
             tb.setScaleType(ImageView.ScaleType.CENTER);
             FrameLayout.LayoutParams tbLp = new FrameLayout.LayoutParams(dp(ctx, 44), dp(ctx, 44));
             tbLp.gravity = Gravity.TOP | Gravity.RIGHT;
-            tbLp.topMargin = dp(ctx, 8);
+            tbLp.topMargin = dp(ctx, 52);
             tbLp.rightMargin = dp(ctx, 12);
             tb.setOnClickListener(new View.OnClickListener() {
                 @Override
@@ -346,6 +348,35 @@ public class ProfileActivity extends Activity {
         bar.addView(emptyV, new LinearLayout.LayoutParams(0,
                 LinearLayout.LayoutParams.MATCH_PARENT, 10 - filled));
         return bar;
+    }
+
+
+    /* 天地秘境占位：后续填入通关后的小说阅读器 */
+    private static View buildKunlunPlaceholder(Context ctx) {
+        ScrollView scroll = new ScrollView(ctx);
+        LinearLayout col = new LinearLayout(ctx);
+        col.setOrientation(LinearLayout.VERTICAL);
+        col.setPadding(dp(ctx,20), dp(ctx,16), dp(ctx,20), dp(ctx,24));
+        TextView tip = new TextView(ctx);
+        tip.setText("此方天地尚未完全开辟……\n通关昆仑山关卡后，此处将浮现属于你的故事。");
+        tip.setTextSize(13); tip.setTextColor(ThemeKit.muted(ThemeKit.isDark(ctx)));
+        tip.setGravity(Gravity.CENTER); tip.setPadding(0, dp(ctx,30), 0, dp(ctx,20));
+        col.addView(tip);
+        String[] kn={"山门","引雷桩","渡鸦桥","冰裂缝","登顶"};
+        for(int i=1;i<=5;i++){
+            boolean open=PassLog.isDone(ctx,"KL"+i);
+            LinearLayout row=new LinearLayout(ctx); row.setOrientation(LinearLayout.HORIZONTAL);
+            row.setGravity(Gravity.CENTER_VERTICAL); row.setPadding(dp(ctx,10),dp(ctx,12),dp(ctx,10),dp(ctx,12));
+            GradientDrawable g=new GradientDrawable(); g.setCornerRadius(dp(ctx,10));
+            g.setColor(open?0x33FB7299:(ThemeKit.isDark(ctx)?0xCC24242B:0x22EEEEEE)); row.setBackground(g);
+            TextView t=new TextView(ctx); t.setText((open?"✦ ":"🔒 ")+"KL"+i+" · "+kn[i-1]);
+            t.setTextSize(15); t.setTypeface(Typeface.DEFAULT_BOLD);
+            t.setTextColor(open?0xFFFB7299:(ThemeKit.isDark(ctx)?0xFF77777F:0xFFAAAAAA));
+            row.addView(t,new LinearLayout.LayoutParams(0,LinearLayout.LayoutParams.WRAP_CONTENT,1f));
+            LinearLayout.LayoutParams mlp=new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT,LinearLayout.LayoutParams.WRAP_CONTENT);
+            mlp.topMargin=dp(ctx,6); col.addView(row,mlp);
+        }
+        scroll.addView(col); return scroll;
     }
 
     private static int dp(Context c, float v) {

@@ -29,7 +29,7 @@ public class kn1Activity extends Activity {
         box.setPadding(Ui.dp(16), Ui.dp(20), Ui.dp(16), Ui.dp(12));
 
         TextView tv = new TextView(this);
-        tv.setText("昆仑第一关 · 山门\n\n"
+        tv.setText("天地秘境 KL1 · 山门（天地秘境）\n\n"
                 + "libkunlun1.so 导出函数：\n"
                 + "int kl_gate(int seed)\n\n"
                 + "请计算 kl_gate(0x20260101) 的返回值（十进制）并提交。\n"

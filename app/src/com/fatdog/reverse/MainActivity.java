@@ -1,6 +1,9 @@
 package com.fatdog.reverse;
 
 import android.app.Activity;
+import android.app.Dialog;
+import android.graphics.drawable.ColorDrawable;
+import android.view.Window;
 import android.app.AlertDialog;
 import android.content.Intent;
 import android.graphics.Color;
@@ -10,6 +13,7 @@ import android.view.Gravity;
 import android.view.View;
 import android.widget.Button;
 import android.widget.EditText;
+import android.widget.HorizontalScrollView;
 import android.widget.ScrollView;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
@@ -23,7 +27,7 @@ import java.util.ArrayList;
 
 // 大厅：全屏内容区 + 右上角昼夜切换 + 底部导航三个页签（模仿 bilibili）。
 // 基本关卡 = 顶部可横向滑动的分类条 + 按分类过滤的关卡列表；
-// 昆仑山 = 困难关卡（待开发）；个人主页 = 修仙境界。
+// 天地秘境 = 高阶关卡分区；个人主页 = 修仙境界。
 public class MainActivity extends Activity {
     private static final int ACTIVE_COLOR = 0xFFFB7299;   // bilibili 粉
     private static final int REQ_AVATAR = 1001;
@@ -46,6 +50,7 @@ public class MainActivity extends Activity {
     private TextView labelLevels, labelKunlun, labelProfile;
     private View bottomNav;
     private boolean kunlunOpen = false;
+    private int kunlunCat = 0;
 
     private final ArrayList<TextView> chips = new ArrayList<TextView>();
     private TextView tipHidden;
@@ -124,7 +129,7 @@ public class MainActivity extends Activity {
         }
     };
 
-    // 昆仑山页面的品牌色标题在主题上色后补回来
+    // 天地秘境页面的品牌色标题在主题上色后补回来
     private void styleKunlun() {
         boolean dark = ThemeKit.isDark(this);
         ((TextView) findViewById(R.id.kunlun_title)).setTextColor(0xFFFB7299);
@@ -290,31 +295,96 @@ public class MainActivity extends Activity {
         });
     }
 
-    // ================= 昆仑山秘境（KL 独立编号，不计入境界） =================
+    // ================= 天地秘境（KL 独立编号，不计入境界） =================
 
     private boolean tryEnterKunlun() {
         if (!kunlunOpen && passDoneCount() >= 37) kunlunOpen = true;
         if (kunlunOpen) return true;
+        showGateDialog();
+        return false;
+    }
+
+    /* 主题化门禁弹窗：暗色圆角卡片 + 自绘按钮（替代纯白系统框） */
+    private void showGateDialog() {
+        boolean dark = ThemeKit.isDark(this);
+        final Dialog dlg = new Dialog(this);
+        dlg.requestWindowFeature(Window.FEATURE_NO_TITLE);
+
+        LinearLayout card = new LinearLayout(this);
+        card.setOrientation(LinearLayout.VERTICAL);
+        card.setPadding(Ui.dp(22), Ui.dp(20), Ui.dp(22), Ui.dp(16));
+        GradientDrawable bg = new GradientDrawable();
+        bg.setCornerRadius(Ui.dp(18));
+        bg.setColor(dark ? 0xF222222A : 0xFFF2F2F7);
+        card.setBackground(bg);
+
+        TextView t = new TextView(this);
+        t.setText("天 地 秘 境");
+        t.setTextSize(19);
+        t.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        t.setTextColor(0xFFFB7299);
+        t.setGravity(Gravity.CENTER);
+        card.addView(t, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+
+        TextView m = new TextView(this);
+        m.setText("雪线之上别有洞天。\n通关全部 37 关方可踏入；\n或持密令者先行。");
+        m.setTextSize(13);
+        m.setTextColor(dark ? 0xFFB9B9C2 : 0xFF666670);
+        m.setGravity(Gravity.CENTER);
+        m.setPadding(0, Ui.dp(10), 0, Ui.dp(4));
+        card.addView(m, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+
         final EditText in = new EditText(this);
         in.setHint("输入密令");
-        new AlertDialog.Builder(this)
-                .setTitle("昆仑山 · 禁地")
-                .setMessage("需通关全部 37 关方可踏入；\n或持密令者先行。")
-                .setView(in)
-                .setPositiveButton("进入", new android.content.DialogInterface.OnClickListener() {
-                    @Override
-                    public void onClick(android.content.DialogInterface d, int w) {
-                        if ("Fatdog".equals(in.getText().toString().trim())) {
-                            kunlunOpen = true;
-                            selectTab(1);
-                        } else {
-                            Toast.makeText(MainActivity.this, "密令有误", Toast.LENGTH_SHORT).show();
-                        }
-                    }
-                })
-                .setNegativeButton("算了", null)
-                .show();
-        return false;
+        in.setTextColor(dark ? 0xFFECECF2 : 0xFF33333B);
+        in.setHintTextColor(0xFF77777F);
+        GradientDrawable eb = new GradientDrawable();
+        eb.setCornerRadius(Ui.dp(10));
+        eb.setColor(dark ? 0xFF1B1B22 : 0xFFECECF0);
+        in.setBackground(eb);
+        in.setPadding(Ui.dp(12), Ui.dp(10), Ui.dp(12), Ui.dp(10));
+        LinearLayout.LayoutParams ilp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        ilp.topMargin = Ui.dp(12);
+        card.addView(in, ilp);
+
+        TextView ok = new TextView(this);
+        ok.setText("持 令 进 入");
+        ok.setTextSize(15); ok.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        ok.setTextColor(0xFFFFFFFF); ok.setGravity(Gravity.CENTER);
+        GradientDrawable ob = new GradientDrawable(); ob.setCornerRadius(Ui.dp(24)); ob.setColor(0xFFFB7299);
+        ok.setBackground(ob);
+        LinearLayout.LayoutParams olp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, Ui.dp(44));
+        olp.topMargin = Ui.dp(16);
+        card.addView(ok, olp);
+        ok.setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View v) {
+                if ("Fatdog".equals(in.getText().toString().trim())) {
+                    dlg.dismiss(); kunlunOpen = true; selectTab(1);
+                } else {
+                    Toast.makeText(MainActivity.this, "密令有误", Toast.LENGTH_SHORT).show();
+                }
+            }
+        });
+
+        TextView cancel = new TextView(this);
+        cancel.setText("暂不进入");
+        cancel.setTextSize(13); cancel.setTextColor(0xFF8A8A92);
+        cancel.setGravity(Gravity.CENTER);
+        LinearLayout.LayoutParams clp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        clp.topMargin = Ui.dp(10);
+        card.addView(cancel, clp);
+        cancel.setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View v) { dlg.dismiss(); }
+        });
+
+        dlg.setContentView(card);
+        dlg.getWindow().setBackgroundDrawable(new ColorDrawable(0x00000000));
+        dlg.show();
     }
 
     private int passDoneCount() {
@@ -328,10 +398,11 @@ public class MainActivity extends Activity {
         ScrollView scroll = new ScrollView(this);
         LinearLayout col = new LinearLayout(this);
         col.setOrientation(LinearLayout.VERTICAL);
-        col.setPadding(Ui.dp(20), Ui.dp(18), Ui.dp(20), Ui.dp(24));
+        col.setPadding(Ui.dp(16), Ui.dp(14), Ui.dp(16), Ui.dp(24));
+        boolean dark = ThemeKit.isDark(this);
 
         TextView title = new TextView(this);
-        title.setText("昆仑山 · 秘境");
+        title.setText("天 地 秘 境");
         title.setTextSize(22);
         title.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
         title.setTextColor(0xFFFB7299);
@@ -343,41 +414,86 @@ public class MainActivity extends Activity {
         int done = 0;
         for (int i = 1; i <= 5; i++) if (PassLog.isDone(this, "KL" + i)) done++;
         TextView wait = new TextView(this);
-        wait.setText(done == 0 ? "雪线之上，五关皆未开" : "已登顶 " + done + " / 5");
+        wait.setText(done == 0 ? "五方天地，皆未开启" : "已登顶 " + done + " / 5");
         wait.setTextSize(13);
-        wait.setTextColor(ThemeKit.muted(ThemeKit.isDark(this)));
+        wait.setTextColor(ThemeKit.muted(dark));
         wait.setGravity(Gravity.CENTER);
         wait.setId(R.id.kunlun_waiting);
-        col.addView(wait, new LinearLayout.LayoutParams(
+        LinearLayout.LayoutParams wlp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        wlp.topMargin = Ui.dp(6);
+        col.addView(wait, wlp);
+
+        /* 分类条：与大厅同款胶囊交互 */
+        HorizontalScrollView hsv = new HorizontalScrollView(this);
+        hsv.setHorizontalScrollBarEnabled(false);
+        LinearLayout cats = new LinearLayout(this);
+        cats.setOrientation(LinearLayout.HORIZONTAL);
+        cats.setPadding(Ui.dp(4), Ui.dp(12), Ui.dp(4), Ui.dp(4));
+        final String[] catNames = {"昆仑山", "流沙河", "幽冥海"};
+        for (int i = 0; i < catNames.length; i++) {
+            final int idx = i;
+            TextView chip = new TextView(this);
+            chip.setText(catNames[i]);
+            chip.setTextSize(14);
+            chip.setGravity(Gravity.CENTER);
+            chip.setPadding(Ui.dp(14), Ui.dp(6), Ui.dp(14), Ui.dp(6));
+            GradientDrawable cg = new GradientDrawable();
+            cg.setCornerRadius(Ui.dp(14));
+            cg.setColor(i == kunlunCat ? 0xFFFB7299 : (dark ? 0xFF2A2A33 : 0xFFF1F1F4));
+            chip.setBackground(cg);
+            chip.setTextColor(i == kunlunCat ? 0xFFFFFFFF : (dark ? 0xFFD8D8E0 : 0xFF3A3A42));
+            LinearLayout.LayoutParams clp = new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+            clp.rightMargin = Ui.dp(8);
+            cats.addView(chip, clp);
+            chip.setOnClickListener(new View.OnClickListener() {
+                @Override public void onClick(View v) { kunlunCat = idx; selectTab(1); }
+            });
+        }
+        hsv.addView(cats);
+        col.addView(hsv, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
 
-        View spacer = new View(this);
-        spacer.setLayoutParams(new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, Ui.dp(10)));
-        col.addView(spacer);
-        String[] names = {"山门", "引雷桩", "渡鸦桥", "冰裂缝", "登顶"};
-        for (int i = 1; i <= 5; i++) {
-            boolean open = PassLog.isDone(this, "KL" + i);
-            Button b = new Button(this);
-            b.setText("KL" + i + " · " + names[i - 1] + (open ? " ✔" : ""));
-            b.setEnabled(i == 1 || open);
-            Ui.styleButton(b);
-            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-            lp.topMargin = Ui.dp(12);
-            col.addView(b, lp);
-            if (i == 1) {
-                b.setOnClickListener(new View.OnClickListener() {
-                    @Override
-                    public void onClick(View v) {
+        LinearLayout list = new LinearLayout(this);
+        list.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout.LayoutParams llp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        llp.topMargin = Ui.dp(10);
+        col.addView(list, llp);
+
+        if (kunlunCat == 0) {
+            String[] names = {"山门", "引雷桩", "渡鸦桥", "冰裂缝", "登顶"};
+            for (int i = 1; i <= 5; i++) {
+                final int lv = i;
+                boolean open = PassLog.isDone(this, "KL" + i);
+                Button b = new Button(this);
+                b.setText("KL" + i + " · " + names[i - 1] + (open ? " ✔" : ""));
+                b.setEnabled(lv == 1 || open);
+                b.setAlpha(b.isEnabled() ? 1f : 0.55f);
+                Ui.styleButton(b);
+                LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+                lp.topMargin = Ui.dp(12);
+                list.addView(b, lp);
+                if (lv == 1) b.setOnClickListener(new View.OnClickListener() {
+                    @Override public void onClick(View v) {
                         startActivity(new Intent(MainActivity.this, kn1Activity.class));
                     }
                 });
-            } else {
-                b.setEnabled(false);
-                b.setAlpha(open ? 1f : 0.55f);
             }
+        } else {
+            TextView soon = new TextView(this);
+            String zone = kunlunCat == 1 ? "流沙河" : "幽冥海";
+            soon.setText(zone + " 尚未开辟……\n风沙之下，另有玄机。");
+            soon.setTextSize(14);
+            soon.setTextColor(ThemeKit.muted(dark));
+            soon.setGravity(Gravity.CENTER);
+            soon.setPadding(0, Ui.dp(40), 0, 0);
+            list.addView(soon, new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
         }
+
         scroll.addView(col);
         return scroll;
     }
