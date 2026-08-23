@@ -2371,3 +2371,55 @@ print(total)   # 51561
 **动态路线**：jadx 从 n43Activity 顺藤摸到 Tj/Vv——Frida `Java.use('com.fatdog.reverse.Tj')` 直接调用 nativeEnc/nativeSign 拿现成参数对拍或转发；IDA 路线则从 S 盒 xref 定位 m1_key_expand，观察轮密钥展开——第 4/7/10 轮起与标准分叉，就是 Rcon 换血的实锤。
 
 **坑位提醒**：`Uu.FAKE_KEY = Fatdog_piece` 与真标记一字之差（命中即 403）；`strings libm1.so` 默认看不见真标记，要 `-el`；别把 `m1_decoy_seal` 的密文当宝。答案：加和 `51561`；flag `FLAG_18_KL6{ice_seal_broken}`
+
+---
+
+### KL7：裂魂之匣（流沙河第二关 · 魔改 DES）
+
+**考点**：libm2.so 手写 DES——S 盒骨架可认（S1 开头 `14 04 0d 01`）、E/P/PC1/PC2 全是标准，但三处被动手脚：
+
+1. **IP 排列表首尾互换**：IP[0]=58 ↔ IP[63]=57（IDA 里对表一眼见血——标准 IP 开头是 58,50,42,34）；
+2. **FP 同步重算**为魔改 IP 的逆置换（保证它自己加解密回环一致）；
+3. **S3 盒第 2 行第 3/4 列两值互换**（扁平下标 18/19：标准值 00,09 被换成 09,00）。
+
+标准 DES 库解不开它加密的密文。真标记 `Fatdog_shatter` 以 UTF-16 码元数组藏匿（默认 strings 盲区）；明文躺着的 `Fatdog_scatter` 是一字之差诱饵，用它派生钥匙的请求一律 403；导出函数 `m2_decoy_seal` 返回假密文。
+
+**协议**：POST https://…:8443/api/l44（表单 page/ts/enc/sign）
+
+- enc = hex( 魔改 3DES-EDE( sha256("Fatdog_shatter|des")[:24], "page=N&ts=T" 零填充至 8 字节倍数 ) )
+- sign = HMAC-SHA256( sha256("Fatdog_shatter|mac"), enc )
+
+对拍样例：page=1&ts=1787013761 →
+enc = e85191b8d0428195b7001f1daa537beec638f5261a624b27
+sign = e982bc1b3811c23d911588a49df32539c56e43d4c5cc35a78cd1867554a5decf
+
+（生成器 gen_kl7.py 内置教科书向量与 pycryptodome 对拍自测；so 的 C 实现经主机编译与本样例逐字节一致。）
+
+**静态路线（Python 全复刻，先 python server.py）**
+
+```python
+import hashlib, hmac, time, requests
+from gen_kl7 import ede_encrypt, pad8  # 生成器即官方镜像实现
+
+MARKER = b"Fatdog_shatter"
+dk   = hashlib.sha256(MARKER + b"|des").digest()[:24]
+mack = hashlib.sha256(MARKER + b"|mac").digest()
+
+total = 0
+for page in range(1, 101):
+    ts   = int(time.time())
+    enc  = ede_encrypt(dk, pad8(f"page={page}&ts={ts}".encode())).hex()
+    sign = hmac.new(mack, enc.encode(), hashlib.sha256).hexdigest()
+    r = requests.post("https://127.0.0.1:8443/api/l44",
+                      data={"page": page, "ts": ts, "enc": enc, "sign": sign},
+                      verify="certs/ca.crt", timeout=5).json()
+    assert len(r["nums"]) == 10, r
+    total += sum(r["nums"])
+print(total)   # 48865
+```
+
+不想依赖生成器也可以手写同款 DES：全套照 FIPS 教科书抄，只改三处——IP[0]/IP[63] 互换、FP 按新 IP 重算逆置换、S3[18]/S3[19] 互换——其余一个字节都不要动。（注意 S 盒顺序别背错：`13,2,8,4…` 开头的是 S8 不是 S3，真实 S3 开头 `10,00,09,0e`。）
+
+**动态路线**：jadx 从 o44Activity 顺藤摸到 Tp/Vq——Frida `Java.use('com.fatdog.reverse.Tp')` 直接调用 nativeEncDes/nativeSign 拿现成参数对拍或转发；IDA 路线则从 S1 盒 xref 定位 m2 的 Feistel 函数与子密钥编排，对比 IP 表开头（57,50,42,34 ≠ 标准 58,50,42,34）即实锤第一处魔改。
+
+**坑位提醒**：`Ww.FAKE_KEY = Fatdog_scatter` 与真标记一字之差（命中即 403）；`strings libm2.so` 默认看不见真标记，要 `-el`；别把 `m2_decoy_seal` 的密文当宝；用标准 pycryptodome 3DES 构造的请求服务端解不开（返回 nums 空数组）——这正是"必须还原魔改点"的反证。答案：加和 `48865`；flag `FLAG_18_KL7{soul_box_shattered}`

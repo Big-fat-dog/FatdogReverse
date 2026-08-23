@@ -36,6 +36,8 @@ public class xp41Activity extends Activity {
         status.setPadding(0, Ui.dp(20), 0, Ui.dp(20));
         box.addView(status, Ui.wrap(4));
 
+        box.addView(Ui.banner(this, R.drawable.level_41, 140));
+
         setContentView(box);
         ThemeKit.apply(this);
 

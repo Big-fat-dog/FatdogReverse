@@ -100,3 +100,9 @@ include $(CLEAR_VARS)
 LOCAL_MODULE := m1
 LOCAL_SRC_FILES := m1.c
 include $(BUILD_SHARED_LIBRARY)
+
+# 流沙河第二关：裂魂之匣（魔改 DES，IP 换位 + S3 换值）
+include $(CLEAR_VARS)
+LOCAL_MODULE := m2
+LOCAL_SRC_FILES := m2.c
+include $(BUILD_SHARED_LIBRARY)

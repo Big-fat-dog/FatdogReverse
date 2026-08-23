@@ -139,6 +139,8 @@ public class ProfileActivity extends Activity {
         }
 
         final ArrayList<TextView> chips = new ArrayList<TextView>();
+        // 昼夜切换按钮只在"基本情况"页显示；先占位，创建后再回填引用
+        final ImageButton[] themeBtn = new ImageButton[1];
         for (int i = 0; i < CAT_NAMES.length; i++) {
             final int idx = i;
             TextView chip = new TextView(ctx);
@@ -157,6 +159,9 @@ public class ProfileActivity extends Activity {
                 public void onClick(View v) {
                     // 太古禁地 / 天地秘境默认开放，无需通关数门禁
                     selectPage(ctx, idx, chips, pages);
+                    if (themeBtn[0] != null) {
+                        themeBtn[0].setVisibility(idx == 0 ? View.VISIBLE : View.GONE);
+                    }
                 }
             });
             chips.add(chip);
@@ -187,6 +192,7 @@ public class ProfileActivity extends Activity {
                 }
             });
             root.addView(tb, tbLp);
+            themeBtn[0] = tb;   // 回填引用，供分类切换时控制显隐
         }
 
         return root;
@@ -391,7 +397,7 @@ public class ProfileActivity extends Activity {
         zone2.setGravity(Gravity.CENTER);
         zone2.setPadding(0,dp(ctx,10),0,dp(ctx,4));
         col.addView(zone2);
-        String[] lsh={"冰封之钥"};
+        String[] lsh={"冰封之钥","裂魂之匣"};
         for(int i=0;i<lsh.length;i++){
             boolean open=PassLog.isDone(ctx,"KL"+(i+6));
             LinearLayout row=new LinearLayout(ctx); row.setOrientation(LinearLayout.HORIZONTAL);

@@ -418,9 +418,9 @@ public class MainActivity extends Activity {
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
 
         int done = 0;
-        for (int i = 1; i <= 6; i++) if (PassLog.isDone(this, "KL" + i)) done++;
+        for (int i = 1; i <= 7; i++) if (PassLog.isDone(this, "KL" + i)) done++;
         TextView wait = new TextView(this);
-        wait.setText(done == 0 ? "六方天地，皆未开启" : "已登顶 " + done + " / 6");
+        wait.setText(done == 0 ? "七方天地，皆未开启" : "已登顶 " + done + " / 7");
         wait.setTextSize(13);
         wait.setTextColor(ThemeKit.muted(dark));
         wait.setGravity(Gravity.CENTER);
@@ -510,21 +510,26 @@ public class MainActivity extends Activity {
             }
         } else if (kunlunCat == 1) {
             /* 流沙河：KL6 起，编号接续昆仑山 */
-            boolean open = PassLog.isDone(this, "KL6");
-            Button b = new Button(this);
-            b.setText("KL6 · 冰封之钥" + (open ? " ✔" : ""));
-            b.setEnabled(true);
-            b.setAlpha(1f);
-            Ui.styleButton(b);
-            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-            lp.topMargin = Ui.dp(12);
-            list.addView(b, lp);
-            b.setOnClickListener(new View.OnClickListener() {
-                @Override public void onClick(View v) {
-                    startActivity(new Intent(MainActivity.this, n43Activity.class));
-                }
-            });
+            String[] names = {"冰封之钥", "裂魂之匣"};
+            for (int i = 0; i < names.length; i++) {
+                final int kl = 6 + i;
+                boolean open = PassLog.isDone(this, "KL" + kl);
+                Button b = new Button(this);
+                b.setText("KL" + kl + " · " + names[i] + (open ? " ✔" : ""));
+                b.setEnabled(kl == 6 || PassLog.isDone(this, "KL6"));
+                b.setAlpha(b.isEnabled() ? 1f : 0.55f);
+                Ui.styleButton(b);
+                LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+                lp.topMargin = Ui.dp(12);
+                list.addView(b, lp);
+                final Class<?> target = kl == 6 ? n43Activity.class : o44Activity.class;
+                b.setOnClickListener(new View.OnClickListener() {
+                    @Override public void onClick(View v) {
+                        startActivity(new Intent(MainActivity.this, target));
+                    }
+                });
+            }
         } else {
             TextView soon = new TextView(this);
             String zone = kunlunCat == 1 ? "流沙河" : "幽冥海";

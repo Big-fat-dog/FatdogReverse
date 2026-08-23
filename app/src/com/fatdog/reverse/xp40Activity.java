@@ -31,6 +31,8 @@ public class xp40Activity extends Activity {
         status.setTextSize(14); status.setGravity(Gravity.CENTER);
         status.setPadding(0, Ui.dp(16), 0, Ui.dp(16));
         box.addView(status, Ui.wrap(4));
+        box.addView(Ui.banner(this, R.drawable.level_40, 140));
+
         setContentView(box); ThemeKit.apply(this);
         // 触发一次字段访问让 Xposed 模块有机会 Hook
         String v = SecretVault.getKey();

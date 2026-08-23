@@ -71,6 +71,7 @@ APK 结构刻意做得和真实 App 一致：图标（5 种密度）、XML 布�
 | KL4 | 冰裂缝 | 反模拟检测：读 /proc/self/maps 搜模拟器特征 + TracerPid 检查，环境干净返回通行令牌，否则冰面碎裂；unidbg IOResolver 喂假文件过反模拟 | 25 篇：IOResolver 喂假文件 |
 | KL5 | 登顶 | 综合卷：动态注册 + Java 回调 + XOR 解密；nativeClimb 回调 summitKey() 取 Fatdog_ 与 so 内 summit 拼合解密 flag | 全线：unidbg 综合实战 |
 | KL6 | 冰封之钥 | 流沙河首关：手写 AES-128 的 S 盒是标准的、轮常量 Rcon 三处换血——标准库解不开它自己的密文；真标记 UTF-16 藏匿（strings -el 可破），明文近亲 Fatdog_piece 是诱饵；网络取数求和模式 | 27 篇配套：魔改算法指纹识别 |
+| KL7 | 裂魂之匣 | 手写 DES 骨架可认（S1 开头 14,04,0d,01），但 IP 排列表首尾互换、FP 同步重算、S3 盒两值换位——逐表对比标准找全三处；3DES-EDE 三层全是魔改 DES；标记 Fatdog_shatter UTF-16 藏匿，明文近亲 Fatdog_scatter 是诱饵 | 27 篇配套：魔改算法指纹识别 |
 
 每关的**解题思路分级提示**见下方折叠块；完整题解（含 Python 复刻代码与 Frida 脚本）在 `SOLUTIONS.md`（建议先自己练）。
 
@@ -538,10 +539,19 @@ license 链路：`base64 → AES解密(密钥A在XBox) → AES解密(密钥B在M
 
 </details>
 
+<details>
+<summary>KL7 · 裂魂之匣（流沙河）中度提示</summary>
+
+1. S1 盒开头 14 04 0d 01 认出手写 DES；可 pycryptodome 解不开抓来的 enc——骨架没坏，坏的是表。
+2. strings -el libm2.so 找 UTF-16 藏着的真标记 Fatdog_shatter；明文躺着的 Fatdog_scatter 是一字之差诱饵（命中即 403），so 里 m2_decoy_seal 返回的也是假密文。
+3. des 钥=SHA256(Fatdog_shatter+"|des")[:24]（3DES-EDE）、mac=SHA256(Fatdog_shatter+"|mac")；对比标准 DES 逐表排查——IP 首尾互换（58<->57）、FP 同步重算、S3 第 18/19 位两值互换（9<->0），Python 照抄这三处再取数，加和 48865。
+
+</details>
+
 ## 路线图
 
 - 第一季：教程 18 静态分析 6 关 + 教程 19 smali 4 关（7/8/9/20）+ 教程 20 Frida 5 关（10-14）+ 网络取数 5 关（15-19）
 - 第二季：SSL / 抓包对抗系列 21-27（已全部落地，规划见 `PLANNED.md`）
 - 第三季：native 层系列 L28-37 十关已全部落地；大厅新增「Native 试炼」分区
-- 天地秘境·流沙河分区开篇：KL6 冰封之钥已落地（魔改算法五连关 KL6-KL10，编号接续昆仑山，入口在天地秘境「流沙河」页签；后续规划见 PLANNED.md）
+- 天地秘境·流沙河分区：KL6 冰封之钥、KL7 裂魂之匣已落地（魔改算法五连关 KL6-KL10，编号接续昆仑山，入口在天地秘境「流沙河」页签；后续规划见 PLANNED.md）
 - **标记变更（自 L28 起）**：密钥/口令等标记弃用 `fatdemo_` 前缀，改用 `Fatdog_<情绪词>`（情绪词用尽换动词，如 `Fatdog_unhappy` / `Fatdog_sneak`）；L1-27 保持不变，完整规范见 `SKILL.md` §四

@@ -20,10 +20,10 @@ import org.json.JSONObject;
 import java.io.InputStream;
 import java.security.MessageDigest;
 
-// 天地秘境·流沙河（KL6）：libm1.so 手写 AES-128——S 盒标准、Rcon 三处换血。
-// 标准 AES 库解不开密文；认出骨架后，被动手脚的是轮常量。
-public class n43Activity extends Activity {
-    static final String SUM_HASH = "71f27647e0ddded9b384878c8ee42355292713366931e5cc8d5b4458cb773ef5";
+// 天地秘境·流沙河（KL7）：libm2.so 手写 DES——骨架可认，
+// 但 IP 排列表首尾互换、FP 同步重算、S3 盒两值换位。标准 DES 库解不开密文。
+public class o44Activity extends Activity {
+    static final String SUM_HASH = "32fbd5d237d7d8083e99bd9417190188f89555980fc416e1399118c68a4ccebc";
     static final int PAGES = 100;
     static final int PER_PAGE = 10;
 
@@ -46,8 +46,9 @@ public class n43Activity extends Activity {
         box.setPadding(Ui.dp(16), Ui.dp(14), Ui.dp(16), Ui.dp(12));
 
         TextView tv = new TextView(this);
-        tv.setText("S 盒认得出这是 AES——可标准库怎么解都是乱码。\n"
-                + "骨架没错的话，被动手脚的就是轮常量。密文就在请求参数里。");
+        tv.setText("S1 盒开头 14 04 0d 01——认得出这是 DES。\n"
+                + "可标准库怎么解都是乱码。骨架没错的话，被动手脚的\n"
+                + "要么是排列表、要么是 S 盒。密文就在请求参数里。");
         tv.setGravity(Gravity.CENTER);
         box.addView(tv, Ui.wrap(4));
 
@@ -139,9 +140,9 @@ public class n43Activity extends Activity {
                 try {
                     int p = Integer.parseInt(s);
                     if (p >= 1 && p <= PAGES) loadPage(p);
-                    else Toast.makeText(n43Activity.this, "页码超出范围 1-" + PAGES, Toast.LENGTH_SHORT).show();
+                    else Toast.makeText(o44Activity.this, "页码超出范围 1-" + PAGES, Toast.LENGTH_SHORT).show();
                 } catch (Exception e) {
-                    Toast.makeText(n43Activity.this, "请输入页码", Toast.LENGTH_SHORT).show();
+                    Toast.makeText(o44Activity.this, "请输入页码", Toast.LENGTH_SHORT).show();
                 }
             }
         });
@@ -162,19 +163,19 @@ public class n43Activity extends Activity {
         hint.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                new AlertDialog.Builder(n43Activity.this)
+                new AlertDialog.Builder(o44Activity.this)
                         .setTitle("提示")
-                        .setMessage("服务端 HTTPS:8443 的 GET /api/l43：enc=hex(魔改AES-128-ECB(key,\"page=N&ts=T\" 零填充))、sign=HMAC-SHA256(mac,enc)。\n"
-                                + "钥匙两步走：① strings -el 找到 UTF-16 藏着的标记 Fatdog_pierce；② aes 钥=SHA256(标记+\"|aes\")[:16]，mac=SHA256(标记+\"|mac\")。\n"
-                                + "标准 AES 解不开？对比轮常量表——Rcon 的第 3/6/9 位被换过血，Python 里照抄这三处再取数。\n"
-                                + "注意 Uu.FAKE_KEY=Fatdog_piece 一字之差陷阱（命中即 403）；so 里的 m1_decoy_seal 是假密文。")
+                        .setMessage("服务端 HTTPS:8443 的 POST /api/l44：enc=hex(魔改3DES-EDE(key,\"page=N&ts=T\" 零填充))、sign=HMAC-SHA256(mac,enc)。\n"
+                                + "钥匙两步走：① strings -el 找到 UTF-16 藏着的标记 Fatdog_shatter；② des 钥=SHA256(标记+\"|des\")[:24]，mac=SHA256(标记+\"|mac\")。\n"
+                                + "标准 DES 解不开？逐表对比标准——IP 首尾互换（58<->57）、FP 同步重算、S3 第 18/19 位两值互换（9<->0），Python 照抄这三处再取数。\n"
+                                + "注意 Ww.FAKE_KEY=Fatdog_scatter 一字之差陷阱（命中即 403）；so 里的 m2_decoy_seal 是假密文。")
                         .setPositiveButton("好的", null)
                         .show();
             }
         });
         box.addView(hint, Ui.wrap(10));
 
-        box.addView(Ui.banner(this, R.drawable.level_kl6, 150));
+        box.addView(Ui.banner(this, R.drawable.level_kl7, 150));
 
         setContentView(box);
         ThemeKit.apply(this);
@@ -184,10 +185,10 @@ public class n43Activity extends Activity {
             public void onClick(View v) {
                 String ans = ansIn.getText().toString().trim();
                 if (sha256Hex(ans).equals(SUM_HASH)) {
-                    Celebration.show(n43Activity.this, "FLAG_18_KL6{ice_seal_broken}");
-                    PassLog.mark(n43Activity.this, "KL6");
+                    Celebration.show(o44Activity.this, "FLAG_18_KL7{soul_box_shattered}");
+                    PassLog.mark(o44Activity.this, "KL7");
                 } else {
-                    Toast.makeText(n43Activity.this,
+                    Toast.makeText(o44Activity.this,
                             "加和不对，再取数算一遍。", Toast.LENGTH_SHORT).show();
                 }
             }
@@ -200,7 +201,7 @@ public class n43Activity extends Activity {
         if (loading) return;
         loading = true;
         status.setText("正在请求第 " + page + " 页…");
-        Vv.fetchPage(base, page, new Vv.Cb() {
+        Vq.fetchPage(base, page, new Vq.Cb() {
             @Override
             public void onPage(final int got, final int[] nums) {
                 runOnUiThread(new Runnable() {
@@ -284,7 +285,7 @@ public class n43Activity extends Activity {
             JSONObject cfg = new JSONObject(readAssets("config.json"));
             return NetHost.resolve(cfg.getJSONObject("server").getString("api_base_url"), true);
         } catch (Exception e) {
-            return Vv.BASE;
+            return Vq.BASE;
         }
     }
 

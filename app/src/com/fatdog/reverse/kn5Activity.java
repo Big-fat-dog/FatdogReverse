@@ -71,6 +71,8 @@ public class kn5Activity extends Activity {
         });
         box.addView(hint, Ui.wrap(8));
 
+        box.addView(Ui.banner(this, R.drawable.level_kn5, 140));
+
         setContentView(box);
         ThemeKit.apply(this);
     }

@@ -42,6 +42,8 @@ public class xp42Activity extends Activity {
         status.setPadding(0, Ui.dp(12), 0, Ui.dp(12));
         box.addView(status, Ui.wrap(4));
 
+        box.addView(Ui.banner(this, R.drawable.level_42, 140));
+
         setContentView(box); ThemeKit.apply(this);
 
         // 冷启动检测：如果 Xposed Hook 仍生效则通关
