@@ -2049,3 +2049,48 @@ print("总和:", total)                     # 49495
 **动态路线**：IDA 里顺着唯一导出入口看到指针表派发 → 底部 `k36_ecb` 就是 AES 本体（偏移 Hook 后 onEnter hexdump 入参直接看明文）。注意前半文件的 `k36_fake_*` 是无人调用的诱饵，Hook 它们永远不触发。
 
 **坑位提醒**：`Oo.FAKE_KEY = Fatdog_bluff` 是一字之差陷阱（命中即 403）；别把 Base64 当加密去"破解"——解码就够了。
+
+
+---
+
+## 关卡 37：雪崩之谜（SHA-256 变体 IV + RC4 叠加）
+
+**考点**：libl37.so 里是一份**被换过血的 SHA-256**——K 表与压缩轮和教科书完全一致（这是"认骨架"的依据），但初始向量 H0 整组替换为 `SHA256("Fatdog_dodge|iv")`；摘要出来还要再过一层 `RC4(SHA256("Fatdog_dodge|rc4")[:16], dg)` 才是最终 sign。于是 hashlib 怎么算都对不上——先认出骨架，再找到两处改动点（IV 换血 + RC4 叠加），谜底自现。
+
+**协议**
+
+```text
+iv      = SHA256("Fatdog_dodge|iv")            # 32 字节，整组替换标准 IV
+rc4_key = SHA256("Fatdog_dodge|rc4")[:16]
+dg      = SHA256变体( payload )                # payload = "page=N&ts=T"，零填充至 64 倍数
+sign    = hex( RC4(rc4_key, dg) )
+```
+
+**Python 全复刻（先 python server.py；sha37_iv/rc4_37 可直接参考 server.py 内同名函数）**
+
+```python
+import time, requests
+
+# —— 与 server.py 完全一致的变体实现（此处引用，省略重复定义）——
+from server_sha37 import sha37_iv, rc4_37, IV37_W, RC4K37
+
+BASE  = "https://127.0.0.1:8443"
+total = 0
+for page in range(1, 101):
+    ts   = int(time.time())
+    payload = f"page={page}&ts={ts}".encode()
+    padded  = payload + b"\x00" * ((-len(payload)) % 64)
+    dg   = sha37_iv(padded, IV37_W)              # 换血 IV 压缩
+    sign = rc4_37(RC4K37, dg).hex()              # 再叠 RC4
+    r = requests.get(f"{BASE}/api/l37",
+                     params={"page": page, "ts": ts, "sign": sign},
+                     verify="certs/ca.crt", timeout=10)
+    total += sum(r.json()["nums"])
+print("总和:", total)                    # 51242
+```
+
+对拍样例：`variant_sign("page=1&ts=1787013761") = 902ac65869469750db3d5d70cbc89f1221a3a7ccc173ee85f38ff72a9cc53938`。
+
+**动态路线**：spawn 下按偏移 Hook `k37_sha` 入口，dump 第二参数（h[8]）的初始值——发现不是 `6a09e667 bb67ae85…` 而是 `eb9d6a55 e9fce922…`，IV 换血当场实锤；再看出口处 rc4 调用即知第二层。静态路线则全程无需碰设备。
+
+**坑位提醒**：`Sc.FAKE_KEY = Fatdog_drift` 是动词陷阱；K 表魔数在 so 里以 32 位小端字形态存在（IDA 里按 word 看），别用大端字节序列去搜。

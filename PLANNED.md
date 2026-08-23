@@ -37,6 +37,7 @@
 | 34 | 万法归墟 | 综合卷：动态注册 + 无名 Feistel8 参数加密 + HMAC 签名 + 四路哨兵 + CRC 自校验 + 记账守卫 + 响应 RC4（密钥派生）；三条官方路线（Frida/patch/unidbg） | POST https://…/api/l34 | 49932 | FLAG_18_L34{guixu_all_in_one} |
 | 35 | 双匣暗渡 | 手写 3DES+SM4（魔数认阵：S1 盒/FK·CK/S 盒），文件前半诱饵函数垫底、真身指针表派发；双密文参数 e1/e2 + 动态 ts；每页三连包辨真假 | POST https://…/api/l35 | 51217 | FLAG_18_L35{sbox_tells_all} |
 | 36 | 查表识君 | 手写 AES-128（S 盒 637c777b…）沉底派发；钥匙藏 .rodata 的 Base64 串（解码即 16 字节真钥——Base64 不是加密）；enc=hex(AES-ECB)+sign=HMAC(mac) | GET https://…/api/l36 | 49495 | FLAG_18_L36{base64_is_not_encryption} |
+| 37 | 雪崩之谜 | 手写 SHA-256 变体：压缩轮/K 表与标准一致但初始 IV 整组换血（SHA256(Fatdog_dodge+"|iv") 派生），摘要再叠 RC4（同法派生钥）→ hashlib 永远对不上；认骨架看 K 表、找改动看初始化 | GET https://…/api/l37 | 51242 | FLAG_18_L37{avalanche_hides_the_blood} |
 
 > 加和 = 全部页数字的总和，App 用内置校验比对通过后才展示 flag。
 
@@ -63,6 +64,7 @@
 - L34：`j34Activity` + `Yh`（五方法全动态注册：pack/sign/unwrap/assertGuard/isPoisoned）+ `Zi`（POST + 响应解包）+ `libl34.so`（诱饵 `Ak`；导出仅 JNI_OnLoad + 双诱饵 + 区间锚点）
 - L35：`k35Activity` + `Ir`（nativeEncSm4/nativeEncDes/nativeSign，静态注册）+ `Js`（三连包分发器）+ `libl35.so`（诱饵 `Kq`；so 内四个诱饵变换函数可见导出——按设计当噪音）
 - L36：`l36Activity` + `Mn`（nativeEnc/nativeSign）+ `Nn`（GET 客户端）+ `libl36.so`（诱饵 `Oo`；K36_KEY_B64 明文可见即藏宝图）
+- L37：`m37Activity` + `Qa`（nativeSign）+ `Rb`（GET 客户端）+ `libl37.so`（诱饵 `Sc`；导出 JNI_OnLoad/Qa_nativeSign/三诱饵函数）
 
 ## 关卡 20 设计明细（万恶广告劫：改 smali 关弹窗）
 
@@ -226,6 +228,13 @@
 - **服务端**：`GET /api/l36` 验签+AES 解密核对载荷（pycryptodome AES-ECB）；近亲假钥 Fatdog_bluff 命中即 403。SEED36=20271125，加和 49495。
 - **破解点**：① strings libl36.so 找 == 结尾的 24 字符串 → base64 解码 → Python 复刻 AES-ECB+HMAC 取数；② IDA 靠 S 盒魔数定位 k36_ecb → 偏移 Hook 观察明文入参。
 
+## 关卡 37 设计明细（雪崩之谜：SHA-256 变体 IV + RC4 叠加，已落地）
+
+- **App 端**：`m37Activity` ＋ `Qa`（nativeSign 单入口，静态注册）＋ `Rb`（GET /api/l37?page&ts&sign）。响应明文 JSON。
+- **libl37.so**：手写 SHA-256 变体——K 表与压缩轮**与标准完全一致**（认骨架的依据），但初始 H[] 整组替换为 `SHA256("Fatdog_dodge|iv")`（标准 SHA 只用于派生 IV/RC4 钥匙，教科书常量不参与签名）；摘要出来再叠一层 `RC4(SHA256("Fatdog_dodge|rc4")[:16], dg)` 才是 sign。前半文件三个无用变换函数垫底，真身经 K37_TBL 派发。
+- **服务端**：server.py 内置同一套纯 Python 变体实现（sha37_iv/rc4_37 与 C 互为镜像），`GET /api/l37` 重算比对。SEED37=20271223，加和 51242。样例对拍：variant_sign("page=1&ts=1787013761") = 902ac65869469750db3d5d70cbc89f1221a3a7ccc173ee85f38ff72a9cc53938。
+- **破解点**：① strings -el 拿 Fatdog_dodge → Python 手写同款变体（IV 换血 + RC4 叠加两处改动点都要还原）；② 动态偏移 Hook k37_sha 后 dump 初始化完成的 h[]，一眼识破 IV 换血。陷阱：Sc.FAKE_KEY=Fatdog_drift；直接拿 hashlib 硬对永远失败。
+
 ## 实现清单（每关落地时已做）
 
 1. `server.py` 加对应接口（验签/加解密/页面逻辑只在服务端，数字/flag 不进 APK）。
@@ -268,7 +277,7 @@
 | 34 | 万法归墟 | 综合卷：动态注册+无名 Feistel+反检测+CRC+响应加密；Frida / patch so / unidbg 三条官方路线 | Fatdog_grumpy | ★★★★★★ | POST /api/l34 | 已落地（加和 49932） |
 | 35 | 双匣暗渡 | C 手写 3DES + SM4 常量识别＋干扰包 | Fatdog_sneak | ★★★★ | POST /api/l35 | 已落地（加和 51217） |
 | 36 | 查表识君 | C 手写 AES，真身藏在无用方法底下 | Fatdog_break | ★★★ | GET /api/l36 | 规划 |
-| 37 | 雪崩之谜 | C 手写 SHA-256 变体（改 IV/加盐），认骨架找改动点 | Fatdog_dodge | ★★★ | GET /api/l37 | 规划 |
+| 37 | 雪崩之谜 | C 手写 SHA-256 变体（改 IV/加盐），认骨架找改动点 | Fatdog_dodge | ★★★ | GET /api/l37 | 已落地（加和 51242） |
 
 ### 每关设计明细
 
@@ -316,6 +325,8 @@
 - 干扰包落在 L31、L35 两关（前者练响应甄别，后者天然双算法凑满加密参数配额）。
 
 ## 后续规划
+
+- **昆仑山秘境（已启用）**：KL 独立编号五连关，纯本地提交模式；入口双通道（通关 37 关或密令）。KL1 山门已落地（xorshift32+libkunlun1.so），KL2-KL5 规划见对话记录与 00-路线图。
 
 - 第三季：native 层系列 L28-37，完整规划见上文《第三季规划》章节，逐关落地后回填状态与加和。
 - **标记命名切换（L28 起生效）**：密钥/口令等标记弃用 `fatdemo_` 前缀，改用 `Fatdog_<后缀>`——后缀先用情绪词（unhappy/angry/gloomy…），情绪词用尽换动词（sneak/break/dodge…）；详细规则与选词表见 `SKILL.md` §四。L1-27 维持 `fatdemo_` 不动。

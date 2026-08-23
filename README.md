@@ -59,6 +59,7 @@ APK 结构刻意做得和真实 App 一致：图标（5 种密度）、XML 布�
 | 34 | 万法归墟 | 综合卷：动态注册 + 无名 Feistel8 参数加密 + HMAC + 四路哨兵 + CRC + 记账 + 响应 RC4（密钥派生）；官方路线 Frida/patch so/unidbg 三选一 | 22 篇合卷：三季所学一关收束 |
 | 35 | 双匣暗渡 | 手写 3DES+SM4 藏进满屏诱饵函数，认算法靠 S 盒魔数（14,4,13,1… / d6 90 e9 fe…）；双密文参数 + 动态 ts；每页三连包辨真假 | 13+15 篇：密码学指纹识别 |
 | 36 | 查表识君 | 手写 AES-128 沉底派发（S 盒 637c777b…）；钥匙藏在 .rodata 的 Base64 串里，解码即得——Base64 不是加密 | 02+12 篇：编码伪装与 AES 指纹 |
+| 37 | 雪崩之谜 | 手写 SHA-256 变体：骨架/K 表没动、初始 IV 整组换血，摘要再叠 RC4——hashlib 永远对不上；认骨架、找改动点 | 09 篇进阶：从指纹到改点 |
 
 每关的**解题思路分级提示**见下方折叠块；完整题解（含 Python 复刻代码与 Frida 脚本）在 `SOLUTIONS.md`（建议先自己练）。
 
@@ -132,7 +133,7 @@ python server.py          # HTTP :8787（15-20） + HTTPS :8443（21-25，自签
 
 地址自动切换：`config.json` 的 `api_base_url` 默认 `"AUTO"`——模拟器自动走 `10.0.2.2`、真机自动走 `127.0.0.1`（识别不出模拟器特征时按真机处理）；也可手动填 `http://局域网IP:8787` 覆盖，手机与电脑同一网络即可免 USB。
 
-各网络关要点：L15 HMAC 明文参数；L16 请求整段加密+MD5 签名、响应加密（RC4）；L17 表单 enc/sig/dog（国密 SM4+SM3，纯 Python 实现）；L18 RSA 加密请求参数 + DES 解密响应（密钥一半服务端下发）；L19 AES 加密参数 + HMAC 签名、响应加密（加密包 R8 混淆 + 字符串加密）；L21/L22 走 HTTPS + 自签 CA（TrustManager / CertificatePinner 双闸门）；L23 走 WebView 加载 https://…:8443/h5/v23（主机自动选择；仅 HTTPS，HTTP 直接 403）：自签证书不被信任 → App 在 onReceivedSslError 里 handler.cancel() → 白屏，Hook 放行后页面出现、自动通关。L24 走 HTTPS + 内置 CA + HostnameVerifier pin 校验（pin 无明文，XOR 数组藏在 Z24Core），校验链带反 Hook 守卫——Hook 校验函数直接放行会触发"完整性校验失败"，正解是 Hook Z24Core.realPin 内存换 pin（换票）。L25 走 HTTPS + JNI：发请求前调 Nx.verifyServer（native 主机白名单），签名 Nx.nativeSign 在 libnative.so 里算 HMAC-SHA256——密钥不在 Java（strings libnative.so 可见 fatdemo_jni_2026），Hook Mac/MessageDigest 无效，正路是静态逆向 so 复刻或 Frida 原生层调用。**L26 走双向 TLS（mTLS）**：`https://…:8444/api/mtls`，服务端握手层强制验证客户端证书（只信内置 CA 签发的）；App 从 `assets/mt_client.p12` 加载客户端证书+私钥（密码 `fatdemo_mt26` 拆在 Zt/Mc 的异或数组里），没这张证书连握手都过不去——先抠证书解密码，再带 client 证书复刻取数（加和 50814）。**L27 万法归宗**走 HTTPS :8443 的 `POST /api/l27` + 复合签名：`enc=AES(page=N&ts=T)`、`sign=HMAC(enc)`、响应 `{"d"}` 再过一层 AES；加密核心在 `com.fatdog.reverse.p` 包（构建时被 R8 改名 + 算法名/路径/密钥全是异或串），三把密钥各拆两半跨类拼装。抓包得先放倒 TrustManager + CertificatePinner 两道闸——而且抓到的也只是 enc 密文：从 c27Activity 的调用链摸进混淆包还原签名链，才能复刻取数（加和 50623）。L28 走 native 字符串加密：密钥 ^0x5C 藏 libl28.so（strings 只见诱饵 Fatdog_silent），IDA 还原 Fatdog_unhappy 或 Frida 运行时搜明文，加和 49750；L29 走动态注册：导出表两个假 nativeSign 全是坑，真身无名靠 spawn+hook libart RegisterNatives 抓映射，密钥 Fatdog_angry 异或藏 .data，加和 50208。L30 走无名派发：四候选同形函数挂函数指针表、UTF-16 密钥躲过默认 strings（`strings -el` 可破），真钥 Fatdog_gloomy，加和 51127。L31 走跨层拼装：Fatdog_ 藏在 R8 改名的 q 包、lonely 是 so 里的 UTF-16 数组，native 回调 Java 取件；每页连发 1 真 + 3 干扰同形包（错位/废签/噪声），假包要么 403 要么 nums 为空，加和 50768。L32 走反检测：四路哨兵扫 maps/探端口/查线程名/盯 TracerPid，挂着 Frida 就静默投毒一字节（签名全错），App 只弹一次警告；静态复刻党全程免疫，动态党得先让哨兵闭嘴，加和 51745。L33 走自完整性校验：可执行段 CRC 基线 + 记账守卫，纯观察钩子也会被抓，三解全开（JNI_OnLoad 抢跑/hook 校验器/改基线），加和 49502。L34 万法归墟收官：Feistel8 参数加密让纯猜必死、响应再裹一层 RC4（密钥派生）、守卫全家桶伺候——Frida/patch so/unidbg 三路皆通，加和 49932。L35 手写 3DES+SM4 埋进诱饵堆里，靠 S 盒魔数认阵（strings -el 先拿 Fatdog_sneak 再派生双钥）；双密文参数 + 动态 ts + 三连包辨真假，加和 51217。L36 手写 AES-128 沉底，钥匙是 so 里那串 == 结尾的 Base64——解开就是 16 字节真钥，Python 复刻取数加和 49495。
+各网络关要点：L15 HMAC 明文参数；L16 请求整段加密+MD5 签名、响应加密（RC4）；L17 表单 enc/sig/dog（国密 SM4+SM3，纯 Python 实现）；L18 RSA 加密请求参数 + DES 解密响应（密钥一半服务端下发）；L19 AES 加密参数 + HMAC 签名、响应加密（加密包 R8 混淆 + 字符串加密）；L21/L22 走 HTTPS + 自签 CA（TrustManager / CertificatePinner 双闸门）；L23 走 WebView 加载 https://…:8443/h5/v23（主机自动选择；仅 HTTPS，HTTP 直接 403）：自签证书不被信任 → App 在 onReceivedSslError 里 handler.cancel() → 白屏，Hook 放行后页面出现、自动通关。L24 走 HTTPS + 内置 CA + HostnameVerifier pin 校验（pin 无明文，XOR 数组藏在 Z24Core），校验链带反 Hook 守卫——Hook 校验函数直接放行会触发"完整性校验失败"，正解是 Hook Z24Core.realPin 内存换 pin（换票）。L25 走 HTTPS + JNI：发请求前调 Nx.verifyServer（native 主机白名单），签名 Nx.nativeSign 在 libnative.so 里算 HMAC-SHA256——密钥不在 Java（strings libnative.so 可见 fatdemo_jni_2026），Hook Mac/MessageDigest 无效，正路是静态逆向 so 复刻或 Frida 原生层调用。**L26 走双向 TLS（mTLS）**：`https://…:8444/api/mtls`，服务端握手层强制验证客户端证书（只信内置 CA 签发的）；App 从 `assets/mt_client.p12` 加载客户端证书+私钥（密码 `fatdemo_mt26` 拆在 Zt/Mc 的异或数组里），没这张证书连握手都过不去——先抠证书解密码，再带 client 证书复刻取数（加和 50814）。**L27 万法归宗**走 HTTPS :8443 的 `POST /api/l27` + 复合签名：`enc=AES(page=N&ts=T)`、`sign=HMAC(enc)`、响应 `{"d"}` 再过一层 AES；加密核心在 `com.fatdog.reverse.p` 包（构建时被 R8 改名 + 算法名/路径/密钥全是异或串），三把密钥各拆两半跨类拼装。抓包得先放倒 TrustManager + CertificatePinner 两道闸——而且抓到的也只是 enc 密文：从 c27Activity 的调用链摸进混淆包还原签名链，才能复刻取数（加和 50623）。L28 走 native 字符串加密：密钥 ^0x5C 藏 libl28.so（strings 只见诱饵 Fatdog_silent），IDA 还原 Fatdog_unhappy 或 Frida 运行时搜明文，加和 49750；L29 走动态注册：导出表两个假 nativeSign 全是坑，真身无名靠 spawn+hook libart RegisterNatives 抓映射，密钥 Fatdog_angry 异或藏 .data，加和 50208。L30 走无名派发：四候选同形函数挂函数指针表、UTF-16 密钥躲过默认 strings（`strings -el` 可破），真钥 Fatdog_gloomy，加和 51127。L31 走跨层拼装：Fatdog_ 藏在 R8 改名的 q 包、lonely 是 so 里的 UTF-16 数组，native 回调 Java 取件；每页连发 1 真 + 3 干扰同形包（错位/废签/噪声），假包要么 403 要么 nums 为空，加和 50768。L32 走反检测：四路哨兵扫 maps/探端口/查线程名/盯 TracerPid，挂着 Frida 就静默投毒一字节（签名全错），App 只弹一次警告；静态复刻党全程免疫，动态党得先让哨兵闭嘴，加和 51745。L33 走自完整性校验：可执行段 CRC 基线 + 记账守卫，纯观察钩子也会被抓，三解全开（JNI_OnLoad 抢跑/hook 校验器/改基线），加和 49502。L34 万法归墟收官：Feistel8 参数加密让纯猜必死、响应再裹一层 RC4（密钥派生）、守卫全家桶伺候——Frida/patch so/unidbg 三路皆通，加和 49932。L35 手写 3DES+SM4 埋进诱饵堆里，靠 S 盒魔数认阵（strings -el 先拿 Fatdog_sneak 再派生双钥）；双密文参数 + 动态 ts + 三连包辨真假，加和 51217。L36 手写 AES-128 沉底，钥匙是 so 里那串 == 结尾的 Base64——解开就是 16 字节真钥，Python 复刻取数加和 49495。L37 收官卷：SHA-256 变体（IV 整组换血）叠 RC4，hashlib 永远对不上；strings -el 拿标记后按服务端同款逻辑复刻变体即可，加和 51242。
 
 ## 环境准备
 
@@ -441,6 +442,16 @@ license 链路：`base64 → AES解密(密钥A在XBox) → AES解密(密钥B在M
 </details>
 
 <details>
+<summary>关卡 37 · 中度提示</summary>
+
+1. 症状：拿 hashlib.sha256(payload) 对拍一万次也不相等——不是算错，是这个 SHA-256 被"换过血"。
+2. 认骨架：IDA 里 K 表开头 0x428a2f98（以字形态查看）说明压缩逻辑是标准 SHA-256；找改动点看初始化——h[] 来自派生值而非教科书常量。
+3. 两处改动都要还原：IV = SHA256(Fatdog_dodge+"|iv")（整组 32 字节）；sign 外层再叠 RC4，钥 = SHA256(Fatdog_dodge+"|rc4")[:16]。strings -el 拿 Fatdog_dodge 后照 server.py 的 sha37_iv/rc4_37 抄即可。
+4. 静态抄近道：Python 复刻变体取数求和 = 51242。Sc.FAKE_KEY=Fatdog_drift 是动词陷阱。
+
+</details>
+
+<details>
 <summary>关卡 36 · 中度提示</summary>
 
 1. strings libl36.so 找到 24 字符、以 == 结尾的 Base64 串（tE5zEyf1b+fe49uJN4cY7w==）——它就是藏宝图：base64 解码即得 16 字节 AES-128 钥匙。
@@ -495,5 +506,5 @@ license 链路：`base64 → AES解密(密钥A在XBox) → AES解密(密钥B在M
 
 - 第一季：教程 18 静态分析 6 关 + 教程 19 smali 4 关（7/8/9/20）+ 教程 20 Frida 5 关（10-14）+ 网络取数 5 关（15-19）
 - 第二季：SSL / 抓包对抗系列 21-27（已全部落地，规划见 `PLANNED.md`）
-- 第三季：native 层系列（L28-L36 已落地；规划至 L37，见 PLANNED.md 第三季章节）；大厅新增「Native 试炼」分区
+- 第三季：native 层系列（L28-L37 十关已全部落地；后续新关卡规划见 PLANNED.md）；大厅新增「Native 试炼」分区
 - **标记变更（自 L28 起）**：密钥/口令等标记弃用 `fatdemo_` 前缀，改用 `Fatdog_<情绪词>`（情绪词用尽换动词，如 `Fatdog_unhappy` / `Fatdog_sneak`）；L1-27 保持不变，完整规范见 `SKILL.md` §四

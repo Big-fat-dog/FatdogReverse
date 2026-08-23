@@ -58,6 +58,8 @@
         <activity android:name=".j34Activity" android:exported="false" />
         <activity android:name=".k35Activity" android:exported="false" />
         <activity android:name=".l36Activity" android:exported="false" />
+        <activity android:name=".m37Activity" android:exported="false" />
+        <activity android:name=".kn1Activity" android:exported="false" />
         <activity android:name=".a20Activity" android:exported="false" />
         <activity android:name=".ProfileActivity" android:exported="false" />
 

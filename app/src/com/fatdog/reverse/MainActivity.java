@@ -1,12 +1,16 @@
 package com.fatdog.reverse;
 
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.content.Intent;
 import android.graphics.Color;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Bundle;
 import android.view.Gravity;
 import android.view.View;
+import android.widget.Button;
+import android.widget.EditText;
+import android.widget.ScrollView;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
@@ -31,7 +35,7 @@ public class MainActivity extends Activity {
             {R.id.btn_h10, R.id.btn_h11, R.id.btn_aes12, R.id.btn_dual13, R.id.btn_chain14},
             {R.id.btn_pages15, R.id.btn_rc16, R.id.btn_f17, R.id.btn_r18, R.id.btn_l19},
             {R.id.btn_t21, R.id.btn_p22, R.id.btn_w23, R.id.btn_g24, R.id.btn_n25, R.id.btn_m26, R.id.btn_f27},
-            {R.id.btn_l28, R.id.btn_l29, R.id.btn_l30, R.id.btn_l31, R.id.btn_l32, R.id.btn_l33, R.id.btn_l34, R.id.btn_l35, R.id.btn_l36},
+            {R.id.btn_l28, R.id.btn_l29, R.id.btn_l30, R.id.btn_l31, R.id.btn_l32, R.id.btn_l33, R.id.btn_l34, R.id.btn_l35, R.id.btn_l36, R.id.btn_l37},
     };
 
     private FrameLayout host;
@@ -41,6 +45,7 @@ public class MainActivity extends Activity {
     private ImageView imgLevels, imgKunlun, imgProfile;
     private TextView labelLevels, labelKunlun, labelProfile;
     private View bottomNav;
+    private boolean kunlunOpen = false;
 
     private final ArrayList<TextView> chips = new ArrayList<TextView>();
     private TextView tipHidden;
@@ -85,7 +90,7 @@ public class MainActivity extends Activity {
         tabKunlun.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                selectTab(1);
+                if (tryEnterKunlun()) selectTab(1);
             }
         });
         tabProfile.setOnClickListener(new View.OnClickListener() {
@@ -158,6 +163,11 @@ public class MainActivity extends Activity {
     private void selectTab(int index) {
         currentTab = index;
         levelsPage.setVisibility(index == 0 ? View.VISIBLE : View.GONE);
+        if (index == 1 && kunlunOpen) {
+            host.removeView(kunlunPage);
+            kunlunPage = buildKunlunList();
+            host.addView(kunlunPage);
+        }
         if (index == 2) {
             // 每次进入个人主页都重新构建，保证通关数与头像最新
             host.removeView(profilePage);
@@ -267,6 +277,7 @@ public class MainActivity extends Activity {
         bind(R.id.btn_l34, j34Activity.class);
         bind(R.id.btn_l35, k35Activity.class);
         bind(R.id.btn_l36, l36Activity.class);
+        bind(R.id.btn_l37, m37Activity.class);
     }
 
     private void bind(int id, final Class<?> target) {
@@ -277,6 +288,98 @@ public class MainActivity extends Activity {
                 startActivity(new Intent(MainActivity.this, target));
             }
         });
+    }
+
+    // ================= 昆仑山秘境（KL 独立编号，不计入境界） =================
+
+    private boolean tryEnterKunlun() {
+        if (!kunlunOpen && passDoneCount() >= 37) kunlunOpen = true;
+        if (kunlunOpen) return true;
+        final EditText in = new EditText(this);
+        in.setHint("输入密令");
+        new AlertDialog.Builder(this)
+                .setTitle("昆仑山 · 禁地")
+                .setMessage("需通关全部 37 关方可踏入；\n或持密令者先行。")
+                .setView(in)
+                .setPositiveButton("进入", new android.content.DialogInterface.OnClickListener() {
+                    @Override
+                    public void onClick(android.content.DialogInterface d, int w) {
+                        if ("Fatdog".equals(in.getText().toString().trim())) {
+                            kunlunOpen = true;
+                            selectTab(1);
+                        } else {
+                            Toast.makeText(MainActivity.this, "密令有误", Toast.LENGTH_SHORT).show();
+                        }
+                    }
+                })
+                .setNegativeButton("算了", null)
+                .show();
+        return false;
+    }
+
+    private int passDoneCount() {
+        int n = 0;
+        for (String id : DivineReflectionActivity.LEVEL_IDS)
+            if (PassLog.isDone(this, id)) n++;
+        return n;
+    }
+
+    private View buildKunlunList() {
+        ScrollView scroll = new ScrollView(this);
+        LinearLayout col = new LinearLayout(this);
+        col.setOrientation(LinearLayout.VERTICAL);
+        col.setPadding(Ui.dp(20), Ui.dp(18), Ui.dp(20), Ui.dp(24));
+
+        TextView title = new TextView(this);
+        title.setText("昆仑山 · 秘境");
+        title.setTextSize(22);
+        title.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        title.setTextColor(0xFFFB7299);
+        title.setGravity(Gravity.CENTER);
+        title.setId(R.id.kunlun_title);
+        col.addView(title, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+
+        int done = 0;
+        for (int i = 1; i <= 5; i++) if (PassLog.isDone(this, "KL" + i)) done++;
+        TextView wait = new TextView(this);
+        wait.setText(done == 0 ? "雪线之上，五关皆未开" : "已登顶 " + done + " / 5");
+        wait.setTextSize(13);
+        wait.setTextColor(ThemeKit.muted(ThemeKit.isDark(this)));
+        wait.setGravity(Gravity.CENTER);
+        wait.setId(R.id.kunlun_waiting);
+        col.addView(wait, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+
+        View spacer = new View(this);
+        spacer.setLayoutParams(new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, Ui.dp(10)));
+        col.addView(spacer);
+        String[] names = {"山门", "引雷桩", "渡鸦桥", "冰裂缝", "登顶"};
+        for (int i = 1; i <= 5; i++) {
+            boolean open = PassLog.isDone(this, "KL" + i);
+            Button b = new Button(this);
+            b.setText("KL" + i + " · " + names[i - 1] + (open ? " ✔" : ""));
+            b.setEnabled(i == 1 || open);
+            Ui.styleButton(b);
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+            lp.topMargin = Ui.dp(12);
+            col.addView(b, lp);
+            if (i == 1) {
+                b.setOnClickListener(new View.OnClickListener() {
+                    @Override
+                    public void onClick(View v) {
+                        startActivity(new Intent(MainActivity.this, kn1Activity.class));
+                    }
+                });
+            } else {
+                b.setEnabled(false);
+                b.setAlpha(open ? 1f : 0.55f);
+            }
+        }
+        scroll.addView(col);
+        return scroll;
     }
 
     private int dp(int v) {

@@ -168,6 +168,94 @@ PAGES35, PER_PAGE35, SEED35 = 100, 10, 20271111
 _rng35 = random.Random(SEED35)
 NUMS35 = [_rng35.randint(1, 100) for _ in range(PAGES35 * PER_PAGE35)]
 
+# ---------------- 关卡 37：雪崩之谜（SHA-256 变体 IV + RC4 叠加） ----------------
+KEY37_MARKER = b"Fatdog_dodge"
+DECOY37_KEYS = [b"Fatdog_drift"]
+PAGES37, PER_PAGE37, SEED37 = 100, 10, 20271223
+_rng37 = random.Random(SEED37)
+NUMS37 = [_rng37.randint(1, 100) for _ in range(PAGES37 * PER_PAGE37)]
+
+_K37_HEX = ("428a2f9871374491b5c0fbcfe9b5dba53956c25b59f111f1923f82a4ab1c5ed5"
+            "d807aa9812835b01243185be550c7dc372be5d7480deb1fe9bdc06a7c19bf174"
+            "e49b69c1efbe47860fc19dc6240ca1cc2de92c6f4a7484aa5cb0a9dc76f988da"
+            "983e5152a831c66db00327c8bf597fc7c6e00bf3d5a7914706ca635114292967"
+            "27b70a852e1b21384d2c6dfc53380d13650a7354766a0abb81c2c92e92722c85"
+            "a2bfe8a1a81a664bc24b8b70c76c51a3d192e819d6990624f40e3585106aa070"
+            "19a4c1161e376c082748774c34b0cb53391c0cb34ed8aa4a5b9cca4f682e6ff3"
+            "748f82ee78a5636f84c878148cc7020890befffaa4506cebbef9a3f7c67178f2")
+_K37_W = [int(_K37_HEX[i * 8:(i + 1) * 8], 16) for i in range(64)]
+_STD_IV_W = [0x6A09E667, 0xBB67AE85, 0x3C6EF372, 0xA54FF53A,
+             0x510E527F, 0x9B05688C, 0x1F83D9AB, 0x5BE0CD19]
+_M37 = 0xFFFFFFFF
+
+
+def _r37(x: int, n: int) -> int:
+    return ((x >> n) | (x << (32 - n))) & _M37
+
+
+def sha37_iv(data: bytes, iv_words=None) -> bytes:
+    """手写 SHA-256：压缩轮与标准一致；iv_words 缺省为标准 IV"""
+    h = list(_STD_IV_W if iv_words is None else iv_words)
+    msg = bytearray(data)
+    ml = len(msg) * 8
+    msg.append(0x80)
+    while len(msg) % 64 != 56:
+        msg.append(0)
+    msg += ml.to_bytes(8, "big")
+    for off in range(0, len(msg), 64):
+        w = [int.from_bytes(msg[off + i * 4:off + i * 4 + 4], "big") for i in range(16)]
+        for i in range(16, 64):
+            s0 = _r37(w[i - 15], 7) ^ _r37(w[i - 15], 18) ^ (w[i - 15] >> 3)
+            s1 = _r37(w[i - 2], 17) ^ _r37(w[i - 2], 19) ^ (w[i - 2] >> 10)
+            w.append((w[i - 16] + s0 + w[i - 7] + s1) & _M37)
+        a, b, c, d, e, f, g, hh = h
+        for i in range(64):
+            S1 = _r37(e, 6) ^ _r37(e, 11) ^ _r37(e, 25)
+            ch = (e & f) ^ ((~e & _M37) & g)
+            t1 = (hh + S1 + ch + _K37_W[i] + w[i]) & _M37
+            S0 = _r37(a, 2) ^ _r37(a, 13) ^ _r37(a, 22)
+            mj = (a & b) ^ (a & c) ^ (b & c)
+            t2 = (S0 + mj) & _M37
+            ne = (d + t1) & _M37
+            hh, g, f, e = g, f, e, ne
+            d, c, b, a = c, b, a, (t1 + t2) & _M37
+        h = [(x + y) & _M37 for x, y in zip(h, [a, b, c, d, e, f, g, hh])]
+    return b"".join(x.to_bytes(4, "big") for x in h)
+
+
+def rc4_37(key: bytes, data: bytes) -> bytes:
+    S = list(range(256)); j = 0
+    for i in range(256):
+        j = (j + S[i] + key[i % len(key)]) % 256
+        S[i], S[j] = S[j], S[i]
+    out = bytearray(); a = b = 0
+    for ch in data:
+        a = (a + 1) % 256; b = (b + S[a]) % 256
+        S[a], S[b] = S[b], S[a]
+        out.append(ch ^ S[(S[a] + S[b]) % 256])
+    return bytes(out)
+
+
+IV37_B = sha37_iv(b"Fatdog_dodge|iv")                    # 换血后的 IV（32 字节）
+IV37_W = [int.from_bytes(IV37_B[i * 4:i * 4 + 4], "big") for i in range(8)]
+RC4K37 = sha37_iv(b"Fatdog_dodge|rc4")[:16]
+
+
+def variant_sign_37(payload: bytes) -> str:
+    dg = sha37_iv(payload, IV37_W)                       # 换血 IV 压缩
+    return rc4_37(RC4K37, dg).hex()                      # 再叠一层 RC4
+
+
+@app.get("/api/l37")
+def api_l37(page: int = Query(...), ts: int = Query(...), sign: str = Query(...)):
+    _check_ts(ts)
+    expect = variant_sign_37(f"page={page}&ts={ts}".encode())
+    if hmac.compare_digest(sign, expect):
+        _check_page(page, PAGES37)
+        idx = (page - 1) * PER_PAGE37
+        return {"page": page, "nums": NUMS37[idx:idx + PER_PAGE37]}
+    raise HTTPException(status_code=403, detail="sign invalid")
+
 # ---------------- 关卡 36：查表识君（手写 AES-128 + Base64 藏钥） ----------------
 KEY36_MASTER = b"Fatdog_break"
 DECOY36_KEYS = [b"Fatdog_bluff"]
@@ -766,7 +854,7 @@ if __name__ == "__main__":
     print(f"L26 mTLS: https://{HOST}:8444/api/mtls （双向 TLS：必须出示 certs/client.p12 里的客户端证书）")
     print(f"数字加和：L15={sum(NUMS)} L16={sum(NUMS16)} L17={sum(NUMS17)} L18={sum(NUMS18)} L19={sum(NUMS19)} "
           f"L21={sum(NUMS21)} L22={sum(NUMS22)} L24={sum(NUMS24)} L25={sum(NUMS25)} L26={sum(NUMS26)} L27={sum(NUMS27)} "
-          f"L28={sum(NUMS28)} L29={sum(NUMS29)} L30={sum(NUMS30)} L31={sum(NUMS31)} L32={sum(NUMS32)} L33={sum(NUMS33)} L34={sum(NUMS34)} L35={sum(NUMS35)} L36={sum(NUMS36)}")
+          f"L28={sum(NUMS28)} L29={sum(NUMS29)} L30={sum(NUMS30)} L31={sum(NUMS31)} L32={sum(NUMS32)} L33={sum(NUMS33)} L34={sum(NUMS34)} L35={sum(NUMS35)} L36={sum(NUMS36)} L37={sum(NUMS37)}")
     http_cfg = uvicorn.Config(app, host=HOST, port=PORT_HTTP, log_level="info")
     threading.Thread(target=uvicorn.Server(http_cfg).run, daemon=True).start()
     https_cfg = uvicorn.Config(app, host=HOST, port=PORT_HTTPS,

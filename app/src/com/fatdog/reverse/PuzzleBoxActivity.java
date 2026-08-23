@@ -71,17 +71,17 @@ public class PuzzleBoxActivity extends Activity {
     }
 
     private String buildFlag() {
-        String a = "FLAG_18_L3{";
-        String b = String.valueOf((char) ('y' ^ 1))   // x
-                 + (char) ('l' ^ 3)                   // o
-                 + (char) ('s' ^ 1)                   // r
-                 + '_'
-                 + (char) ('q' ^ 1)                   // p
-                 + (char) ('v' ^ 3)                   // u
-                 + (char) ('x' ^ 2)                   // z
-                 + (char) ('x' ^ 2)                   // z
-                 + (char) ('m' ^ 1)                   // l
-                 + (char) ('g' ^ 2);                  // e
-        return a + b + "}";
+        // 方案一：数组元素法——数组元素加载不是编译期常量表达式，
+        // 异或得以在 dex 里存活（jadx 里看到的是数组+异或循环，而非答案）
+        int[] P = {
+            'y', 1,   'l', 3,   's', 1,
+            '_', 0,   'q', 1,   'v', 3,
+            'x', 2,   'x', 2,   'm', 1,
+            'g', 2,
+        };
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < P.length; i += 2)
+            sb.append((char) (P[i] ^ P[i + 1]));
+        return "FLAG_18_L3{" + sb + "}";
     }
 }

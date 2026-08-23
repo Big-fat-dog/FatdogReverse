@@ -58,3 +58,15 @@ include $(CLEAR_VARS)
 LOCAL_MODULE := l36
 LOCAL_SRC_FILES := l36.c
 include $(BUILD_SHARED_LIBRARY)
+
+# 关卡 37：雪崩之谜（SHA-256 变体 IV + RC4 叠加）
+include $(CLEAR_VARS)
+LOCAL_MODULE := l37
+LOCAL_SRC_FILES := l37.c
+include $(BUILD_SHARED_LIBRARY)
+
+# 昆仑 KL1：山门（unidbg 最小骨架）
+include $(CLEAR_VARS)
+LOCAL_MODULE := kunlun1
+LOCAL_SRC_FILES := kunlun1.c
+include $(BUILD_SHARED_LIBRARY)

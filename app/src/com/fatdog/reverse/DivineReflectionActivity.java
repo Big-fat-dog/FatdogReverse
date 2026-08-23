@@ -16,17 +16,17 @@ import android.widget.TextView;
 // 神念自察：按 app 逆向的关卡类型对应功法，战胜关卡即"参悟"。
 // buildReflectionView() 可作为内容嵌入个人主页的"神念自察"分类。
 public class DivineReflectionActivity extends Activity {
-    private static final String[] LEVEL_IDS = {
+    public static final String[] LEVEL_IDS = {
             "L1", "L2", "L3", "L4", "L5", "L6", "L7", "L8",
             "L9", "L10", "L11", "L12", "L13", "L14", "L15", "L16",
-            "L17", "L18", "L19", "L20", "L21", "L22", "L23", "L24", "L25", "L26", "L27", "L28", "L29", "L30", "L31", "L32", "L33", "L34", "L35", "L36"};
+            "L17", "L18", "L19", "L20", "L21", "L22", "L23", "L24", "L25", "L26", "L27", "L28", "L29", "L30", "L31", "L32", "L33", "L34", "L35", "L36", "L37"};
     private static final String[] NAMES = {
             "破妄神瞳", "观微心诀", "算尽天机", "溯源追魂",
             "地脉搜灵", "九遁身法", "移花接木", "解钥神指",
             "阴阳玄关", "万法归一", "契约心经", "破阵天光",
             "双龙出海", "三才归一", "隔空取物", "逆流断脉",
             "奇门暗渡", "双钥破天", "雾隐摘星", "广告心魔",
-            "偷天换日", "拔钉破罩", "拨云见日", "李代桃僵", "玄功夺舍", "双符合璧", "万法归宗", "缄默诀", "隐踪诀", "无名诀", "穿针诀", "定心诀", "金刚诀", "归墟诀", "双匣诀", "查表诀"};
+            "偷天换日", "拔钉破罩", "拨云见日", "李代桃僵", "玄功夺舍", "双符合璧", "万法归宗", "天地噤声", "匿迹遁形", "剑冢寻锋", "两界拈针", "万蛊不侵", "万劫金身", "一念归墟", "双匣藏锋", "洞玄辨纹", "雪崩千里"};
     private static final String[] DESCS = {
             "明文藏宝：一眼看穿藏匿之处",
             "Base64 马甲：编码无处遁形",
@@ -63,12 +63,13 @@ public class DivineReflectionActivity extends Activity {
             "金刚不坏：CRC 结界，三式皆可破",
             "万法归墟：三季合卷，三路皆通",
             "双匣暗渡：魔数认阵，真假匣中辨宝",
-            "查表识君：S 盒认阵，等号串里有钥匙"};
+            "查表识君：S 盒认阵，等号串里有钥匙",
+            "雪崩之谜：换血之 IV，乱流裹真章"};
     private static final String[] CAT_NAMES = {
             "静态分析 · 观物之能", "Smali 挑战 · 篡改之道", "Frida Hook · 附身之术", "网络对抗 · 取数之法", "终极试炼 · 破阵之威", "Native 试炼 · 破壁之术"};
     private static final int[] CAT_COLORS = {0xFF409EFF, 0xFF67C23A, 0xFFFB7299, 0xFFE6A23C, 0xFFB37FEB, 0xFF00BFA5};
     private static final int[][] CAT_LEVELS = {
-            {0, 1, 2, 3, 4, 5}, {6, 7, 8}, {9, 10, 11, 12, 13},             {14, 15, 16, 17, 18}, {19, 20, 21, 22, 23, 24, 25, 26}, {27, 28, 29, 30, 31, 32, 33, 34, 35}};
+            {0, 1, 2, 3, 4, 5}, {6, 7, 8}, {9, 10, 11, 12, 13},             {14, 15, 16, 17, 18}, {19, 20, 21, 22, 23, 24, 25, 26}, {27, 28, 29, 30, 31, 32, 33, 34, 35, 36}};
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {

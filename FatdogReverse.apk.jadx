@@ -1,0 +1,51 @@
+{
+  "projectVersion": 2,
+  "files": [
+    "FatdogReverse.apk"
+  ],
+  "treeExpansionsV2": [
+    "p:com.fatdog.reverse"
+  ],
+  "codeData": {
+    "comments": [],
+    "renames": []
+  },
+  "openTabs": [
+    {
+      "type": "class",
+      "tabPath": "com.fatdog.reverse.ActivationRoomActivity",
+      "subPath": "0",
+      "caret": 411,
+      "view": {
+        "x": 0,
+        "y": 162
+      },
+      "active": false,
+      "pinned": false,
+      "bookmarked": false,
+      "hidden": false,
+      "previewTab": false
+    },
+    {
+      "type": "class",
+      "tabPath": "com.fatdog.reverse.PuzzleBoxActivity",
+      "subPath": "0",
+      "caret": 411,
+      "view": {
+        "x": 0,
+        "y": 168
+      },
+      "active": true,
+      "pinned": false,
+      "bookmarked": false,
+      "hidden": false,
+      "previewTab": false
+    }
+  ],
+  "cacheDir": "C:\\Users\\21494\\AppData\\Local\\skylot\\jadx\\cache\\projects\\FatdogReverse-ce35f02865270a31c4926b12c040a22d",
+  "enableLiveReload": false,
+  "searchHistory": [],
+  "searchResourcesFilter": "$TEXT",
+  "searchResourcesSizeLimit": 0,
+  "pluginOptions": {}
+}
