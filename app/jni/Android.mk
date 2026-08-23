@@ -94,3 +94,9 @@ include $(CLEAR_VARS)
 LOCAL_MODULE := kunlun5
 LOCAL_SRC_FILES := kunlun5.c
 include $(BUILD_SHARED_LIBRARY)
+
+# 流沙河首关：冰封之钥（魔改 AES-128，Rcon 三处换血）
+include $(CLEAR_VARS)
+LOCAL_MODULE := m1
+LOCAL_SRC_FILES := m1.c
+include $(BUILD_SHARED_LIBRARY)

@@ -155,7 +155,7 @@ public class ProfileActivity extends Activity {
             chip.setOnClickListener(new View.OnClickListener() {
                 @Override
                 public void onClick(View v) {
-                    if ((idx == 1 || idx == 3) && !checkGate(ctx, idx)) return;
+                    // 太古禁地 / 天地秘境默认开放，无需通关数门禁
                     selectPage(ctx, idx, chips, pages);
                 }
             });
@@ -190,20 +190,6 @@ public class ProfileActivity extends Activity {
         }
 
         return root;
-    }
-
-    /* 门禁检查：太古禁地(idx=1)需通关40关或密令；天地秘境(idx=3)需通关37关或密令 */
-    private static boolean checkGate(Context ctx, int which) {
-        int need = (which == 1) ? 40 : 37;
-        String label = (which == 1) ? "太古禁地" : "天地秘境";
-        int passed = 0;
-        for (String id : DivineReflectionActivity.LEVEL_IDS)
-            if (PassLog.isDone(ctx, id)) passed++;
-        if (passed >= need) return true;
-        android.widget.Toast.makeText(ctx,
-            label + " 需通关全部 " + need + " 关方可踏入（当前 " + passed + "）",
-            android.widget.Toast.LENGTH_LONG).show();
-        return false;
     }
 
     // 切换分类：更新胶囊样式 + 内容可见性
@@ -393,6 +379,26 @@ public class ProfileActivity extends Activity {
             GradientDrawable g=new GradientDrawable(); g.setCornerRadius(dp(ctx,10));
             g.setColor(open?0x33FB7299:(ThemeKit.isDark(ctx)?0xCC24242B:0x22EEEEEE)); row.setBackground(g);
             TextView t=new TextView(ctx); t.setText((open?"✦ ":"🔒 ")+"KL"+i+" · "+kn[i-1]);
+            t.setTextSize(15); t.setTypeface(Typeface.DEFAULT_BOLD);
+            t.setTextColor(open?0xFFFB7299:(ThemeKit.isDark(ctx)?0xFF77777F:0xFFAAAAAA));
+            row.addView(t,new LinearLayout.LayoutParams(0,LinearLayout.LayoutParams.WRAP_CONTENT,1f));
+            LinearLayout.LayoutParams mlp=new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT,LinearLayout.LayoutParams.WRAP_CONTENT);
+            mlp.topMargin=dp(ctx,6); col.addView(row,mlp);
+        }
+        TextView zone2=new TextView(ctx);
+        zone2.setText("—— 流沙河 ——");
+        zone2.setTextSize(12); zone2.setTextColor(0xFFFB7299);
+        zone2.setGravity(Gravity.CENTER);
+        zone2.setPadding(0,dp(ctx,10),0,dp(ctx,4));
+        col.addView(zone2);
+        String[] lsh={"冰封之钥"};
+        for(int i=0;i<lsh.length;i++){
+            boolean open=PassLog.isDone(ctx,"KL"+(i+6));
+            LinearLayout row=new LinearLayout(ctx); row.setOrientation(LinearLayout.HORIZONTAL);
+            row.setGravity(Gravity.CENTER_VERTICAL); row.setPadding(dp(ctx,10),dp(ctx,12),dp(ctx,10),dp(ctx,12));
+            GradientDrawable g=new GradientDrawable(); g.setCornerRadius(dp(ctx,10));
+            g.setColor(open?0x33FB7299:(ThemeKit.isDark(ctx)?0xCC24242B:0x22EEEEEE)); row.setBackground(g);
+            TextView t=new TextView(ctx); t.setText((open?"✦ ":"🔒 ")+"KL"+(i+6)+" · "+lsh[i]);
             t.setTextSize(15); t.setTypeface(Typeface.DEFAULT_BOLD);
             t.setTextColor(open?0xFFFB7299:(ThemeKit.isDark(ctx)?0xFF77777F:0xFFAAAAAA));
             row.addView(t,new LinearLayout.LayoutParams(0,LinearLayout.LayoutParams.WRAP_CONTENT,1f));

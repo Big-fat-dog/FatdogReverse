@@ -64,11 +64,12 @@
         <activity android:name=".kn3Activity" android:exported="false" />
         <activity android:name=".kn4Activity" android:exported="false" />
         <activity android:name=".kn5Activity" android:exported="false" />
+        <activity android:name=".n43Activity" android:exported="false" />
         <activity android:name=".xp38Activity" android:exported="false" />
         <activity android:name=".xp39Activity" android:exported="false" />
         <activity android:name=".xp40Activity" android:exported="false" />
         <activity android:name=".xp41Activity" android:exported="false" />
-        <activity android:name=".xp42Activity" android:exported="false" /> android:exported="false" />
+        <activity android:name=".xp42Activity" android:exported="false" />
         <activity android:name=".a20Activity" android:exported="false" />
         <activity android:name=".ProfileActivity" android:exported="false" />
 

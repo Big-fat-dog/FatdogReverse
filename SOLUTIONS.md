@@ -1553,6 +1553,21 @@ Java.perform(function () {
 | 25 | `FLAG_18_L25{native_jni_verify}`（答案=加和 `52674`） |
 | 26 | `FLAG_18_L26{mutual_tls_client_cert}`（加和 `50814`） |
 | 27 | `FLAG_18_L27{capture_then_replicate}`（答案=加和 `50623`） |
+| 28 | `FLAG_18_L28{runtime_decoded_key}`（加和 `49750`） |
+| 29 | `FLAG_18_L29{register_natives_caught}`（加和 `50208`） |
+| 30 | `FLAG_18_L30{nameless_dispatch}`（加和 `51127`） |
+| 31 | `FLAG_18_L31{cross_layer_key}`（加和 `50768`） |
+| 32 | `FLAG_18_L32{silent_poison_defused}`（加和 `51745`） |
+| 33 | `FLAG_18_L33{crc_guard_bypassed}`（加和 `49502`） |
+| 34 | `FLAG_18_L34{guixu_all_in_one}`（加和 `49932`） |
+| 35 | `FLAG_18_L35{sbox_tells_all}`（加和 `51217`） |
+| 36 | `FLAG_18_L36{base64_is_not_encryption}`（加和 `49495`） |
+| 37 | `FLAG_18_L37{avalanche_hides_the_blood}`（加和 `51242`） |
+| 38 | `FLAG_18_L38{puppet_line_attached}`（Hook XpGate.check 即通） |
+| 39 | `FLAG_18_L39{swap_the_argument}`（deviceId = fatdog_xp_2026） |
+| 40 | `FLAG_18_L40{secret_field_exposed}`（私钥 = Fatdog_xp40_secret） |
+| 41 | `FLAG_18_L41{triple_gate_broken}`（替换 checkB 即通） |
+| 42 | `FLAG_18_L42{persistence_is_power}`（自毁重启 Hook 仍在） |
 
 > 关卡 9 的 else 分支里那个 `FLAG_18_L9{single_gate_not_enough}` 是诱饵，不是有效 flag。
 
@@ -2098,6 +2113,114 @@ print("总和:", total)                    # 51242
 
 ---
 
+## 第四季：Xposed 实战（关卡 38-42）
+
+**环境准备**（五关通用）：
+
+1. 设备已 root 并装好 Magisk + Zygisk + LSPosed。
+2. Android Studio 新建 "App（模块模板）" 或手工建模块工程：`assets/xposed_init` 指向你的 Hook 类，`XposedBridgeApi` 依赖就位。
+3. LSPosed 里激活模块，作用域勾选「胖狗逆向靶场」，重启手机。
+4. 本系列通关判定统一为「Hook 生效自动触发」——不需要输入框，Hook 对了打开关卡页即出 flag。
+
+---
+
+### 关卡 38：初探模块（findAndHookMethod + 改返回值）
+
+**考点**：`XpGate.check()` 默认返回 false；用 `afterHookedMethod` 的 `param.setResult(true)` 改返回值。
+
+```java
+// 模块主类
+public class MainHook implements IXposedHookLoadPackage {
+    @Override
+    public void handleLoadPackage(XC_LoadPackage.LoadPackageParam lpp) {
+        if (!lpp.packageName.equals("com.fatdog.reverse")) return;
+        XposedHelpers.findAndHookMethod("com.fatdog.reverse.XpGate",
+                lpp.classLoader, "check", new XC_MethodHook() {
+            @Override
+            protected void afterHookedMethod(MethodHookParam param) {
+                param.setResult(true);
+            }
+        });
+    }
+}
+```
+
+装好后打开关卡 38 页面，onResume 里 `check()` 返回 true → 自动通关。
+
+**答案**：`FLAG_18_L38{puppet_line_attached}`
+
+---
+
+### 关卡 39：偷梁换柱（beforeHookedMethod 篡改入参）
+
+**考点**：`XpVerifier.verifyDevice(deviceId)` 做 SHA256 比对——直接改返回值当然也能过，但本关练的是**篡改参数**。
+
+1. jadx 搜 `FatdogXP` → `CORRECT_ID = "fatdog_xp_2026"`。
+2. 在 `beforeHookedMethod` 里替换 args[0]：
+
+```java
+XposedHelpers.findAndHookMethod("com.fatdog.reverse.XpVerifier",
+        lpp.classLoader, "verifyDevice", String.class, new XC_MethodHook() {
+    @Override
+    protected void beforeHookedMethod(MethodHookParam param) {
+        param.args[0] = "fatdog_xp_2026";   // 偷梁换柱
+    }
+});
+```
+
+进关卡页时 App 用假 id 调一次 verifyDevice，被换成真值后返回 true → 自动通关。
+
+**答案**：`FLAG_18_L39{swap_the_argument}`
+
+---
+
+### 关卡 40：探囊取物（读私有静态字段 + 回传验证）
+
+**考点**：明文私钥只存在 `SecretVault.s_hiddenKey` 私有字段里，jadx 能看到的只有哈希。用 `XposedHelpers.getStaticObjectField` 取出后调 `reportStolenKey(私钥)` 回传——哈希对上 App 自动判定通关。
+
+```java
+Class<?> vault = XposedHelpers.findClass("com.fatdog.reverse.SecretVault", lpp.classLoader);
+Object key = XposedHelpers.getStaticObjectField(vault, "s_hiddenKey");
+XposedHelpers.callStaticMethod(vault, "reportStolenKey", key);
+```
+
+也可以顺手 Toast 出来对照：`Fatdog_xp40_secret`。注意只 Toast 不回传是不会通关的——回传那一步才算"得手"。
+
+**答案**：`FLAG_18_L40{secret_field_exposed}`
+
+---
+
+### 关卡 41：斩关夺隘（XC_MethodReplacement 替换方法体）
+
+**考点**：三重校验链 `TripleGate.checkA/checkB/checkC`，checkB 恒假。前两关的 hook 手法都能用，本关官方姿势是 `XC_MethodReplacement` 整体替换：
+
+```java
+XposedHelpers.findAndHookMethod("com.fatdog.reverse.TripleGate",
+        lpp.classLoader, "checkB",
+        XC_MethodReplacement.returnConstant(true));
+```
+
+三个检查全真 → 自动通关。（对比：L38 是 after 改结果、L39 是 before 改入参、这关是 replace 换方法体——三种手法各占一关。）
+
+**答案**：`FLAG_18_L41{triple_gate_broken}`
+
+---
+
+### 关卡 42：万剑归宗·不死之身（持久化验证）
+
+**考点**：自毁进程 → 桌面重开 → Hook 仍在。这是 Xposed 与 Frida 的本质区别：Frida 断线即失效，Xposed 模块随系统加载，冷启动照样生效。
+
+```java
+XposedHelpers.findAndHookMethod("com.fatdog.reverse.Kl42Gate",
+        lpp.classLoader, "coldStartCheck", XC_MethodReplacement.returnConstant(true));
+```
+
+操作步骤：挂上模块重启手机 → 打开关卡 42 → 点「自毁进程」（内部会先 tick 再杀自己，防止跳过测试）→ 从桌面重新打开靶场 → 进关卡 42 → 冷启动检测通过且 ticks>0 → 自动通关。如果只 Hook 不自毁，页面会提示"未经过自毁测试"。
+
+**答案**：`FLAG_18_L42{persistence_is_power}`
+
+---
+
 ## 昆仑山 · 天地秘境题解
 
 ### KL1：山门（xorshift32）
@@ -2201,3 +2324,50 @@ public DvmObject<?> callStaticObjectMethod(BaseVM vm, DvmClass dvc, String sig, 
 ```
 
 提交 **summit_of_kunlun_2026** 即通关。
+
+
+---
+
+### KL6：冰封之钥（流沙河首关 · 魔改 AES-128）
+
+**考点**：libm1.so 手写 AES-128——S 盒与压缩结构都是标准的（认骨架够用），但轮常量 Rcon 三处换血（idx3: 08→9e、idx6: 40→77、idx9: 36→d4），标准库永远解不开它自己加密的密文。真标记 `Fatdog_pierce` 以 UTF-16 码元数组藏匿（默认 strings 盲区，`strings -el` 可破）；明文躺着的 `Fatdog_piece` 是一字之差诱饵，用它派生钥匙的请求一律 403；导出函数 `m1_decoy_seal` 返回假密文（用 piece 钥 + 换血 AES 解开是一段像样的假载荷 `page=7&ts=1700000000`）。
+
+**协议**：GET https://…:8443/api/l43?page=N&ts=T&enc&sign
+
+- enc = hex(魔改AES-128-ECB( sha256("Fatdog_pierce|aes")[:16], "page=N&ts=T" 零填充至 32 字节 ))
+- sign = HMAC-SHA256( sha256("Fatdog_pierce|mac"), enc )
+
+对拍样例：page=1&ts=1787013761 →
+enc = e30b62fe18082de41cd69fe2a5c1b2142d135b2d50e846caa40bbfb0fa44269c
+sign = fdc4ebf471f82276d5811e5f63772fd2a7e32079ec9fbb47b318f9776e34970b
+
+（生成器 gen_kl6.py 内置 FIPS-197 官方向量自测与 pycryptodome 对拍；so 的 C 实现经主机编译与本样例逐字节一致。）
+
+**静态路线（Python 全复刻，先 python server.py）**
+
+```python
+import hashlib, hmac, time, requests
+from gen_kl6 import ecb_encrypt, pad, RCON_MOD   # 生成器即官方镜像实现
+
+MARKER = b"Fatdog_pierce"
+akey = hashlib.sha256(MARKER + b"|aes").digest()[:16]
+mack = hashlib.sha256(MARKER + b"|mac").digest()
+
+total = 0
+for page in range(1, 101):
+    ts   = int(time.time())
+    enc  = ecb_encrypt(akey, pad(f"page={page}&ts={ts}".encode()), RCON_MOD).hex()
+    sign = hmac.new(mack, enc.encode(), hashlib.sha256).hexdigest()
+    r = requests.get("https://127.0.0.1:8443/api/l43",
+                     params={"page": page, "ts": ts, "enc": enc, "sign": sign},
+                     verify="certs/ca.crt", timeout=5).json()
+    assert len(r["nums"]) == 10, r
+    total += sum(r["nums"])
+print(total)   # 51561
+```
+
+不想依赖生成器也可以手写同款 AES：全套照教科书抄，只把 Rcon 表三处值换成 9e/77/d4——其余一个字节都不要动。
+
+**动态路线**：jadx 从 n43Activity 顺藤摸到 Tj/Vv——Frida `Java.use('com.fatdog.reverse.Tj')` 直接调用 nativeEnc/nativeSign 拿现成参数对拍或转发；IDA 路线则从 S 盒 xref 定位 m1_key_expand，观察轮密钥展开——第 4/7/10 轮起与标准分叉，就是 Rcon 换血的实锤。
+
+**坑位提醒**：`Uu.FAKE_KEY = Fatdog_piece` 与真标记一字之差（命中即 403）；`strings libm1.so` 默认看不见真标记，要 `-el`；别把 `m1_decoy_seal` 的密文当宝。答案：加和 `51561`；flag `FLAG_18_KL6{ice_seal_broken}`
