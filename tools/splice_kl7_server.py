@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""一次性脚本：把 /api/l44 路由段（含魔改 DES 镜像）拼进 server.py。
+"""一次性脚本：把 /api/kl7 路由段（含魔改 DES 镜像）拼进 server.py。
 表格全部从 gen_kl7 导入，杜绝转录误差。"""
 import io
 import re
@@ -114,7 +114,7 @@ def _l44_try(master: str, page: int, ts: int, enc: str, sign: str) -> bool:
     return bool(m) and int(m.group(1)) == page and int(m.group(2)) == ts
 
 
-@app.post("/api/l44")
+@app.post("/api/kl7")
 def api_l44(page: int = Form(...), ts: int = Form(...), enc: str = Form(...),
             sign: str = Form(...)):
     _check_ts(ts)
@@ -150,5 +150,5 @@ src = src.replace('f"KL6={sum(NUMS43)}")', 'f"KL6={sum(NUMS43)} KL7={sum(NUMS44)
 with io.open("server.py", "w", encoding="utf-8", newline="\n") as f:
     f.write(src)
 
-print("[splice] ok, /api/l44 section inserted before _des3_ecb_encrypt_py")
+print("[splice] ok, /api/kl7 section inserted before _des3_ecb_encrypt_py")
 print("[check] NUMS44 sum =", sum(g.__dict__.get('x', 0) for x in []) or "see server import")

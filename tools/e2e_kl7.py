@@ -15,7 +15,7 @@ import gen_kl7 as g
 MK = b"Fatdog_shatter"
 DK = hashlib.sha256(MK + b"|des").digest()[:24]
 MACK = hashlib.sha256(MK + b"|mac").digest()
-BASE = "https://127.0.0.1:8443/api/l44"
+BASE = "https://127.0.0.1:8443/api/kl7"
 
 ctx = ssl.create_default_context(cafile="certs/ca.crt")
 ctx.check_hostname = False

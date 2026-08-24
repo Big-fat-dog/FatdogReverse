@@ -9,6 +9,7 @@ import java.security.cert.CertificateFactory;
 import java.security.cert.X509Certificate;
 import java.util.concurrent.TimeUnit;
 
+import javax.crypto.Mac;
 import javax.net.ssl.HostnameVerifier;
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.SSLSession;
@@ -22,10 +23,39 @@ import okhttp3.Request;
 import okhttp3.Response;
 import okhttp3.ResponseBody;
 
-// TLS 客户端：信任链复用内置 CA（Tm.caDer()）；
-// enc 由 Uq.nativeEnc 的魔改 SM4 算、sign 由 Uq.nativeSign 算。
-public class Wr {
+// TLS 客户端：信任链复用内置 CA（Tm.caDer()）；HMAC 密钥后半在本类，
+// 前半在 Wk；签名校验本身已全部下沉 libm6.so。
+public class Xh {
     static final String BASE = NetHost.httpsBase();
+
+    // 信任基准后半（^0x5A 还原）
+    static final int[] PB = {
+            63,63,60,105,109,108,111,63,63,62,98,98,105,104,99,104,
+            99,107,108,98,57,59,106,63,104,104,107,104,105,109,60,63,
+    };
+
+    // HMAC 密钥后半（^0x5A 还原）
+    static final int[] KB = {    60,53,40,61,63,};
+
+static String decode(int[] arr, int k) {
+        StringBuilder sb = new StringBuilder(arr.length);
+        for (int v : arr) sb.append((char) (v ^ k));
+        return sb.toString();
+    }
+
+    static String hmacHex(String key, String msg) {
+        try {
+            Mac mac = Mac.getInstance("HmacSHA256");
+            mac.init(new javax.crypto.spec.SecretKeySpec(
+                    key.getBytes("UTF-8"), "HmacSHA256"));
+            byte[] d = mac.doFinal(msg.getBytes("UTF-8"));
+            StringBuilder sb = new StringBuilder();
+            for (byte b : d) sb.append(String.format("%02x", b & 0xff));
+            return sb.toString();
+        } catch (Exception e) {
+            return "";
+        }
+    }
 
     public interface Cb {
         void onPage(int page, int[] nums);
@@ -65,12 +95,11 @@ public class Wr {
 
     static void fetchPage(String base, final int page, final Cb cb) {
         final long ts = System.currentTimeMillis() / 1000;
-        final String enc = Uq.nativeEnc(page, ts);
-        final String sign = Uq.nativeSign(enc);
+        final String sign = hmacHex(Wk.hmacKey(), "page=" + page + "&ts=" + ts);
         try {
             final OkHttpClient c = trustClient();
-            String url = base + "/api/kl8?page=" + page + "&ts=" + ts
-                    + "&enc=" + enc + "&sign=" + sign;
+            String url = base + "/api/l44?page=" + page + "&ts=" + ts
+                    + "&sign=" + sign;
             Request req = new Request.Builder()
                     .url(url)
                     .header("User-Agent", "Fatdog/1.0 (Android)")

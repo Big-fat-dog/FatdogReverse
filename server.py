@@ -308,13 +308,13 @@ def api_l36(page: int = Query(...), ts: int = Query(...), enc: str = Query(...),
 
 
 # ---------------- 关卡 43（KL6）冰封之钥：魔改 AES-128（Rcon 三处换血） ----------------
-KEY43_MASTER = "Fatdog_pierce"
-DECOY43_KEYS = ["Fatdog_piece"]
-PAGES43, PER_PAGE43, SEED43 = 100, 10, 20280107
-_rng43 = random.Random(SEED43)
-NUMS43 = [_rng43.randint(1, 100) for _ in range(PAGES43 * PER_PAGE43)]
+KL6_MASTER = "Fatdog_pierce"
+DECOY_KL6 = ["Fatdog_piece"]
+PAGES_KL6, PER_PAGE_KL6, SEED_KL6 = 100, 10, 20280107
+_rng_kl6 = random.Random(SEED_KL6)
+NUMS_KL6 = [_rng_kl6.randint(1, 100) for _ in range(PAGES_KL6 * PER_PAGE_KL6)]
 
-_SBOX43 = [
+_SBOX_KL6 = [
     0x63, 0x7c, 0x77, 0x7b, 0xf2, 0x6b, 0x6f, 0xc5,
     0x30, 0x01, 0x67, 0x2b, 0xfe, 0xd7, 0xab, 0x76,
     0xca, 0x82, 0xc9, 0x7d, 0xfa, 0x59, 0x47, 0xf0,
@@ -348,10 +348,10 @@ _SBOX43 = [
     0x8c, 0xa1, 0x89, 0x0d, 0xbf, 0xe6, 0x42, 0x68,
     0x41, 0x99, 0x2d, 0x0f, 0xb0, 0x54, 0xbb, 0x16,
 ]
-_RSBOX43 = [0] * 256
-for _i, _v in enumerate(_SBOX43):
-    _RSBOX43[_v] = _i
-_RCON43 = [0x01, 0x02, 0x04, 0x9e, 0x10, 0x20, 0x77, 0x80, 0x1b, 0xd4]  # idx3/6/9 换血
+_RSBOX_KL6 = [0] * 256
+for _i, _v in enumerate(_SBOX_KL6):
+    _RSBOX_KL6[_v] = _i
+_RCON_KL6 = [0x01, 0x02, 0x04, 0x9e, 0x10, 0x20, 0x77, 0x80, 0x1b, 0xd4]  # idx3/6/9 换血
 
 
 def _xt(a: int) -> int:
@@ -368,7 +368,7 @@ def _gmul(a: int, b: int) -> int:
     return r
 
 
-def _inv_shift43(s: bytearray) -> None:
+def _inv_shift_kl6(s: bytearray) -> None:
     t = s[1]
     s[1] = s[13]; s[13] = s[9]; s[9] = s[5]; s[5] = t
     s[2], s[10] = s[10], s[2]
@@ -377,13 +377,13 @@ def _inv_shift43(s: bytearray) -> None:
     s[3] = s[7]; s[7] = s[11]; s[11] = s[15]; s[15] = t
 
 
-def _key_expand_43(key16: bytes) -> list:
+def _key_expand_kl6(key16: bytes) -> list:
     rk = [bytearray(key16)]
     for i in range(1, 11):
         prev = rk[-1]
         cur = bytearray(16)
-        t = [_SBOX43[prev[13]], _SBOX43[prev[14]], _SBOX43[prev[15]], _SBOX43[prev[12]]]
-        t[0] ^= _RCON43[i - 1]
+        t = [_SBOX_KL6[prev[13]], _SBOX_KL6[prev[14]], _SBOX_KL6[prev[15]], _SBOX_KL6[prev[12]]]
+        t[0] ^= _RCON_KL6[i - 1]
         for j in range(4):
             cur[j] = prev[j] ^ t[j]
         for j in range(4, 16):
@@ -392,18 +392,18 @@ def _key_expand_43(key16: bytes) -> list:
     return rk
 
 
-def aes43_ecb_decrypt(key16: bytes, data: bytes) -> bytes:
+def aes_kl6_ecb_decrypt(key16: bytes, data: bytes) -> bytes:
     """魔改 AES-128-ECB 解密（与 libm1.so 的手写实现互为镜像）"""
-    rk = _key_expand_43(key16)
+    rk = _key_expand_kl6(key16)
     out = b""
     for off in range(0, len(data), 16):
         s = bytearray(data[off:off + 16])
         for i in range(16):
             s[i] ^= rk[10][i]
         for r in range(9, 0, -1):
-            _inv_shift43(s)
+            _inv_shift_kl6(s)
             for i in range(16):
-                s[i] = _RSBOX43[s[i]]
+                s[i] = _RSBOX_KL6[s[i]]
             for i in range(16):
                 s[i] ^= rk[r][i]
             for c in range(4):
@@ -412,23 +412,23 @@ def aes43_ecb_decrypt(key16: bytes, data: bytes) -> bytes:
                 s[4*c+1] = _gmul(a0, 9) ^ _gmul(a1, 14) ^ _gmul(a2, 11) ^ _gmul(a3, 13)
                 s[4*c+2] = _gmul(a0, 13) ^ _gmul(a1, 9) ^ _gmul(a2, 14) ^ _gmul(a3, 11)
                 s[4*c+3] = _gmul(a0, 11) ^ _gmul(a1, 13) ^ _gmul(a2, 9) ^ _gmul(a3, 14)
-        _inv_shift43(s)
+        _inv_shift_kl6(s)
         for i in range(16):
-            s[i] = _RSBOX43[s[i]]
+            s[i] = _RSBOX_KL6[s[i]]
         for i in range(16):
             s[i] ^= rk[0][i]
         out += bytes(s)
     return out
 
 
-def _l43_try(master: str, page: int, ts: int, enc: str, sign: str) -> bool:
+def _kl6_try(master: str, page: int, ts: int, enc: str, sign: str) -> bool:
     mk = master.encode()
     akey = hashlib.sha256(mk + b"|aes").digest()[:16]
     mack = hashlib.sha256(mk + b"|mac").digest()
     if not hmac.compare_digest(sign, hmac.new(mack, enc.encode(), hashlib.sha256).hexdigest()):
         return False
     try:
-        p = aes43_ecb_decrypt(akey, bytes.fromhex(enc))
+        p = aes_kl6_ecb_decrypt(akey, bytes.fromhex(enc))
         plain = p.split(b"\x00")[0].decode("utf-8", "ignore")
     except Exception:
         return False
@@ -436,26 +436,26 @@ def _l43_try(master: str, page: int, ts: int, enc: str, sign: str) -> bool:
     return bool(m) and int(m.group(1)) == page and int(m.group(2)) == ts
 
 
-@app.get("/api/l43")
-def api_l43(page: int = Query(...), ts: int = Query(...), enc: str = Query(...),
+@app.get("/api/kl6")
+def api_kl6(page: int = Query(...), ts: int = Query(...), enc: str = Query(...),
             sign: str = Query(...)):
     _check_ts(ts)
-    if _l43_try(KEY43_MASTER, page, ts, enc, sign):
-        _check_page(page, PAGES43)
-        idx = (page - 1) * PER_PAGE43
-        return {"page": page, "nums": NUMS43[idx:idx + PER_PAGE43]}
-    for dk in DECOY43_KEYS:
-        if _l43_try(dk, page, ts, enc, sign):
+    if _kl6_try(KL6_MASTER, page, ts, enc, sign):
+        _check_page(page, PAGES_KL6)
+        idx = (page - 1) * PER_PAGE_KL6
+        return {"page": page, "nums": NUMS_KL6[idx:idx + PER_PAGE_KL6]}
+    for dk in DECOY_KL6:
+        if _kl6_try(dk, page, ts, enc, sign):
             raise HTTPException(status_code=403, detail="sign invalid")
     return {"page": page, "nums": []}
 
 
 # ---------------- 关卡 44（KL7）裂魂之匣：魔改 DES（IP 首尾互换 + S3 换位 + FP 重算） ----------------
-KEY44_MASTER = "Fatdog_shatter"
-DECOY44_KEYS = ["Fatdog_scatter"]
-PAGES44, PER_PAGE44, SEED44 = 100, 10, 20271115
-_rng44 = random.Random(SEED44)
-NUMS44 = [_rng44.randint(1, 100) for _ in range(PAGES44 * PER_PAGE44)]
+KL7_MASTER = "Fatdog_shatter"
+DECOY_KL7 = ["Fatdog_scatter"]
+PAGES_KL7, PER_PAGE_KL7, SEED_KL7 = 100, 10, 20271115
+_rng_kl7 = random.Random(SEED_KL7)
+NUMS_KL7 = [_rng_kl7.randint(1, 100) for _ in range(PAGES_KL7 * PER_PAGE_KL7)]
 
 _IP44 = [
     7, 50, 42, 34, 26, 18, 10, 2, 60, 52, 44, 36, 28, 20, 12, 4,
@@ -582,7 +582,7 @@ def _blk44(blk, rks, enc=True):
     return bytes(ob)
 
 
-def des44_ede_decrypt(key24: bytes, data: bytes) -> bytes:
+def des_kl7_ede_decrypt(key24: bytes, data: bytes) -> bytes:
     """魔改 3DES-EDE 解密 p = D(K1, E(K2, D(K3, c)))，与 libm2.so 手写实现互为镜像"""
     k1, k2, k3 = _ks44(key24[:8]), _ks44(key24[8:16]), _ks44(key24[16:24])
     out = b""
@@ -594,14 +594,14 @@ def des44_ede_decrypt(key24: bytes, data: bytes) -> bytes:
     return out
 
 
-def _l44_try(master: str, page: int, ts: int, enc: str, sign: str) -> bool:
+def _kl7_try(master: str, page: int, ts: int, enc: str, sign: str) -> bool:
     mk = master.encode()
     dk = hashlib.sha256(mk + b"|des").digest()[:24]
     mack = hashlib.sha256(mk + b"|mac").digest()
     if not hmac.compare_digest(sign, hmac.new(mack, enc.encode(), hashlib.sha256).hexdigest()):
         return False
     try:
-        p = des44_ede_decrypt(dk, bytes.fromhex(enc))
+        p = des_kl7_ede_decrypt(dk, bytes.fromhex(enc))
         plain = p.split(b"\x00")[0].decode("utf-8", "ignore")
     except Exception:
         return False
@@ -609,28 +609,28 @@ def _l44_try(master: str, page: int, ts: int, enc: str, sign: str) -> bool:
     return bool(m) and int(m.group(1)) == page and int(m.group(2)) == ts
 
 
-@app.post("/api/l44")
-def api_l44(page: int = Form(...), ts: int = Form(...), enc: str = Form(...),
+@app.post("/api/kl7")
+def api_kl7(page: int = Form(...), ts: int = Form(...), enc: str = Form(...),
             sign: str = Form(...)):
     _check_ts(ts)
-    if _l44_try(KEY44_MASTER, page, ts, enc, sign):
-        _check_page(page, PAGES44)
-        idx = (page - 1) * PER_PAGE44
-        return {"page": page, "nums": NUMS44[idx:idx + PER_PAGE44]}
-    for dk in DECOY44_KEYS:
-        if _l44_try(dk, page, ts, enc, sign):
+    if _kl7_try(KL7_MASTER, page, ts, enc, sign):
+        _check_page(page, PAGES_KL7)
+        idx = (page - 1) * PER_PAGE_KL7
+        return {"page": page, "nums": NUMS_KL7[idx:idx + PER_PAGE_KL7]}
+    for dk in DECOY_KL7:
+        if _kl7_try(dk, page, ts, enc, sign):
             raise HTTPException(status_code=403, detail="sign invalid")
     return {"page": page, "nums": []}
 
 
 # ---------------- 关卡 45（KL8）幽泉之眼：魔改 SM4（CK[24..31] 尾部换血） ----------------
-KEY45_MASTER = "Fatdog_unravel"
-DECOY45_KEYS = ["Fatdog_travel"]
-PAGES45, PER_PAGE45, SEED45 = 100, 10, 20271028
-_rng45 = random.Random(SEED45)
-NUMS45 = [_rng45.randint(1, 100) for _ in range(PAGES45 * PER_PAGE45)]
+KL8_MASTER = "Fatdog_unravel"
+DECOY_KL8 = ["Fatdog_travel"]
+PAGES_KL8, PER_PAGE_KL8, SEED_KL8 = 100, 10, 20271028
+_rng_kl8 = random.Random(SEED_KL8)
+NUMS_KL8 = [_rng_kl8.randint(1, 100) for _ in range(PAGES_KL8 * PER_PAGE_KL8)]
 
-_SBOX45 = [
+_SBOX_KL8 = [
     0xd6,0x90,0xe9,0xfe,0xcc,0xe1,0x3d,0xb7,0x16,0xb6,0x14,0xc2,0x28,0xfb,0x2c,0x05,
     0x2b,0x67,0x9a,0x76,0x2a,0xbe,0x04,0xc3,0xaa,0x44,0x13,0x26,0x49,0x86,0x06,0x99,
     0x9c,0x42,0x50,0xf4,0x91,0xef,0x98,0x7a,0x33,0x54,0x0b,0x43,0xed,0xcf,0xac,0x62,
@@ -648,16 +648,16 @@ _SBOX45 = [
     0x89,0x69,0x97,0x4a,0x0c,0x96,0x77,0x7e,0x65,0xb9,0xf1,0x09,0xc5,0x6e,0xc6,0x84,
     0x18,0xf0,0x7d,0xec,0x3a,0xdc,0x4d,0x20,0x79,0xee,0x5f,0x3e,0xd7,0xcb,0x39,0x48,
 ]
-_FK45 = [0xa3b1bac6, 0x56aa3350, 0x677d9197, 0xb27022dc]
-_CK45 = []
+_FK_KL8 = [0xa3b1bac6, 0x56aa3350, 0x677d9197, 0xb27022dc]
+_CK_KL8 = []
 for _i in range(32):
     _w = 0
     for _j in range(4):
         _w |= (((4 * _i + _j) * 7) % 256) << (24 - 8 * _j)
-    _CK45.append(_w)
-_ck_seed45 = hashlib.sha256(b"Fatdog_unravel|ck").digest()
+    _CK_KL8.append(_w)
+_ck_seed_kl8 = hashlib.sha256(b"Fatdog_unravel|ck").digest()
 for _i in range(8):  # 魔改点：CK[24..31] 换血（与 libm3.so 一致）
-    _CK45[24 + _i] = int.from_bytes(_ck_seed45[4 * _i:4 * _i + 4], "big")
+    _CK_KL8[24 + _i] = int.from_bytes(_ck_seed_kl8[4 * _i:4 * _i + 4], "big")
 
 
 def _rotl45(x, n):
@@ -665,8 +665,8 @@ def _rotl45(x, n):
 
 
 def _tau45(a):
-    return ((_SBOX45[(a >> 24) & 0xFF] << 24) | (_SBOX45[(a >> 16) & 0xFF] << 16)
-            | (_SBOX45[(a >> 8) & 0xFF] << 8) | _SBOX45[a & 0xFF])
+    return ((_SBOX_KL8[(a >> 24) & 0xFF] << 24) | (_SBOX_KL8[(a >> 16) & 0xFF] << 16)
+            | (_SBOX_KL8[(a >> 8) & 0xFF] << 8) | _SBOX_KL8[a & 0xFF])
 
 
 def _t_enc45(x):
@@ -679,20 +679,20 @@ def _t_key45(x):
     return b ^ _rotl45(b, 13) ^ _rotl45(b, 23)
 
 
-def sm4_45_key_expand(key16: bytes) -> list:
+def sm4_kl8_key_expand(key16: bytes) -> list:
     k = [int.from_bytes(key16[4 * i:4 * i + 4], "big") for i in range(4)]
-    k = [k[i] ^ _FK45[i] for i in range(4)]
+    k = [k[i] ^ _FK_KL8[i] for i in range(4)]
     rk = []
     for i in range(32):
-        v = k[i] ^ _t_key45(k[i + 1] ^ k[i + 2] ^ k[i + 3] ^ _CK45[i])
+        v = k[i] ^ _t_key45(k[i + 1] ^ k[i + 2] ^ k[i + 3] ^ _CK_KL8[i])
         k.append(v)
         rk.append(v)
     return rk
 
 
-def sm4_45_decrypt(key16: bytes, data: bytes) -> bytes:
+def sm4_kl8_decrypt(key16: bytes, data: bytes) -> bytes:
     """魔改 SM4-ECB 解密（与 libm3.so 的手写实现互为镜像）"""
-    rk = sm4_45_key_expand(key16)
+    rk = sm4_kl8_key_expand(key16)
     out = b""
     for off in range(0, len(data), 16):
         x = [int.from_bytes(data[off + 4 * i:off + 4 * i + 4], "big") for i in range(4)]
@@ -703,14 +703,14 @@ def sm4_45_decrypt(key16: bytes, data: bytes) -> bytes:
     return out
 
 
-def _l45_try(master: str, page: int, ts: int, enc: str, sign: str) -> bool:
+def _kl8_try(master: str, page: int, ts: int, enc: str, sign: str) -> bool:
     mk = master.encode()
     skey = hashlib.sha256(mk + b"|sm4").digest()[:16]
     mack = hashlib.sha256(mk + b"|mac").digest()
     if not hmac.compare_digest(sign, hmac.new(mack, enc.encode(), hashlib.sha256).hexdigest()):
         return False
     try:
-        p = sm4_45_decrypt(skey, bytes.fromhex(enc))
+        p = sm4_kl8_decrypt(skey, bytes.fromhex(enc))
         plain = p.split(b"\x00")[0].decode("utf-8", "ignore")
     except Exception:
         return False
@@ -718,29 +718,29 @@ def _l45_try(master: str, page: int, ts: int, enc: str, sign: str) -> bool:
     return bool(m) and int(m.group(1)) == page and int(m.group(2)) == ts
 
 
-@app.get("/api/l45")
-def api_l45(page: int = Query(...), ts: int = Query(...), enc: str = Query(...),
+@app.get("/api/kl8")
+def api_kl8(page: int = Query(...), ts: int = Query(...), enc: str = Query(...),
             sign: str = Query(...)):
     _check_ts(ts)
-    if _l45_try(KEY45_MASTER, page, ts, enc, sign):
-        _check_page(page, PAGES45)
-        idx = (page - 1) * PER_PAGE45
-        return {"page": page, "nums": NUMS45[idx:idx + PER_PAGE45]}
-    for dk in DECOY45_KEYS:
-        if _l45_try(dk, page, ts, enc, sign):
+    if _kl8_try(KL8_MASTER, page, ts, enc, sign):
+        _check_page(page, PAGES_KL8)
+        idx = (page - 1) * PER_PAGE_KL8
+        return {"page": page, "nums": NUMS_KL8[idx:idx + PER_PAGE_KL8]}
+    for dk in DECOY_KL8:
+        if _kl8_try(dk, page, ts, enc, sign):
             raise HTTPException(status_code=403, detail="sign invalid")
     return {"page": page, "nums": []}
 
 
 # ---------------- 关卡 46（KL9）天罡北斗：魔改 RC4（KSA 初排换血 + PRGA 过掩码） ----------------
-KEY46_MASTER = "Fatdog_veil"
-DECOY46_KEYS = ["Fatdog_vile"]
-PAGES46, PER_PAGE46, SEED46 = 100, 10, 20270915
-_rng46 = random.Random(SEED46)
-NUMS46 = [_rng46.randint(1, 100) for _ in range(PAGES46 * PER_PAGE46)]
+KL9_MASTER = "Fatdog_veil"
+DECOY_KL9 = ["Fatdog_vile"]
+PAGES_KL9, PER_PAGE_KL9, SEED_KL9 = 100, 10, 20270915
+_rng_kl9 = random.Random(SEED_KL9)
+NUMS_KL9 = [_rng_kl9.randint(1, 100) for _ in range(PAGES_KL9 * PER_PAGE_KL9)]
 
 
-def _ksa_init_46() -> list:
+def _ksa_init_kl9() -> list:
     """自定义初始置换：sha256("Fatdog_veil|ksa") 确定性 Fisher-Yates（与 libm4.so 一致）"""
     seed = hashlib.sha256(b"Fatdog_veil|ksa").digest()
     data = b""
@@ -756,13 +756,13 @@ def _ksa_init_46() -> list:
     return p
 
 
-_KSA46 = _ksa_init_46()
-_MASK46 = hashlib.sha256(b"Fatdog_veil|mask").digest()[:16]
+_KSA_KL9 = _ksa_init_kl9()
+_MASK_KL9 = hashlib.sha256(b"Fatdog_veil|mask").digest()[:16]
 
 
-def rc4_46_crypt(key16: bytes, data: bytes) -> bytes:
+def rc4_kl9_crypt(key16: bytes, data: bytes) -> bytes:
     """魔改 RC4（流异或自反，加解密同函数；与 libm4.so 的手写实现互为镜像）"""
-    s = list(_KSA46)
+    s = list(_KSA_KL9)
     j = 0
     for i in range(256):
         j = (j + s[i] + key16[i % len(key16)]) % 256
@@ -773,18 +773,18 @@ def rc4_46_crypt(key16: bytes, data: bytes) -> bytes:
         i = (i + 1) % 256
         j = (j + s[i]) % 256
         s[i], s[j] = s[j], s[i]
-        out.append(ch ^ s[(s[i] + s[j]) % 256] ^ _MASK46[n % 16])
+        out.append(ch ^ s[(s[i] + s[j]) % 256] ^ _MASK_KL9[n % 16])
     return bytes(out)
 
 
-def _l46_try(master: str, page: int, ts: int, enc: str, sign: str) -> bool:
+def _kl9_try(master: str, page: int, ts: int, enc: str, sign: str) -> bool:
     mk = master.encode()
     rkey = hashlib.sha256(mk + b"|rc4").digest()[:16]
     mack = hashlib.sha256(mk + b"|mac").digest()
     if not hmac.compare_digest(sign, hmac.new(mack, enc.encode(), hashlib.sha256).hexdigest()):
         return False
     try:
-        p = rc4_46_crypt(rkey, bytes.fromhex(enc))
+        p = rc4_kl9_crypt(rkey, bytes.fromhex(enc))
         plain = p.split(b"\x00")[0].decode("utf-8", "ignore")
     except Exception:
         return False
@@ -792,16 +792,241 @@ def _l46_try(master: str, page: int, ts: int, enc: str, sign: str) -> bool:
     return bool(m) and int(m.group(1)) == page and int(m.group(2)) == ts
 
 
-@app.get("/api/l46")
-def api_l46(page: int = Query(...), ts: int = Query(...), enc: str = Query(...),
+@app.get("/api/kl9")
+def api_kl9(page: int = Query(...), ts: int = Query(...), enc: str = Query(...),
             sign: str = Query(...)):
     _check_ts(ts)
-    if _l46_try(KEY46_MASTER, page, ts, enc, sign):
-        _check_page(page, PAGES46)
-        idx = (page - 1) * PER_PAGE46
-        return {"page": page, "nums": NUMS46[idx:idx + PER_PAGE46]}
-    for dk in DECOY46_KEYS:
-        if _l46_try(dk, page, ts, enc, sign):
+    if _kl9_try(KL9_MASTER, page, ts, enc, sign):
+        _check_page(page, PAGES_KL9)
+        idx = (page - 1) * PER_PAGE_KL9
+        return {"page": page, "nums": NUMS_KL9[idx:idx + PER_PAGE_KL9]}
+    for dk in DECOY_KL9:
+        if _kl9_try(dk, page, ts, enc, sign):
+            raise HTTPException(status_code=403, detail="sign invalid")
+    return {"page": page, "nums": []}
+
+
+# ---------------- 关卡 47（KL10）万象归一：魔改 SHA256 变体 + 魔改 AES 综合卷 ----------------
+KL10_MASTER = "Fatdog_eclipse"
+DECOY_KL10 = ["Fatdog_ellipse"]
+PAGES_KL10, PER_PAGE_KL10, SEED_KL10 = 100, 10, 20270820
+_rng_kl10 = random.Random(SEED_KL10)
+NUMS_KL10 = [_rng_kl10.randint(1, 100) for _ in range(PAGES_KL10 * PER_PAGE_KL10)]
+
+_SBOX_KL10 = [
+    0x63,0x7c,0x77,0x7b,0xf2,0x6b,0x6f,0xc5,0x30,0x01,0x67,0x2b,0xfe,0xd7,0xab,0x76,
+    0xca,0x82,0xc9,0x7d,0xfa,0x59,0x47,0xf0,0xad,0xd4,0xa2,0xaf,0x9c,0xa4,0x72,0xc0,
+    0xb7,0xfd,0x93,0x26,0x36,0x3f,0xf7,0xcc,0x34,0xa5,0xe5,0xf1,0x71,0xd8,0x31,0x15,
+    0x04,0xc7,0x23,0xc3,0x18,0x96,0x05,0x9a,0x07,0x12,0x80,0xe2,0xeb,0x27,0xb2,0x75,
+    0x09,0x83,0x2c,0x1a,0x1b,0x6e,0x5a,0xa0,0x52,0x3b,0xd6,0xb3,0x29,0xe3,0x2f,0x84,
+    0x53,0xd1,0x00,0xed,0x20,0xfc,0xb1,0x5b,0x6a,0xcb,0xbe,0x39,0x4a,0x4c,0x58,0xcf,
+    0xd0,0xef,0xaa,0xfb,0x43,0x4d,0x33,0x85,0x45,0xf9,0x02,0x7f,0x50,0x3c,0x9f,0xa8,
+    0x51,0xa3,0x40,0x8f,0x92,0x9d,0x38,0xf5,0xbc,0xb6,0xda,0x21,0x10,0xff,0xf3,0xd2,
+    0xcd,0x0c,0x13,0xec,0x5f,0x97,0x44,0x17,0xc4,0xa7,0x7e,0x3d,0x64,0x5d,0x19,0x73,
+    0x60,0x81,0x4f,0xdc,0x22,0x2a,0x90,0x88,0x46,0xee,0xb8,0x14,0xde,0x5e,0x0b,0xdb,
+    0xe0,0x32,0x3a,0x0a,0x49,0x06,0x24,0x5c,0xc2,0xd3,0xac,0x62,0x91,0x95,0xe4,0x79,
+    0xe7,0xc8,0x37,0x6d,0x8d,0xd5,0x4e,0xa9,0x6c,0x56,0xf4,0xea,0x65,0x7a,0xae,0x08,
+    0xba,0x78,0x25,0x2e,0x1c,0xa6,0xb4,0xc6,0xe8,0xdd,0x74,0x1f,0x4b,0xbd,0x8b,0x8a,
+    0x70,0x3e,0xb5,0x66,0x48,0x03,0xf6,0x0e,0x61,0x35,0x57,0xb9,0x86,0xc1,0x1d,0x9e,
+    0xe1,0xf8,0x98,0x11,0x69,0xd9,0x8e,0x94,0x9b,0x1e,0x87,0xe9,0xce,0x55,0x28,0xdf,
+    0x8c,0xa1,0x89,0x0d,0xbf,0xe6,0x42,0x68,0x41,0x99,0x2d,0x0f,0xb0,0x54,0xbb,0x16,
+]
+_RCON_KL10 = [0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80, 0x1b, 0x36]
+# 注意：KL10 用标准 K 表（勿与 L37 的 _K37_W 混用——那张表的 idx51 与标准差一词）
+_K_KL10_W = [
+    0x428a2f98,0x71374491,0xb5c0fbcf,0xe9b5dba5,0x3956c25b,0x59f111f1,0x923f82a4,0xab1c5ed5,
+    0xd807aa98,0x12835b01,0x243185be,0x550c7dc3,0x72be5d74,0x80deb1fe,0x9bdc06a7,0xc19bf174,
+    0xe49b69c1,0xefbe4786,0x0fc19dc6,0x240ca1cc,0x2de92c6f,0x4a7484aa,0x5cb0a9dc,0x76f988da,
+    0x983e5152,0xa831c66d,0xb00327c8,0xbf597fc7,0xc6e00bf3,0xd5a79147,0x06ca6351,0x14292967,
+    0x27b70a85,0x2e1b2138,0x4d2c6dfc,0x53380d13,0x650a7354,0x766a0abb,0x81c2c92e,0x92722c85,
+    0xa2bfe8a1,0xa81a664b,0xc24b8b70,0xc76c51a3,0xd192e819,0xd6990624,0xf40e3585,0x106aa070,
+    0x19a4c116,0x1e376c08,0x2748774c,0x34b0bcb5,0x391c0cb3,0x4ed8aa4a,0x5b9cca4f,0x682e6ff3,
+    0x748f82ee,0x78a5636f,0x84c87814,0x8cc70208,0x90befffa,0xa4506ceb,0xbef9a3f7,0xc67178f2,
+]
+_IV_KL10_W = [int.from_bytes(hashlib.sha256(b"Fatdog_eclipse|iv").digest()[4*i:4*i+4], "big")
+           for i in range(8)]
+
+
+def _xt_kl10(a):
+    return ((a << 1) ^ 0x1B) & 0xFF if a & 0x80 else (a << 1)
+
+
+def _gmul_kl10(a, b):
+    r = 0
+    for _ in range(8):
+        if b & 1:
+            r ^= a
+        a = _xt_kl10(a)
+        b >>= 1
+    return r
+
+
+def _sha_var_kl10(data: bytes, iv_words=None) -> bytes:
+    """魔改 SHA256：标准压缩轮，IV=SHA256(Fatdog_eclipse|iv) 整组换血，填充边界 48（与 libm5.so 一致）"""
+    h = list(_IV_KL10_W if iv_words is None else iv_words)
+    msg = bytearray(data)
+    ml = len(msg) * 8
+    msg.append(0x80)
+    while len(msg) % 64 != 48:
+        msg.append(0)
+    msg += ml.to_bytes(8, "big")
+    for off in range(0, len(msg), 64):
+        w = [int.from_bytes(msg[off + i * 4:off + i * 4 + 4], "big") for i in range(16)]
+        for i in range(16, 64):
+            s0 = _r37(w[i - 15], 7) ^ _r37(w[i - 15], 18) ^ (w[i - 15] >> 3)
+            s1 = _r37(w[i - 2], 17) ^ _r37(w[i - 2], 19) ^ (w[i - 2] >> 10)
+            w.append((w[i - 16] + s0 + w[i - 7] + s1) & _M37)
+        a, b, c, d, e, f, g_, hh = h
+        for i in range(64):
+            S1 = _r37(e, 6) ^ _r37(e, 11) ^ _r37(e, 25)
+            ch = (e & f) ^ ((~e & _M37) & g_)
+            t1 = (hh + S1 + ch + _K_KL10_W[i] + w[i]) & _M37
+            S0 = _r37(a, 2) ^ _r37(a, 13) ^ _r37(a, 22)
+            mj = (a & b) ^ (a & c) ^ (b & c)
+            t2 = (S0 + mj) & _M37
+            ne = (d + t1) & _M37
+            hh, g_, f, e = g_, f, e, ne
+            d, c, b, a = c, b, a, (t1 + t2) & _M37
+        h = [(x + y) & _M37 for x, y in zip(h, [a, b, c, d, e, f, g_, hh])]
+    return b"".join(x.to_bytes(4, "big") for x in h)
+
+
+def _key_expand_kl10(key16: bytes) -> list:
+    rk = [bytearray(key16)]
+    for i in range(1, 11):
+        prev = rk[-1]
+        cur = bytearray(16)
+        t = [_SBOX_KL10[prev[13]], _SBOX_KL10[prev[14]], _SBOX_KL10[prev[15]], _SBOX_KL10[prev[12]]]
+        t[0] ^= _RCON_KL10[i - 1]
+        for j in range(4):
+            cur[j] = prev[j] ^ t[j]
+        for j in range(4, 16):
+            cur[j] = prev[j] ^ cur[j - 4]
+        rk.append(cur)
+    return rk
+
+
+def aes_kl10_ecb_encrypt(key16: bytes, data: bytes) -> bytes:
+    """魔改 AES-128-ECB 加密：MixColumns 系数 {2,3} 对调为 {3,2}（与 libm5.so 一致）"""
+    rk = _key_expand_kl10(key16)
+    out = b""
+    for off in range(0, len(data), 16):
+        s = bytearray(data[off:off + 16])
+        for i in range(16):
+            s[i] ^= rk[0][i]
+        for r in range(1, 10):
+            for i in range(16):
+                s[i] = _SBOX_KL10[s[i]]
+            t = s[1]; s[1] = s[5]; s[5] = s[9]; s[9] = s[13]; s[13] = t
+            t = s[2]; s[2] = s[10]; s[10] = t
+            t = s[6]; s[6] = s[14]; s[14] = t
+            t = s[3]; s[3] = s[15]; s[15] = s[11]; s[11] = s[7]; s[7] = t
+            for c in range(4):
+                a0, a1, a2, a3 = s[4*c], s[4*c+1], s[4*c+2], s[4*c+3]
+                s[4*c+0] = _gmul_kl10(a0, 3) ^ _gmul_kl10(a1, 2) ^ a2 ^ a3
+                s[4*c+1] = a0 ^ _gmul_kl10(a1, 3) ^ _gmul_kl10(a2, 2) ^ a3
+                s[4*c+2] = a0 ^ a1 ^ _gmul_kl10(a2, 3) ^ _gmul_kl10(a3, 2)
+                s[4*c+3] = _gmul_kl10(a0, 2) ^ a1 ^ a2 ^ _gmul_kl10(a3, 3)
+            for i in range(16):
+                s[i] ^= rk[r][i]
+        for i in range(16):
+            s[i] = _SBOX_KL10[s[i]]
+        t = s[1]; s[1] = s[5]; s[5] = s[9]; s[9] = s[13]; s[13] = t
+        t = s[2]; s[2] = s[10]; s[10] = t
+        t = s[6]; s[6] = s[14]; s[14] = t
+        t = s[3]; s[3] = s[15]; s[15] = s[11]; s[11] = s[7]; s[7] = t
+        for i in range(16):
+            s[i] ^= rk[10][i]
+        out += bytes(s)
+    return out
+
+
+def _pad_kl10(b: bytes) -> bytes:
+    n = (len(b) + 15) // 16 * 16
+    return b + b"\x00" * (n - len(b))
+
+
+def variant_sign_kl10(payload: bytes) -> str:
+    dg = _sha_var_kl10(payload)
+    key = hashlib.sha256(b"Fatdog_eclipse|key").digest()[:16]
+    return aes_kl10_ecb_encrypt(key, _pad_kl10(dg)).hex()
+
+
+def variant_sign_kl10(payload: bytes, master: str = "Fatdog_eclipse") -> str:
+    mk = master.encode()
+    iv = hashlib.sha256(mk + b"|iv").digest()
+    iv_w = [int.from_bytes(iv[4 * i:4 * i + 4], "big") for i in range(8)]
+    key = hashlib.sha256(mk + b"|key").digest()[:16]
+    dg = _sha_var_kl10(payload, iv_w)
+    return aes_kl10_ecb_encrypt(key, _pad_kl10(dg)).hex()
+
+
+@app.post("/api/kl10")
+def api_kl10(page: int = Form(...), ts: int = Form(...), sign: str = Form(...)):
+    _check_ts(ts)
+    payload = f"page={page}&ts={ts}".encode()
+    if hmac.compare_digest(sign, variant_sign_kl10(payload)):
+        _check_page(page, PAGES_KL10)
+        idx = (page - 1) * PER_PAGE_KL10
+        return {"page": page, "nums": NUMS_KL10[idx:idx + PER_PAGE_KL10]}
+    # 近亲假钥 ellipse：命中即点名 403
+    if hmac.compare_digest(sign, variant_sign_kl10(payload, master="Fatdog_ellipse")):
+        raise HTTPException(status_code=403, detail="sign invalid")
+    return {"page": page, "nums": []}
+
+
+# ---------------- 关卡 43（签名校验对抗）照妖之镜：标准 HMAC + 近亲假钥点名 ----------------
+KEY43_MASTER = "Fatdog_scan"
+DECOY43_KEYS = ["Fatdog_span"]
+PAGES43, PER_PAGE43, SEED43 = 100, 10, 20280214
+_rng43 = random.Random(SEED43)
+NUMS43 = [_rng43.randint(1, 100) for _ in range(PAGES43 * PER_PAGE43)]
+
+
+def _l43_try(master: str, page: int, ts: int, sign: str) -> bool:
+    mk = master.encode()
+    if not hmac.compare_digest(
+            sign, hmac.new(mk, f"page={page}&ts={ts}".encode(), hashlib.sha256).hexdigest()):
+        return False
+    return True
+
+
+@app.get("/api/l43")
+def api_l43(page: int = Query(...), ts: int = Query(...), sign: str = Query(...)):
+    _check_ts(ts)
+    if _l43_try(KEY43_MASTER, page, ts, sign):
+        _check_page(page, PAGES43)
+        idx = (page - 1) * PER_PAGE43
+        return {"page": page, "nums": NUMS43[idx:idx + PER_PAGE43]}
+    for dk in DECOY43_KEYS:
+        if _l43_try(dk, page, ts, sign):
+            raise HTTPException(status_code=403, detail="sign invalid")
+    return {"page": page, "nums": []}
+
+
+# ---------------- 关卡 44（签名校验对抗）偷天换日：标准 HMAC + 近亲假钥点名 ----------------
+KEY44_MASTER = "Fatdog_forge"
+DECOY44_KEYS = ["Fatdog_forgo"]
+PAGES44, PER_PAGE44, SEED44 = 100, 10, 20280301
+_rng44 = random.Random(SEED44)
+NUMS44 = [_rng44.randint(1, 100) for _ in range(PAGES44 * PER_PAGE44)]
+
+
+def _l44_try(master: str, page: int, ts: int, sign: str) -> bool:
+    mk = master.encode()
+    return hmac.compare_digest(
+        sign, hmac.new(mk, f"page={page}&ts={ts}".encode(), hashlib.sha256).hexdigest())
+
+
+@app.get("/api/l44")
+def api_l44(page: int = Query(...), ts: int = Query(...), sign: str = Query(...)):
+    _check_ts(ts)
+    if _l44_try(KEY44_MASTER, page, ts, sign):
+        _check_page(page, PAGES44)
+        idx = (page - 1) * PER_PAGE44
+        return {"page": page, "nums": NUMS44[idx:idx + PER_PAGE44]}
+    for dk in DECOY44_KEYS:
+        if _l44_try(dk, page, ts, sign):
             raise HTTPException(status_code=403, detail="sign invalid")
     return {"page": page, "nums": []}
 
@@ -1356,7 +1581,8 @@ if __name__ == "__main__":
     print(f"数字加和：L15={sum(NUMS)} L16={sum(NUMS16)} L17={sum(NUMS17)} L18={sum(NUMS18)} L19={sum(NUMS19)} "
           f"L21={sum(NUMS21)} L22={sum(NUMS22)} L24={sum(NUMS24)} L25={sum(NUMS25)} L26={sum(NUMS26)} L27={sum(NUMS27)} "
           f"L28={sum(NUMS28)} L29={sum(NUMS29)} L30={sum(NUMS30)} L31={sum(NUMS31)} L32={sum(NUMS32)} L33={sum(NUMS33)} L34={sum(NUMS34)} L35={sum(NUMS35)} L36={sum(NUMS36)} L37={sum(NUMS37)} "
-          f"KL6={sum(NUMS43)} KL7={sum(NUMS44)} KL8={sum(NUMS45)} KL9={sum(NUMS46)}")
+          f"KL6={sum(NUMS_KL6)} KL7={sum(NUMS_KL7)} KL8={sum(NUMS_KL8)} KL9={sum(NUMS_KL9)} KL10={sum(NUMS_KL10)} "
+          f"L43={sum(NUMS43)} L44={sum(NUMS44)}")
     http_cfg = uvicorn.Config(app, host=HOST, port=PORT_HTTP, log_level="info")
     threading.Thread(target=uvicorn.Server(http_cfg).run, daemon=True).start()
     https_cfg = uvicorn.Config(app, host=HOST, port=PORT_HTTPS,

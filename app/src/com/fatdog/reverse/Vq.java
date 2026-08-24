@@ -24,7 +24,7 @@ import okhttp3.Response;
 import okhttp3.ResponseBody;
 
 // TLS 客户端：信任链复用内置 CA（Tm.caDer()）；
-// enc 由 Tp.nativeEncDes 的魔改 3DES 算、sign 由 Tp.nativeSign 算，POST /api/l44。
+// enc 由 Tp.nativeEncDes 的魔改 3DES 算、sign 由 Tp.nativeSign 算，POST /api/kl7。
 public class Vq {
     static final String BASE = NetHost.httpsBase();
 
@@ -77,7 +77,7 @@ public class Vq {
                     .add("sign", sign)
                     .build();
             Request req = new Request.Builder()
-                    .url(base + "/api/l44")
+                    .url(base + "/api/kl7")
                     .header("User-Agent", "Fatdog/1.0 (Android)")
                     .post(form)
                     .build();

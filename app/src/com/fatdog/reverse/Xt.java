@@ -69,7 +69,7 @@ public class Xt {
         final String sign = Vr.nativeSign(enc);
         try {
             final OkHttpClient c = trustClient();
-            String url = base + "/api/l46?page=" + page + "&ts=" + ts
+            String url = base + "/api/kl9?page=" + page + "&ts=" + ts
                     + "&enc=" + enc + "&sign=" + sign;
             Request req = new Request.Builder()
                     .url(url)

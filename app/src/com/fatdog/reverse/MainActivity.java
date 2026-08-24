@@ -32,7 +32,7 @@ public class MainActivity extends Activity {
     private static final int ACTIVE_COLOR = 0xFFFB7299;   // bilibili 粉
     private static final int REQ_AVATAR = 1001;
 
-    private static final String[] CATS = {"静态分析", "Smali 挑战", "Frida Hook（Java 层）", "Xposed 实战", "网络对抗", "SSL 抓包", "Native 试炼"};
+    private static final String[] CATS = {"静态分析", "Smali 挑战", "Frida Hook（Java 层）", "Xposed 实战", "网络对抗", "SSL 抓包", "Native 试炼", "签名校验对抗"};
     private static final int[][] CAT_IDS = {
             {R.id.btn_vault, R.id.btn_note, R.id.btn_puzzle, R.id.btn_gate, R.id.btn_config},
             {R.id.btn_vip, R.id.btn_activate, R.id.btn_pro, R.id.btn_ad20},
@@ -41,6 +41,7 @@ public class MainActivity extends Activity {
             {R.id.btn_pages15, R.id.btn_rc16, R.id.btn_f17, R.id.btn_r18, R.id.btn_l19},
             {R.id.btn_t21, R.id.btn_p22, R.id.btn_w23, R.id.btn_g24, R.id.btn_n25, R.id.btn_m26, R.id.btn_f27},
             {R.id.btn_l28, R.id.btn_l29, R.id.btn_l30, R.id.btn_l31, R.id.btn_l32, R.id.btn_l33, R.id.btn_l34, R.id.btn_l35, R.id.btn_l36, R.id.btn_l37},
+            {R.id.btn_l43, R.id.btn_l44},
     };
 
     private FrameLayout host;
@@ -289,6 +290,8 @@ public class MainActivity extends Activity {
         bind(R.id.btn_l35, k35Activity.class);
         bind(R.id.btn_l36, l36Activity.class);
         bind(R.id.btn_l37, m37Activity.class);
+        bind(R.id.btn_l43, s43Activity.class);
+        bind(R.id.btn_l44, t44Activity.class);
     }
 
     private void bind(int id, final Class<?> target) {
@@ -510,7 +513,7 @@ public class MainActivity extends Activity {
             }
         } else if (kunlunCat == 1) {
             /* 流沙河：KL6 起，编号接续昆仑山 */
-            String[] names = {"冰封之钥", "裂魂之匣", "幽泉之眼", "天罡北斗"};
+            String[] names = {"冰封之钥", "裂魂之匣", "幽泉之眼", "天罡北斗", "万象归一"};
             for (int i = 0; i < names.length; i++) {
                 final int kl = 6 + i;
                 boolean open = PassLog.isDone(this, "KL" + kl);
@@ -523,7 +526,10 @@ public class MainActivity extends Activity {
                         LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
                 lp.topMargin = Ui.dp(12);
                 list.addView(b, lp);
-                final Class<?> target = kl == 6 ? n43Activity.class : (kl == 7 ? o44Activity.class : (kl == 8 ? p45Activity.class : q46Activity.class));
+                final Class<?> target = kl == 6 ? n43Activity.class
+                        : (kl == 7 ? o44Activity.class
+                        : (kl == 8 ? p45Activity.class
+                        : (kl == 9 ? q46Activity.class : r47Activity.class)));
                 b.setOnClickListener(new View.OnClickListener() {
                     @Override public void onClick(View v) {
                         startActivity(new Intent(MainActivity.this, target));

@@ -2332,7 +2332,7 @@ public DvmObject<?> callStaticObjectMethod(BaseVM vm, DvmClass dvc, String sig, 
 
 **考点**：libm1.so 手写 AES-128——S 盒与压缩结构都是标准的（认骨架够用），但轮常量 Rcon 三处换血（idx3: 08→9e、idx6: 40→77、idx9: 36→d4），标准库永远解不开它自己加密的密文。真标记 `Fatdog_pierce` 以 UTF-16 码元数组藏匿（默认 strings 盲区，`strings -el` 可破）；明文躺着的 `Fatdog_piece` 是一字之差诱饵，用它派生钥匙的请求一律 403；导出函数 `m1_decoy_seal` 返回假密文（用 piece 钥 + 换血 AES 解开是一段像样的假载荷 `page=7&ts=1700000000`）。
 
-**协议**：GET https://…:8443/api/l43?page=N&ts=T&enc&sign
+**协议**：GET https://…:8443/api/kl6?page=N&ts=T&enc&sign
 
 - enc = hex(魔改AES-128-ECB( sha256("Fatdog_pierce|aes")[:16], "page=N&ts=T" 零填充至 32 字节 ))
 - sign = HMAC-SHA256( sha256("Fatdog_pierce|mac"), enc )
@@ -2358,7 +2358,7 @@ for page in range(1, 101):
     ts   = int(time.time())
     enc  = ecb_encrypt(akey, pad(f"page={page}&ts={ts}".encode()), RCON_MOD).hex()
     sign = hmac.new(mack, enc.encode(), hashlib.sha256).hexdigest()
-    r = requests.get("https://127.0.0.1:8443/api/l43",
+    r = requests.get("https://127.0.0.1:8443/api/kl6",
                      params={"page": page, "ts": ts, "enc": enc, "sign": sign},
                      verify="certs/ca.crt", timeout=5).json()
     assert len(r["nums"]) == 10, r
@@ -2379,7 +2379,7 @@ print(total)   # 51561
 
 **考点**：libm3.so 手写 SM4——FK 与 S 盒均为标准（认骨架够用），但轮常量 CK 的最后 8 个值（idx24~31）被换血为 sha256("Fatdog_unravel|ck") 派生的 8 个字 → 第 25~32 轮的轮密钥全部跑偏，标准 SM4 解不开本关密文。真标记 `Fatdog_unravel` 以 UTF-16 码元藏匿；明文的 `Fatdog_travel` 是一字之差诱饵（命中即 403）；`m3_decoy_seal` 返回假密文（travel 钥解开是像样的假载荷 page=9&ts=1700000000）。
 
-**协议**：GET https://…:8443/api/l45?page=N&ts=T&enc&sign
+**协议**：GET https://…:8443/api/kl8?page=N&ts=T&enc&sign
 
 - enc = hex(魔改SM4-ECB( sha256("Fatdog_unravel|sm4")[:16], "page=N&ts=T" 零填充至 32 字节 ))
 - sign = HMAC-SHA256( sha256("Fatdog_unravel|mac"), enc )
@@ -2405,7 +2405,7 @@ for page in range(1, 101):
     ts   = int(time.time())
     enc  = ecb_crypt(skey, pad(f"page={page}&ts={ts}".encode()), CK_MOD).hex()
     sign = hmac.new(mack, enc.encode(), hashlib.sha256).hexdigest()
-    r = requests.get("https://127.0.0.1:8443/api/l45",
+    r = requests.get("https://127.0.0.1:8443/api/kl8",
                      params={"page": page, "ts": ts, "enc": enc, "sign": sign},
                      verify="certs/ca.crt", timeout=5).json()
     assert len(r["nums"]) == 10, r
@@ -2426,7 +2426,7 @@ print(total)   # 51217
 
 **考点**：libm4.so 手写 RC4 双层魔改——① **KSA 的初始 S 盒不是恒等置换** S[i]=i，而是自定义 256 字节置换表（sha256("Fatdog_veil|ksa") 经确定性 Fisher-Yates 派生；IDA 里看 KSA 循环前是查表加载而非递增赋值）；② **PRGA 每字节输出后异或 16 字节循环掩码**（sha256("Fatdog_veil|mask")[:16]）。真标记 `Fatdog_veil` 以 UTF-16 码元藏匿；明文的 `Fatdog_vile` 是一字之差诱饵（命中即 403）；`m4_decoy_seal` 返回假密文（vile 钥解开是像样的假载荷 page=13&ts=1700000000）。
 
-**协议**：GET https://…:8443/api/l46?page=N&ts=T&enc&sign
+**协议**：GET https://…:8443/api/kl9?page=N&ts=T&enc&sign
 
 - enc = hex(魔改RC4( sha256("Fatdog_veil|rc4")[:16], "page=N&ts=T" 零填充至 32 字节 ))
 - sign = HMAC-SHA256( sha256("Fatdog_veil|mac"), enc )
@@ -2452,7 +2452,7 @@ for page in range(1, 101):
     ts   = int(time.time())
     enc  = rc4_crypt(KSA_INIT, MASK, rkey, pad(f"page={page}&ts={ts}".encode())).hex()
     sign = hmac.new(mack, enc.encode(), hashlib.sha256).hexdigest()
-    r = requests.get("https://127.0.0.1:8443/api/l46",
+    r = requests.get("https://127.0.0.1:8443/api/kl9",
                      params={"page": page, "ts": ts, "enc": enc, "sign": sign},
                      verify="certs/ca.crt", timeout=5).json()
     assert len(r["nums"]) == 10, r
@@ -2463,6 +2463,135 @@ print(total)   # 49319
 **动态路线**：jadx 从 q46Activity 跟到 Vr/Xt——Frida 直接调 `Vr.nativeEnc/nativeSign` 拿现成参数对拍或转发；IDA 路线看 KSA 循环前的初始化代码：标准 RC4 是 `S[i]=i` 递增赋值，这里是 memcpy 查表加载——顺着那张表 xref 就找到 KSA_INIT，再顺 PRGA 出口找 XMASK。
 
 **坑位提醒**：两层魔改缺一不可——只还原初排、忘掉输出掩码（或反之），结果照样对不上；`Yw.FAKE_KEY = Fatdog_vile` 一字之差（命中即 403）；`strings libm4.so` 默认看不见真标记，要 `-el`。答案：加和 `49319`；flag `FLAG_18_KL9{dipper_veil_lifted}`
+
+
+---
+
+### KL10：万象归一（流沙河收官 · 魔改 SHA256 变体 + 魔改 AES 综合卷）
+
+**考点**：libm5.so 双层叠加签名 `sign = hex(魔改AES-128-ECB(aes_key, 魔改SHA256("page=N&ts=T")))`。
+第一层 SHA256 变体：K 表/压缩轮与标准完全一致（认骨架看 K 表开头 428a2f98），但①初始 IV 整组替换为 `sha256("Fatdog_eclipse|iv")`、②消息填充边界从标准 56 前移到 48（长度域写进 48..55，等效多补一轮压缩）。
+第二层 AES-128：S 盒/行移位/轮结构全标准（认骨架看 S 盒开头 637c777b），但 MixColumns 系数 `{2,3}` 对调为 `{3,2}`。
+密钥派生：`iv = sha256(标记|"iv")` 全 32 字节、`aes_key = sha256(标记|"key")[:16]`。真标记 `Fatdog_eclipse` 以 UTF-16 码元藏匿；明文的 `Fatdog_ellipse` 是一字之差诱饵（命中即 403）；`m5_decoy_seal` 返回假密文。
+
+**协议**：POST https://…:8443/api/kl10（表单 page/ts/sign）。服务端用同款双层实现重算并 compare_digest——哈希不可逆，所以这是"重算比对"而非"解密核对"。
+
+对拍样例：page=1&ts=1787013761 →
+digest（第一层输出）= b2daed7e2bf7e6b08a764db94bbfbc4120da4224e372ac7f6a37939699c8750c
+sign（第二层输出）= df262f07d823c7b530cb65d54a4aa6a2a5f08d2e442b08ee493b434eac64ecc0
+
+（生成器 gen_kl10.py 自测三件套：标准路径与 hashlib 逐字节对拍、FIPS-197 官方向量、魔改两层各自偏离标准；C 主机编译与 Python 三方一致。）
+
+**静态路线（Python 全复刻，先 python server.py）**
+
+```python
+import hashlib, time, requests
+from gen_kl10 import sha_var, pad, ecb_encrypt
+
+MARKER = b"Fatdog_eclipse"
+iv_words = [int.from_bytes(hashlib.sha256(MARKER + b"|iv").digest()[4*i:4*i+4], "big")
+            for i in range(8)]
+aes_key = hashlib.sha256(MARKER + b"|key").digest()[:16]
+
+total = 0
+for page in range(1, 101):
+    ts   = int(time.time())
+    dg   = sha_var(f"page={page}&ts={ts}".encode(), iv_words, boundary=48)  # 魔改层一
+    sign = ecb_encrypt(aes_key, pad(dg), mix_swap=True).hex()               # 魔改层二
+    r = requests.post("https://127.0.0.1:8443/api/kl10",
+                      data={"page": page, "ts": ts, "sign": sign},
+                      verify="certs/ca.crt", timeout=5).json()
+    assert len(r["nums"]) == 10, r
+    total += sum(r["nums"])
+print(total)   # 51136
+```
+
+手写同款要点：SHA256 只动两处——h[] 初值换成派生 IV、padding 的 `while len%64 != 56` 改成 `!= 48`；AES 只动一处——列混合里乘 2 与乘 3 的位置互换。其余一个字节都不要碰。
+
+**动态路线**：jadx 从 r47Activity 跟到 Ws/Zx——nativeDigest/nativeSign 分层暴露正好给 Frida 观察中间值：先 hook nativeDigest 看"不是 hashlib 的摘要"，dump so 里 m5_sha_variant 装载完的 h[8] 即见换血 IV；再看 nativeSign 入口的 digest 与出口 sign，偏移定位 m5_mix 里 gmul(…,3)/gmul(…,2) 的调用顺序即实锤系数对调。
+
+**坑位提醒**：两层改动点都要找齐，漏一层签名就对不上；`Zw.FAKE_KEY = Fatdog_ellipse` 一字之差（命中即 403）；`strings libm5.so` 默认看不见真标记，要 `-el`。答案：加和 `51136`；flag `FLAG_18_KL10{myriad_as_one}`。流沙河五连关至此全部通关。
+
+
+---
+
+### L43：照妖之镜（签名校验对抗 · 开卷）
+
+**考点**：教程 29 的落地第一关。App 启动时 `Wi.audit()` 经 SigningInfo（API28+）/GET_SIGNATURES（旧 API 分支保留）取自身 APK 的 X.509 证书 DER，SHA-256 后与内置基准比对——**通过才解锁提交框**，失败静默无任何提示。基准与 HMAC 标记各拆两半异或分藏两类：信任基准 = `Wi.PA(^0x3C) + Vk.PB(^0x5A)`，HMAC 标记 = `Wi.KA(^0x3C) + Vk.KB(^0x5A)` = `Fatdog_scan`。
+
+**原理**：重打包必换钥匙 → 证书指纹必然改变（原包 3bb2134c…、重签后 efcaccc9…，教程 29 §3 实测），应用只要记住自己人的指纹即可识破。
+
+**协议**：GET https://…:8443/api/l43?page=N&ts=T&sign=HMAC-SHA256("Fatdog_scan", "page=N&ts=T")。
+
+**静态路线（Python 全复刻，先 python server.py）**
+
+```python
+import hashlib, hmac, time, requests
+
+KEY = b"Fatdog_scan"
+total = 0
+for page in range(1, 101):
+    ts   = int(time.time())
+    sign = hmac.new(KEY, f"page={page}&ts={ts}".encode(), hashlib.sha256).hexdigest()
+    r = requests.get("https://127.0.0.1:8443/api/l43",
+                     params={"page": page, "ts": ts, "sign": sign},
+                     verify="certs/ca.crt", timeout=5).json()
+    assert len(r["nums"]) == 10, r
+    total += sum(r["nums"])
+print(total)   # 52236
+```
+
+签名校验门禁只影响 App 内提交框，静态复刻党直连取数不受影响。
+
+**动态路线**：重打包后进关会发现提交框灰着（镜子照出了新指纹）。三条路：
+① jadx 找到 Wi.audit 把 verdict 改恒真（或 patch equals）；
+② Frida hook `getPackageInfo` 把 Signature 字节换成原签名字节；
+③ MT/NP 管理器『去签名校验』一键杀。
+注意直接 hook MessageDigest 出口返回基准哈希在本关也有效——这是 L49 记账守卫要堵的洞。
+
+**坑位提醒**：`Tg.FAKE_KEY = Fatdog_span` 与真标记一字之差（命中即 403）；基准是 hex 字符串不是原始字节，别拿 DER 摘要的 raw bytes 去比字符串。答案：加和 `52236`；flag `FLAG_18_L43{mirror_tells_true}`
+
+
+---
+
+### L44：偷天换日（签名校验对抗 · 摘要下沉 native + 记账守卫）
+
+**考点**：把 L43 的校验链整体搬进 libm6.so——Java 只负责 `Wk.passCert(certDer)`；so 内完成 SHA-256、与基准（^0x66 数组首次使用时还原）比对、verdict/ticks 记账。发包前 `Wk.guard(1)` 核账，任一异常拦截请求并提示 `完整性校验失败`。
+
+**为什么 L43 的绕法大面积失效**：
+① hook Java 摘要出口无效——计算根本不走 `MessageDigest`；
+② 整体替换 passCert/assertGuard → g_ticks 不再增长 → assertGuard 返回 -2（踏步现形）；
+③ 重打包 verdict 天然为假 → -3。
+HMAC 取数本身仍是标准姿势：sign = HMAC-SHA256("Fatdog_forge", "page=N&ts=T")，密钥两半异或分藏 Wk.KA(^0x3C)/Xh.KB(^0x5A)。
+
+**协议**：GET https://…:8443/api/l44?page=N&ts=T&sign=HMAC-SHA256("Fatdog_forge", "page=N&ts=T")。
+
+**静态路线（Python 全复刻，先 python server.py）**
+
+```python
+import hashlib, hmac, time, requests
+
+KEY = b"Fatdog_forge"
+total = 0
+for page in range(1, 101):
+    ts   = int(time.time())
+    sign = hmac.new(KEY, f"page={page}&ts={ts}".encode(), hashlib.sha256).hexdigest()
+    r = requests.get("https://127.0.0.1:8443/api/l44",
+                     params={"page": page, "ts": ts, "sign": sign},
+                     verify="certs/ca.crt", timeout=5).json()
+    assert len(r["nums"]) == 10, r
+    total += sum(r["nums"])
+print(total)   # 49328
+```
+
+静态复刻党对 native 守卫天然免疫——守卫只拦 App 内的动态玩家。
+
+**动态路线（三选一）**
+① **内存换票**（推荐）：spawn 后 hook t44Activity.getCertDer 的返回（或 SigningInfo 出口），把 DER 字节替换成原包证书的字节——passCert 吃到真证书，verdict=1、ticks 正常，全链无痕；
+② IDA 在 .data 找 ^0x66 解密循环 → 定位 nativеVerify 的 memcmp 比较点 → 偏移 Hook 恒等；
+③ 运行时 Memory.scanSync 找解出的基准 32 字节（特征：3b ba 13 …），改成当前重签包的指纹——比较自然成立。
+
+**坑位提醒**：整体替换 passCert 是新手必踩的坑（-2 踏步）；`Yk.FAKE_KEY = Fatdog_forgo` 一字之差陷阱（命中即 403）。答案：加和 `49328`；flag `FLAG_18_L44{forged_no_more}`
 
 ---
 
@@ -2476,7 +2605,7 @@ print(total)   # 49319
 
 标准 DES 库解不开它加密的密文。真标记 `Fatdog_shatter` 以 UTF-16 码元数组藏匿（默认 strings 盲区）；明文躺着的 `Fatdog_scatter` 是一字之差诱饵，用它派生钥匙的请求一律 403；导出函数 `m2_decoy_seal` 返回假密文。
 
-**协议**：POST https://…:8443/api/l44（表单 page/ts/enc/sign）
+**协议**：POST https://…:8443/api/kl7（表单 page/ts/enc/sign）
 
 - enc = hex( 魔改 3DES-EDE( sha256("Fatdog_shatter|des")[:24], "page=N&ts=T" 零填充至 8 字节倍数 ) )
 - sign = HMAC-SHA256( sha256("Fatdog_shatter|mac"), enc )
@@ -2502,7 +2631,7 @@ for page in range(1, 101):
     ts   = int(time.time())
     enc  = ede_encrypt(dk, pad8(f"page={page}&ts={ts}".encode())).hex()
     sign = hmac.new(mack, enc.encode(), hashlib.sha256).hexdigest()
-    r = requests.post("https://127.0.0.1:8443/api/l44",
+    r = requests.post("https://127.0.0.1:8443/api/kl7",
                       data={"page": page, "ts": ts, "enc": enc, "sign": sign},
                       verify="certs/ca.crt", timeout=5).json()
     assert len(r["nums"]) == 10, r

@@ -118,3 +118,15 @@ include $(CLEAR_VARS)
 LOCAL_MODULE := m4
 LOCAL_SRC_FILES := m4.c
 include $(BUILD_SHARED_LIBRARY)
+
+# 流沙河收官关：万象归一（魔改 SHA256 变体 + 魔改 AES 综合卷）
+include $(CLEAR_VARS)
+LOCAL_MODULE := m5
+LOCAL_SRC_FILES := m5.c
+include $(BUILD_SHARED_LIBRARY)
+
+# 签名校验对抗 L44：偷天换日（摘要下沉 native + 记账守卫）
+include $(CLEAR_VARS)
+LOCAL_MODULE := m6
+LOCAL_SRC_FILES := m6.c
+include $(BUILD_SHARED_LIBRARY)

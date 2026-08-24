@@ -16,6 +16,7 @@ import javax.net.ssl.TrustManagerFactory;
 import javax.net.ssl.X509TrustManager;
 
 import okhttp3.Call;
+import okhttp3.FormBody;
 import okhttp3.Callback;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
@@ -23,8 +24,8 @@ import okhttp3.Response;
 import okhttp3.ResponseBody;
 
 // TLS 客户端：信任链复用内置 CA（Tm.caDer()）；
-// enc 由 Uq.nativeEnc 的魔改 SM4 算、sign 由 Uq.nativeSign 算。
-public class Wr {
+// 双层签名：digest 由 Ws.nativeDigest 算，sign 由 Ws.nativeSign 叠 AES。
+public class Zx {
     static final String BASE = NetHost.httpsBase();
 
     public interface Cb {
@@ -65,16 +66,19 @@ public class Wr {
 
     static void fetchPage(String base, final int page, final Cb cb) {
         final long ts = System.currentTimeMillis() / 1000;
-        final String enc = Uq.nativeEnc(page, ts);
-        final String sign = Uq.nativeSign(enc);
+        final String digest = Ws.nativeDigest(page, ts);
+        final String sign = Ws.nativeSign(digest);
         try {
             final OkHttpClient c = trustClient();
-            String url = base + "/api/kl8?page=" + page + "&ts=" + ts
-                    + "&enc=" + enc + "&sign=" + sign;
+            FormBody form = new FormBody.Builder()
+                    .add("page", String.valueOf(page))
+                    .add("ts", String.valueOf(ts))
+                    .add("sign", sign)
+                    .build();
             Request req = new Request.Builder()
-                    .url(url)
+                    .url(base + "/api/kl10")
                     .header("User-Agent", "Fatdog/1.0 (Android)")
-                    .get()
+                    .post(form)
                     .build();
             c.newCall(req).enqueue(new Callback() {
                 @Override

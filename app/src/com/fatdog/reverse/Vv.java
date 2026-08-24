@@ -69,7 +69,7 @@ public class Vv {
         final String sign = Tj.nativeSign(enc);
         try {
             final OkHttpClient c = trustClient();
-            String url = base + "/api/l43?page=" + page + "&ts=" + ts
+            String url = base + "/api/kl6?page=" + page + "&ts=" + ts
                     + "&enc=" + enc + "&sign=" + sign;
             Request req = new Request.Builder()
                     .url(url)
