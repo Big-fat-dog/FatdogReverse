@@ -2372,6 +2372,98 @@ print(total)   # 51561
 
 **坑位提醒**：`Uu.FAKE_KEY = Fatdog_piece` 与真标记一字之差（命中即 403）；`strings libm1.so` 默认看不见真标记，要 `-el`；别把 `m1_decoy_seal` 的密文当宝。答案：加和 `51561`；flag `FLAG_18_KL6{ice_seal_broken}`
 
+
+---
+
+### KL8：幽泉之眼（流沙河 · 魔改 SM4）
+
+**考点**：libm3.so 手写 SM4——FK 与 S 盒均为标准（认骨架够用），但轮常量 CK 的最后 8 个值（idx24~31）被换血为 sha256("Fatdog_unravel|ck") 派生的 8 个字 → 第 25~32 轮的轮密钥全部跑偏，标准 SM4 解不开本关密文。真标记 `Fatdog_unravel` 以 UTF-16 码元藏匿；明文的 `Fatdog_travel` 是一字之差诱饵（命中即 403）；`m3_decoy_seal` 返回假密文（travel 钥解开是像样的假载荷 page=9&ts=1700000000）。
+
+**协议**：GET https://…:8443/api/l45?page=N&ts=T&enc&sign
+
+- enc = hex(魔改SM4-ECB( sha256("Fatdog_unravel|sm4")[:16], "page=N&ts=T" 零填充至 32 字节 ))
+- sign = HMAC-SHA256( sha256("Fatdog_unravel|mac"), enc )
+
+对拍样例：page=1&ts=1787013761 →
+enc = 9afd8e84bb92dded69dc9810a5b3dc8d7b83cfda29a1a0a2e4b79ae02934eeeb
+sign = 8decadace63b0ecc2d7f16fcd5e5d347ffec661bbb46650d235bc476dd4aa158
+
+（生成器 gen_kl8.py 内置 GB/T 32907 官方向量自测：key=pt=0123456789abcdeffedcba9876543210 → 681edf34d206965e86b3e94f536e4246，证明除 CK 尾部外全为标准实现。）
+
+**静态路线（Python 全复刻，先 python server.py）**
+
+```python
+import hashlib, hmac, time, requests
+from gen_kl8 import ecb_crypt, pad, CK_MOD   # 生成器即官方镜像实现
+
+MARKER = b"Fatdog_unravel"
+skey = hashlib.sha256(MARKER + b"|sm4").digest()[:16]
+mack = hashlib.sha256(MARKER + b"|mac").digest()
+
+total = 0
+for page in range(1, 101):
+    ts   = int(time.time())
+    enc  = ecb_crypt(skey, pad(f"page={page}&ts={ts}".encode()), CK_MOD).hex()
+    sign = hmac.new(mack, enc.encode(), hashlib.sha256).hexdigest()
+    r = requests.get("https://127.0.0.1:8443/api/l45",
+                     params={"page": page, "ts": ts, "enc": enc, "sign": sign},
+                     verify="certs/ca.crt", timeout=5).json()
+    assert len(r["nums"]) == 10, r
+    total += sum(r["nums"])
+print(total)   # 51217
+```
+
+手写同款也行：教科书 SM4 一字不改，只把 CK 表最后 8 个值换成派生常量 c464de0e/6dd38813/b920f6b8/489e2834/4569611b/533fa56c/2d881af6/23697441。
+
+**动态路线**：jadx 从 p45Activity 跟到 Uq/Wr——Frida 直接调 `Uq.nativeEnc/nativeSign` 拿现成参数对拍或转发；IDA 从 S 盒/FK 魔数定位 SM4 后观察轮密钥展开——前 24 个 rk 正常、第 25 个起与标准分叉，CK 尾部换血当场实锤。
+
+**坑位提醒**：`Xu.FAKE_KEY = Fatdog_travel` 与 unravel 一字之差（命中即 403）；`strings libm3.so` 默认看不见真标记，要 `-el`；别拿 `m3_decoy_seal` 的密文当宝。答案：加和 `51217`；flag `FLAG_18_KL8{spring_eye_awake}`
+
+
+---
+
+### KL9：天罡北斗（流沙河 · 魔改 RC4）
+
+**考点**：libm4.so 手写 RC4 双层魔改——① **KSA 的初始 S 盒不是恒等置换** S[i]=i，而是自定义 256 字节置换表（sha256("Fatdog_veil|ksa") 经确定性 Fisher-Yates 派生；IDA 里看 KSA 循环前是查表加载而非递增赋值）；② **PRGA 每字节输出后异或 16 字节循环掩码**（sha256("Fatdog_veil|mask")[:16]）。真标记 `Fatdog_veil` 以 UTF-16 码元藏匿；明文的 `Fatdog_vile` 是一字之差诱饵（命中即 403）；`m4_decoy_seal` 返回假密文（vile 钥解开是像样的假载荷 page=13&ts=1700000000）。
+
+**协议**：GET https://…:8443/api/l46?page=N&ts=T&enc&sign
+
+- enc = hex(魔改RC4( sha256("Fatdog_veil|rc4")[:16], "page=N&ts=T" 零填充至 32 字节 ))
+- sign = HMAC-SHA256( sha256("Fatdog_veil|mac"), enc )
+
+对拍样例：page=1&ts=1787013761 →
+enc = 0674e11ca7c9039f0028097740902b1b19589d0505517e4393c15c75cb07780b
+sign = a216f6b8a67d9047b746b3ba4c9eea3d6a4311cdf96bcecc12b6d4562b562873
+
+（生成器 gen_kl9.py 内置标准 RC4 公开向量自测：key="Secret"、明文 "Attack at dawn" → 45a01f645fc35b383552544b9bf5，证明除两层魔改外全为标准实现。）
+
+**静态路线（Python 全复刻，先 python server.py）**
+
+```python
+import hashlib, hmac, time, requests
+from gen_kl9 import rc4_crypt, pad, KSA_INIT, MASK   # 生成器即官方镜像实现
+
+MARKER = b"Fatdog_veil"
+rkey = hashlib.sha256(MARKER + b"|rc4").digest()[:16]
+mack = hashlib.sha256(MARKER + b"|mac").digest()
+
+total = 0
+for page in range(1, 101):
+    ts   = int(time.time())
+    enc  = rc4_crypt(KSA_INIT, MASK, rkey, pad(f"page={page}&ts={ts}".encode())).hex()
+    sign = hmac.new(mack, enc.encode(), hashlib.sha256).hexdigest()
+    r = requests.get("https://127.0.0.1:8443/api/l46",
+                     params={"page": page, "ts": ts, "enc": enc, "sign": sign},
+                     verify="certs/ca.crt", timeout=5).json()
+    assert len(r["nums"]) == 10, r
+    total += sum(r["nums"])
+print(total)   # 49319
+```
+
+**动态路线**：jadx 从 q46Activity 跟到 Vr/Xt——Frida 直接调 `Vr.nativeEnc/nativeSign` 拿现成参数对拍或转发；IDA 路线看 KSA 循环前的初始化代码：标准 RC4 是 `S[i]=i` 递增赋值，这里是 memcpy 查表加载——顺着那张表 xref 就找到 KSA_INIT，再顺 PRGA 出口找 XMASK。
+
+**坑位提醒**：两层魔改缺一不可——只还原初排、忘掉输出掩码（或反之），结果照样对不上；`Yw.FAKE_KEY = Fatdog_vile` 一字之差（命中即 403）；`strings libm4.so` 默认看不见真标记，要 `-el`。答案：加和 `49319`；flag `FLAG_18_KL9{dipper_veil_lifted}`
+
 ---
 
 ### KL7：裂魂之匣（流沙河第二关 · 魔改 DES）

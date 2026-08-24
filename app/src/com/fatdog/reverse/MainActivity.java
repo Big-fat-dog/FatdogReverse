@@ -510,7 +510,7 @@ public class MainActivity extends Activity {
             }
         } else if (kunlunCat == 1) {
             /* 流沙河：KL6 起，编号接续昆仑山 */
-            String[] names = {"冰封之钥", "裂魂之匣"};
+            String[] names = {"冰封之钥", "裂魂之匣", "幽泉之眼", "天罡北斗"};
             for (int i = 0; i < names.length; i++) {
                 final int kl = 6 + i;
                 boolean open = PassLog.isDone(this, "KL" + kl);
@@ -523,7 +523,7 @@ public class MainActivity extends Activity {
                         LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
                 lp.topMargin = Ui.dp(12);
                 list.addView(b, lp);
-                final Class<?> target = kl == 6 ? n43Activity.class : o44Activity.class;
+                final Class<?> target = kl == 6 ? n43Activity.class : (kl == 7 ? o44Activity.class : (kl == 8 ? p45Activity.class : q46Activity.class));
                 b.setOnClickListener(new View.OnClickListener() {
                     @Override public void onClick(View v) {
                         startActivity(new Intent(MainActivity.this, target));

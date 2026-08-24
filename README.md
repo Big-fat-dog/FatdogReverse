@@ -72,6 +72,8 @@ APK 结构刻意做得和真实 App 一致：图标（5 种密度）、XML 布�
 | KL5 | 登顶 | 综合卷：动态注册 + Java 回调 + XOR 解密；nativeClimb 回调 summitKey() 取 Fatdog_ 与 so 内 summit 拼合解密 flag | 全线：unidbg 综合实战 |
 | KL6 | 冰封之钥 | 流沙河首关：手写 AES-128 的 S 盒是标准的、轮常量 Rcon 三处换血——标准库解不开它自己的密文；真标记 UTF-16 藏匿（strings -el 可破），明文近亲 Fatdog_piece 是诱饵；网络取数求和模式 | 27 篇配套：魔改算法指纹识别 |
 | KL7 | 裂魂之匣 | 手写 DES 骨架可认（S1 开头 14,04,0d,01），但 IP 排列表首尾互换、FP 同步重算、S3 盒两值换位——逐表对比标准找全三处；3DES-EDE 三层全是魔改 DES；标记 Fatdog_shatter UTF-16 藏匿，明文近亲 Fatdog_scatter 是诱饵 | 27 篇配套：魔改算法指纹识别 |
+| KL8 | 幽泉之眼 | 流沙河第三关：手写 SM4 的 FK 与 S 盒都是标准的、轮常量 CK 最后 8 个值被换血——标准库解不开它自己的密文；真标记 UTF-16 藏匿，明文近亲 Fatdog_travel 是诱饵 | 27 篇配套：魔改算法指纹识别 |
+| KL9 | 天罡北斗 | 流沙河第四关：手写 RC4 双层魔改——KSA 初始 S 盒是查表加载的自定义置换（不是 S[i]=i）、PRGA 输出再过 16 字节循环 XOR 掩码；真标记 UTF-16 藏匿，明文近亲 Fatdog_vile 是诱饵 | 27 篇配套：魔改算法指纹识别 |
 
 每关的**解题思路分级提示**见下方折叠块；完整题解（含 Python 复刻代码与 Frida 脚本）在 `SOLUTIONS.md`（建议先自己练）。
 
@@ -524,6 +526,24 @@ license 链路：`base64 → AES解密(密钥A在XBox) → AES解密(密钥B在M
 1. S 盒开头 63 7c 77 7b 认出手写 AES-128；可 pycryptodome 解不开抓来的 enc——骨架没坏，坏的是轮常量 Rcon。
 2. strings -el libm1.so 找 UTF-16 藏着的真标记 Fatdog_pierce；明文躺着的 Fatdog_piece 是一字之差诱饵（命中即 403），so 里 m1_decoy_seal 返回的也是假密文。
 3. aes 钥=SHA256(Fatdog_pierce+"|aes")[:16]、mac=SHA256(Fatdog_pierce+"|mac")；对比标准 Rcon {01,02,04,08,10,20,40,80,1b,36}——第 3/6/9 位被换成 9e/77/d4，Python 照抄这三处再复刻取数，加和 51561。
+
+</details>
+
+<details>
+<summary>KL8 · 幽泉之眼（流沙河）中度提示</summary>
+
+1. S 盒开头 d6 90 e9 fe 认出手写 SM4、FK 开头 a3b1bac6——骨架全是标准的；可标准 SM4 解不开抓来的 enc。
+2. strings -el libm3.so 找 UTF-16 藏着的真标记 Fatdog_unravel；明文躺着的 Fatdog_travel 是一字之差诱饵（命中即 403），m3_decoy_seal 返回的是假密文。
+3. sm4 钥=SHA256(Fatdog_unravel+"|sm4")[:16]、mac=SHA256(标记+"|mac")；对比标准 CK 表——最后 8 个值（idx24~31）被换成 sha256(标记+"|ck") 派生的 8 个字，Python 照抄再复刻取数，加和 51217。
+
+</details>
+
+<details>
+<summary>KL9 · 天罡北斗（流沙河）中度提示</summary>
+
+1. 认出 RC4 骨架只是开始：标准库怎么算都对不上——KSA 循环前的初始 S 盒不是清零递增，而是查表加载的自定义置换。
+2. strings -el libm4.so 找 UTF-16 藏着的真标记 Fatdog_veil；明文的 Fatdog_vile 是一字之差诱饵（命中即 403），m4_decoy_seal 是假密文。
+3. 两层都要还原：rc4 钥=SHA256(标记+"|rc4")[:16]、KSA 初排由 sha256(标记+"|ksa") 确定性 Fisher-Yates 派生、PRGA 输出后再 XOR 掩码 sha256(标记+"|mask")[:16]。照 gen_kl9.py 抄即可，加和 49319。
 
 </details>
 

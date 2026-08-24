@@ -66,6 +66,8 @@
         <activity android:name=".kn5Activity" android:exported="false" />
         <activity android:name=".n43Activity" android:exported="false" />
         <activity android:name=".o44Activity" android:exported="false" />
+        <activity android:name=".p45Activity" android:exported="false" />
+        <activity android:name=".q46Activity" android:exported="false" />
         <activity android:name=".xp38Activity" android:exported="false" />
         <activity android:name=".xp39Activity" android:exported="false" />
         <activity android:name=".xp40Activity" android:exported="false" />

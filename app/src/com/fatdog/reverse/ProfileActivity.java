@@ -397,7 +397,7 @@ public class ProfileActivity extends Activity {
         zone2.setGravity(Gravity.CENTER);
         zone2.setPadding(0,dp(ctx,10),0,dp(ctx,4));
         col.addView(zone2);
-        String[] lsh={"冰封之钥","裂魂之匣"};
+        String[] lsh={"冰封之钥","裂魂之匣","幽泉之眼","天罡北斗"};
         for(int i=0;i<lsh.length;i++){
             boolean open=PassLog.isDone(ctx,"KL"+(i+6));
             LinearLayout row=new LinearLayout(ctx); row.setOrientation(LinearLayout.HORIZONTAL);

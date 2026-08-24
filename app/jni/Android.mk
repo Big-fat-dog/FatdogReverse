@@ -106,3 +106,15 @@ include $(CLEAR_VARS)
 LOCAL_MODULE := m2
 LOCAL_SRC_FILES := m2.c
 include $(BUILD_SHARED_LIBRARY)
+
+# 流沙河第三关：幽泉之眼（魔改 SM4，CK 尾部 8 值换血）
+include $(CLEAR_VARS)
+LOCAL_MODULE := m3
+LOCAL_SRC_FILES := m3.c
+include $(BUILD_SHARED_LIBRARY)
+
+# 流沙河第四关：天罡北斗（魔改 RC4，KSA 初排换血 + PRGA 过掩码）
+include $(CLEAR_VARS)
+LOCAL_MODULE := m4
+LOCAL_SRC_FILES := m4.c
+include $(BUILD_SHARED_LIBRARY)
