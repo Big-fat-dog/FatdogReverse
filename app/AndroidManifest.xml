@@ -71,6 +71,7 @@
         <activity android:name=".r47Activity" android:exported="false" />
         <activity android:name=".s43Activity" android:exported="false" />
         <activity android:name=".t44Activity" android:exported="false" />
+        <activity android:name=".u45Activity" android:exported="false" />
         <activity android:name=".xp38Activity" android:exported="false" />
         <activity android:name=".xp39Activity" android:exported="false" />
         <activity android:name=".xp40Activity" android:exported="false" />

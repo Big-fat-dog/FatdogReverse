@@ -130,3 +130,11 @@ include $(CLEAR_VARS)
 LOCAL_MODULE := m6
 LOCAL_SRC_FILES := m6.c
 include $(BUILD_SHARED_LIBRARY)
+
+
+# 签名校验对抗 L45：移形换影（native 自读 APK 剥 PKCS#7，需要 zlib 解压条目）
+include $(CLEAR_VARS)
+LOCAL_MODULE := m7
+LOCAL_SRC_FILES := m7.c
+LOCAL_LDLIBS := -lz
+include $(BUILD_SHARED_LIBRARY)

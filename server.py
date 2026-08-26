@@ -1031,6 +1031,33 @@ def api_l44(page: int = Query(...), ts: int = Query(...), sign: str = Query(...)
     return {"page": page, "nums": []}
 
 
+# ---------------- 关卡 45（签名校验对抗）移形换影：标准 HMAC + 近亲假钥点名 ----------------
+KEY45_MASTER = "Fatdog_lurk"
+DECOY45_KEYS = ["Fatdog_lark"]
+PAGES45, PER_PAGE45, SEED45 = 100, 10, 20280318
+_rng45 = random.Random(SEED45)
+NUMS45 = [_rng45.randint(1, 100) for _ in range(PAGES45 * PER_PAGE45)]
+
+
+def _l45_try(master: str, page: int, ts: int, sign: str) -> bool:
+    mk = master.encode()
+    return hmac.compare_digest(
+        sign, hmac.new(mk, f"page={page}&ts={ts}".encode(), hashlib.sha256).hexdigest())
+
+
+@app.get("/api/l45")
+def api_l45(page: int = Query(...), ts: int = Query(...), sign: str = Query(...)):
+    _check_ts(ts)
+    if _l45_try(KEY45_MASTER, page, ts, sign):
+        _check_page(page, PAGES45)
+        idx = (page - 1) * PER_PAGE45
+        return {"page": page, "nums": NUMS45[idx:idx + PER_PAGE45]}
+    for dk in DECOY45_KEYS:
+        if _l45_try(dk, page, ts, sign):
+            raise HTTPException(status_code=403, detail="sign invalid")
+    return {"page": page, "nums": []}
+
+
 def _des3_ecb_encrypt_py(key24: bytes, data8: bytes) -> bytes:
     d1 = _DES.new(key24[0:8], _DES.MODE_ECB)
     d2 = _DES.new(key24[8:16], _DES.MODE_ECB)
@@ -1582,7 +1609,7 @@ if __name__ == "__main__":
           f"L21={sum(NUMS21)} L22={sum(NUMS22)} L24={sum(NUMS24)} L25={sum(NUMS25)} L26={sum(NUMS26)} L27={sum(NUMS27)} "
           f"L28={sum(NUMS28)} L29={sum(NUMS29)} L30={sum(NUMS30)} L31={sum(NUMS31)} L32={sum(NUMS32)} L33={sum(NUMS33)} L34={sum(NUMS34)} L35={sum(NUMS35)} L36={sum(NUMS36)} L37={sum(NUMS37)} "
           f"KL6={sum(NUMS_KL6)} KL7={sum(NUMS_KL7)} KL8={sum(NUMS_KL8)} KL9={sum(NUMS_KL9)} KL10={sum(NUMS_KL10)} "
-          f"L43={sum(NUMS43)} L44={sum(NUMS44)}")
+          f"L43={sum(NUMS43)} L44={sum(NUMS44)} L45={sum(NUMS45)}")
     http_cfg = uvicorn.Config(app, host=HOST, port=PORT_HTTP, log_level="info")
     threading.Thread(target=uvicorn.Server(http_cfg).run, daemon=True).start()
     https_cfg = uvicorn.Config(app, host=HOST, port=PORT_HTTPS,

@@ -77,6 +77,7 @@ APK 结构刻意做得和真实 App 一致：图标（5 种密度）、XML 布�
 | KL10 | 万象归一 | 流沙河收官卷：sign=魔改AES(魔改SHA256(payload)) 双层叠加——SHA256 的 K 表是标准的但初始 IV 整组换血+填充边界前移到 48；AES 的 S 盒是标准的但 MixColumns 系数 {2,3} 对调 {3,2}；认两层骨架、找两处改动点 | 27 篇配套：魔改算法指纹识别 |
 | 43 | 照妖之镜 | 签名校验对抗开卷：运行时 SigningInfo 取自身证书 DER→SHA-256 与基准比对（基准拆两半异或分藏两类）；校验通过才解锁提交框；标准 HMAC 取数 | 29 篇配套 |
 | 44 | 偷天换日 | 签名校验对抗：摘要计算与记账（ticks/verdict）全部下沉 libm6.so——hook Java 摘要出口失效，整体替换 native 函数被 ticks 踏步抓包；正解内存换票/偏移 Hook/改基准 | 29 篇配套 |
+| 45 | 移形换影 | 签名校验对抗：不经 PackageManager——libm7.so 自读 base.apk，扫 zip 中央目录找 META-INF/*.RSA、zlib 解压后手剥 ASN.1 取证书比对；PM 全链 Hook 失明 | 29 篇配套 |
 
 每关的**解题思路分级提示**见下方折叠块；完整题解（含 Python 复刻代码与 Frida 脚本）在 `SOLUTIONS.md`（建议先自己练）。
 
@@ -574,6 +575,15 @@ license 链路：`base64 → AES解密(密钥A在XBox) → AES解密(密钥B在M
 1. 本关门禁在 libm6.so 里：passCert 把证书 DER 递进 so，SHA-256、基准比对、ticks/verdict 记账全在 native——hook Java 摘要出口彻底失效。
 2. 发包前 assertGuard(1) 三连核账：整体替换 passCert 会让 ticks 踏步返回 -2；重打包则 verdict=-3。HMAC 标记 Fatdog_forge 两半异或分藏 Wk/Xh。
 3. 三条正解：①内存换票——hook 取签名出口把 DER 换成原包字节；②IDA 定位比较点偏移 Hook；③Memory 找 ^0x66 解出的基准数组改成当前指纹。Yk.FAKE_KEY=Fatdog_forgo 一字之差陷阱。加和 49328。
+
+</details>
+
+<details>
+<summary>关卡 45 · 移形换影（签名校验对抗）中度提示</summary>
+
+1. 本关门禁在 libm7.so：拿到 sourceDir 后自己 open 文件→扫 EOCD→遍历中央目录找 META-INF/*.RSA→zlib 解压→ASN.1 剥出 X.509 证书→SHA-256 比对。PackageManager 的任何 Hook 一概无效。
+2. HMAC 标记 Fatdog_lurk 两半异或分藏 Wn/Yb；发包前 assertGuard(1) 三连核账（同 L44）。
+3. 三条正解：①IO 重定向——hook libc open 把 base.apk 指向攻击者留存的原始包副本；②IDA 定位 memcmp 比较点偏移 Hook；③Memory 改解出的基准数组。Xv.FAKE_KEY=Fatdog_lark 一字之差陷阱。加和 49906。
 
 </details>
 

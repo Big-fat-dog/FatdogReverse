@@ -517,6 +517,17 @@
                     android:textSize="15sp"
                     android:textStyle="bold" />
 
+                <Button
+                    android:id="@+id/btn_l45"
+                    android:layout_width="match_parent"
+                    android:layout_height="52dp"
+                    android:layout_marginTop="14dp"
+                    android:background="@drawable/bg_level_btn"
+                    android:text="@string/btn_l45"
+                    android:textColor="#ECECF2"
+                    android:textSize="15sp"
+                    android:textStyle="bold" />
+
                 <TextView
                     android:id="@+id/tip_hidden"
                     android:layout_width="match_parent"

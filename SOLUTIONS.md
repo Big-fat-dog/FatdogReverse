@@ -2593,6 +2593,57 @@ print(total)   # 49328
 
 **坑位提醒**：整体替换 passCert 是新手必踩的坑（-2 踏步）；`Yk.FAKE_KEY = Fatdog_forgo` 一字之差陷阱（命中即 403）。答案：加和 `49328`；flag `FLAG_18_L44{forged_no_more}`
 
+
+---
+
+### L45：移形换影（签名校验对抗 · native 自读 APK 剥 PKCS#7）
+
+**考点**：与 L44 的本质分野——不再向系统要答案。libm7.so 拿到 `sourceDir` 后全程自己动手：
+
+```text
+open(base.apk) -> 整文件读入
+-> 从尾部扫 EOCD（PK\x05\x06）
+-> 遍历中央目录条目（PK\x01\x02），按名字命中 META-INF/*.RSA|.DSA
+-> 回跳 Local File Header 取数据起点（PK\x03\x04 + 名长/附加长）
+-> STORED 直拷 / DEFLATED 走 zlib uncompress
+-> PKCS#7 DER 里扫描 A0 82 LL LL 容器，其内容第一个 30 82 CC CC 即 X.509 证书
+-> SHA-256(certDER) 与 ^0x66 基准比对（记账语义同 L44）
+```
+
+因此对 `getPackageInfo / SigningInfo / Signature` 的**任何 Hook 全部失明**——应用根本不问系统。
+
+HMAC 取数不变：sign = HMAC-SHA256("Fatdog_lurk", "page=N&ts=T")，密钥两半异或分藏 Wn.KA(^0x3C)/Yb.KB(^0x5A)。
+
+**协议**：GET https://…:8443/api/l45?page=N&ts=T&sign=HMAC-SHA256("Fatdog_lurk", "page=N&ts=T")。
+
+**静态路线（Python 全复刻，先 python server.py）**
+
+```python
+import hashlib, hmac, time, requests
+
+KEY = b"Fatdog_lurk"
+total = 0
+for page in range(1, 101):
+    ts   = int(time.time())
+    sign = hmac.new(KEY, f"page={page}&ts={ts}".encode(), hashlib.sha256).hexdigest()
+    r = requests.get("https://127.0.0.1:8443/api/l45",
+                     params={"page": page, "ts": ts, "sign": sign},
+                     verify="certs/ca.crt", timeout=5).json()
+    assert len(r["nums"]) == 10, r
+    total += sum(r["nums"])
+print(total)   # 49906
+```
+
+守卫只拦 App 内动态玩家，静态复刻直连免疫。
+
+**动态路线（三选一）**
+① **IO 重定向**（本关官方主解）：Frida hook libc `open`/`fopen`，当路径含 base.apk 时改指向攻击者预先留存的原始未改包副本——so 读到的仍是原证书，verdict=1 全链无痕；
+② IDA 定位 m7 流程中 memcmp 比较点 → 偏移 Hook 恒等；
+③ Memory 找解出的基准 32 字节改成当前指纹。
+注意整体替换 passApkPath 会 ticks 踏步返回 -2（同 L44）。
+
+**坑位提醒**：`Xv.FAKE_KEY = Fatdog_lark` 与 lurk 一字之差（命中即 403）；so 里找不到明文指纹——基准是 ^0x66 异或存放的非 static 数组。答案：加和 `49906`；flag `FLAG_18_L45{self_read_beats_pm}`
+
 ---
 
 ### KL7：裂魂之匣（流沙河第二关 · 魔改 DES）
