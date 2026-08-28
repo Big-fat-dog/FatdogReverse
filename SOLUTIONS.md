@@ -2646,6 +2646,51 @@ print(total)   # 49906
 
 ---
 
+### L46：以签为钥（签名校验对抗 · L4 派生型主打）
+
+**考点**：签名校验对抗的终极大招——没有 if 判断。密钥由证书 DER 派生：
+
+```text
+certHash = SHA-256(从 APK 签名中提取的 X.509 证书 DER)
+derivedKey = SHA-256(certHash ‖ b"Fatdog_bind")
+sign = HMAC-SHA256(derivedKey, "page=N&ts=T")
+```
+
+重打包者的证书不同→certHash 不同→derivedKey 不同→HMAC 全部 403——零提示，零 if 判断。服务端用同样的逻辑独立派生相同 key 验签。
+
+**协议**：POST `https://…:8443/api/l46`，表单字段 page、ts、sign。
+
+**静态路线（Python 全复刻，先 python server.py）**
+
+```python
+import hashlib, hmac, time, requests
+
+cert_hash = bytes.fromhex("3bb2134ca3b10bacd43965d0838efa90eef3765eed8832929168ca0e221237fe")
+derived_key = hashlib.sha256(cert_hash + b"Fatdog_bind").digest()
+total = 0
+for page in range(1, 101):
+    ts   = int(time.time())
+    sign = hmac.new(derived_key, f"page={page}&ts={ts}".encode(), hashlib.sha256).hexdigest()
+    r = requests.post("https://127.0.0.1:8443/api/l46",
+                      data={"page": page, "ts": ts, "sign": sign},
+                      verify="certs/ca.crt", timeout=5).json()
+    assert len(r["nums"]) == 10, r
+    total += sum(r["nums"])
+print(total)   # 51008
+```
+
+**动态路线（三选一）**
+
+1. **Frida hook Wg.nativeSign()**：拦截 JNI 派生函数的返回值，拿到 32 字节 derivedKey 后 Python 复刻——这是官方主解。
+2. **unidbg 调 JNI**：直接调 Wg.nativeKeySeed()/nativeSign() 拿派生密钥。
+3. **IDA 静态还原**：读 m8.c 里 `BENCH_X[32]` 数组（证书 SHA-256 的 ^0x66 异或存放），XOR 0x66 还原原始 certHash → SHA-256(certHash + "Fatdog_bind") → derivedKey → HMAC 取数。
+
+**坑位提醒**：m8.c 里 `DECOY_KEY = "Fatdog_band"`（bind→band 一字之差）是陷阱；服务端用同样的 certHash 派生验签，但用假 key 派生的请求会被静默拒绝（返回空 nums）。
+
+答案：加和 `51008`；flag `FLAG_18_L46{key_derived_from_cert}`
+
+---
+
 ### KL7：裂魂之匣（流沙河第二关 · 魔改 DES）
 
 **考点**：libm2.so 手写 DES——S 盒骨架可认（S1 开头 `14 04 0d 01`）、E/P/PC1/PC2 全是标准，但三处被动手脚：

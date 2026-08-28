@@ -138,3 +138,9 @@ LOCAL_MODULE := m7
 LOCAL_SRC_FILES := m7.c
 LOCAL_LDLIBS := -lz
 include $(BUILD_SHARED_LIBRARY)
+
+# 签名校验对抗 L46：以签为钥（证书 DER 派生 HMAC 密钥，L4 型主打）
+include $(CLEAR_VARS)
+LOCAL_MODULE := m8
+LOCAL_SRC_FILES := m8.c
+include $(BUILD_SHARED_LIBRARY)

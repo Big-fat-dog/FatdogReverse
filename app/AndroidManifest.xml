@@ -84,6 +84,8 @@
         <activity android:name=".ForbiddenStoryActivity" android:exported="false" />
         <activity android:name=".DivineReflectionActivity" android:exported="false" />
 
+        <activity android:name=".v51Activity" android:exported="false" />
+
         <!-- 关卡 6 的隐藏入口：exported=true，但大厅里没有任何按钮指向我 -->
         <activity android:name=".RewardActivity" android:exported="true" />
     </application>

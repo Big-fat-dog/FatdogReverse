@@ -78,6 +78,7 @@ APK 结构刻意做得和真实 App 一致：图标（5 种密度）、XML 布�
 | 43 | 照妖之镜 | 签名校验对抗开卷：运行时 SigningInfo 取自身证书 DER→SHA-256 与基准比对（基准拆两半异或分藏两类）；校验通过才解锁提交框；标准 HMAC 取数 | 29 篇配套 |
 | 44 | 偷天换日 | 签名校验对抗：摘要计算与记账（ticks/verdict）全部下沉 libm6.so——hook Java 摘要出口失效，整体替换 native 函数被 ticks 踏步抓包；正解内存换票/偏移 Hook/改基准 | 29 篇配套 |
 | 45 | 移形换影 | 签名校验对抗：不经 PackageManager——libm7.so 自读 base.apk，扫 zip 中央目录找 META-INF/*.RSA、zlib 解压后手剥 ASN.1 取证书比对；PM 全链 Hook 失明 | 29 篇配套 |
+| 46 | 以签为钥 | 签名校验对抗主打：证书 DER 派生 HMAC 密钥（key=SHA256(certHash+marker)），没有 if 判断——重打包者证书不同→派生 key 不同→全部 403 零提示；正解 Frida 抓派生密钥或 unidbg 调 JNI 派生函数 | 29 篇配套 |
 
 每关的**解题思路分级提示**见下方折叠块；完整题解（含 Python 复刻代码与 Frida 脚本）在 `SOLUTIONS.md`（建议先自己练）。
 
@@ -584,6 +585,15 @@ license 链路：`base64 → AES解密(密钥A在XBox) → AES解密(密钥B在M
 1. 本关门禁在 libm7.so：拿到 sourceDir 后自己 open 文件→扫 EOCD→遍历中央目录找 META-INF/*.RSA→zlib 解压→ASN.1 剥出 X.509 证书→SHA-256 比对。PackageManager 的任何 Hook 一概无效。
 2. HMAC 标记 Fatdog_lurk 两半异或分藏 Wn/Yb；发包前 assertGuard(1) 三连核账（同 L44）。
 3. 三条正解：①IO 重定向——hook libc open 把 base.apk 指向攻击者留存的原始包副本；②IDA 定位 memcmp 比较点偏移 Hook；③Memory 改解出的基准数组。Xv.FAKE_KEY=Fatdog_lark 一字之差陷阱。加和 49906。
+
+</details>
+
+<details>
+<summary>关卡 46 · 以签为钥（签名校验对抗主打）中度提示</summary>
+
+1. 本关没有 if 判断签名对错——key 由证书 DER 派生：`key = SHA256(certHash ‖ b"Fatdog_bind")`，然后 HMAC-SHA256 整个表单。重打包者的证书不同→派生 key 不同→全部 403 零提示。
+2. 运行时拿到证书 DER（和 L43 一样从 SigningInfo 取），或者直接 IDA 读 m8.c 里 `BENCH_X` 数组（异或后的 SHA-256 基准）。
+3. 三条正解：①Frida hook Wg.nativeSign() 抓派生密钥后 Python 复刻；②unidbg 调 JNI 派生函数拿 32 字节 key；③IDA 还原 BENCH_X → XOR 0x66 还原原始 SHA-256 → Python 算派生 key → HMAC 取数。加和 51008。
 
 </details>
 
