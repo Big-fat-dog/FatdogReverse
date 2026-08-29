@@ -86,6 +86,14 @@
 
         <activity android:name=".v51Activity" android:exported="false" />
 
+        <activity android:name=".w52Activity" android:exported="false" />
+
+        <!-- 幽冥海 KL11：偷梁换柱（SO patch 入门） -->
+        <activity android:name=".s48Activity" android:exported="false" />
+
+        <!-- 幽冥海 KL12：移花接木（Frida hook 入门） -->
+        <activity android:name=".t49Activity" android:exported="false" />
+
         <!-- 关卡 6 的隐藏入口：exported=true，但大厅里没有任何按钮指向我 -->
         <activity android:name=".RewardActivity" android:exported="true" />
     </application>

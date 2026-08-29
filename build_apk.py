@@ -65,7 +65,7 @@ def find_java():
     java_home = os.environ.get('JAVA_HOME')
     if java_home:
         return os.path.join(java_home, 'bin')
-    for c in (r'E:\PyCharm 2025.3.3\jbr\bin', r'C:\Program Files\Java'):
+    for c in (r'D:\JAVA\bin', r'E:\PyCharm 2025.3.3\jbr\bin', r'C:\Program Files\Java\latest\bin', r'C:\Program Files\Java'):
         if os.path.isdir(c) and os.path.isfile(os.path.join(c, 'javac.exe')):
             return c
     found = shutil.which('javac')

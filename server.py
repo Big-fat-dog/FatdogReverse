@@ -1091,6 +1091,52 @@ def api_l46(page: int = Form(...), ts: int = Form(...), sign: str = Form(...)):
     return {"page": page, "nums": []}
 
 
+# ---------------- 关卡 47（签名校验对抗）幽冥合卷：收官综合卷 ----------
+# 三点互验记账 + CRC 自校验 + certHash 参与密钥派生 + 响应 AES 加密。
+# marker = "Fatdog_seal"（诱饵 "steal"），hmac_key / aes_key 均由 certHash 派生。
+# POST page/ts/sign/enc → sign 校验 + enc 解密页码 → 响应 {"d": hex(AES(nums))}。
+_L47_CERT_HASH = bytes.fromhex("3bb2134ca3b10bacd43965d0838efa90eef3765eed8832929168ca0e221237fe")
+_L47_MARKER = b"Fatdog_seal"
+_L47_HMAC_KEY = hashlib.sha256(_L47_CERT_HASH + _L47_MARKER).digest()
+_L47_AES_KEY = hashlib.sha256(_L47_CERT_HASH + _L47_MARKER).digest()[:16]
+KEY47_MASTER = "Fatdog_seal"
+DECOY47_KEYS = ["Fatdog_steal"]
+PAGES47, PER_PAGE47, SEED47 = 100, 10, 20280426
+_rng47 = random.Random(SEED47)
+NUMS47 = [_rng47.randint(1, 100) for _ in range(PAGES47 * PER_PAGE47)]
+
+
+def _l47_try(hmac_key: bytes, page: int, ts: int, sign: str) -> bool:
+    return hmac.compare_digest(
+        sign, hmac.new(hmac_key, f"page={page}&ts={ts}".encode(), hashlib.sha256).hexdigest())
+
+
+@app.post("/api/l47")
+def api_l47(page: int = Form(...), ts: int = Form(...), sign: str = Form(...), enc: str = Form(...)):
+    _check_ts(ts)
+    if not _l47_try(_L47_HMAC_KEY, page, ts, sign):
+        for dk in DECOY47_KEYS:
+            dk_bytes = hashlib.sha256(_L47_CERT_HASH + dk.encode()).digest()
+            if _l47_try(dk_bytes, page, ts, sign):
+                raise HTTPException(status_code=403, detail="sign invalid")
+        raise HTTPException(status_code=403, detail="sign invalid")
+    # enc = hex(AES_ECB(aes_key, "page=N"))
+    try:
+        plain = aes_dec(_L47_AES_KEY, bytes.fromhex(enc)).decode("utf-8", "ignore")
+    except Exception:
+        raise HTTPException(status_code=400, detail="bad enc")
+    m = re.fullmatch(r"page=(\d+)", plain)
+    if not m:
+        raise HTTPException(status_code=400, detail="bad enc format")
+    enc_page = int(m.group(1))
+    if enc_page != page:
+        raise HTTPException(status_code=403, detail="enc/param mismatch")
+    _check_page(page, PAGES47)
+    idx = (page - 1) * PER_PAGE47
+    body = f"page={page}|nums={','.join(str(n) for n in NUMS47[idx:idx + PER_PAGE47])}"
+    return {"d": aes_enc(_L47_AES_KEY, body.encode()).hex()}
+
+
 def _des3_ecb_encrypt_py(key24: bytes, data8: bytes) -> bytes:
     d1 = _DES.new(key24[0:8], _DES.MODE_ECB)
     d2 = _DES.new(key24[8:16], _DES.MODE_ECB)
@@ -1642,7 +1688,7 @@ if __name__ == "__main__":
           f"L21={sum(NUMS21)} L22={sum(NUMS22)} L24={sum(NUMS24)} L25={sum(NUMS25)} L26={sum(NUMS26)} L27={sum(NUMS27)} "
           f"L28={sum(NUMS28)} L29={sum(NUMS29)} L30={sum(NUMS30)} L31={sum(NUMS31)} L32={sum(NUMS32)} L33={sum(NUMS33)} L34={sum(NUMS34)} L35={sum(NUMS35)} L36={sum(NUMS36)} L37={sum(NUMS37)} "
           f"KL6={sum(NUMS_KL6)} KL7={sum(NUMS_KL7)} KL8={sum(NUMS_KL8)} KL9={sum(NUMS_KL9)} KL10={sum(NUMS_KL10)} "
-          f"L43={sum(NUMS43)} L44={sum(NUMS44)} L45={sum(NUMS45)} L46={sum(NUMS46)}")
+          f"L43={sum(NUMS43)} L44={sum(NUMS44)} L45={sum(NUMS45)} L46={sum(NUMS46)} L47={sum(NUMS47)}")
     http_cfg = uvicorn.Config(app, host=HOST, port=PORT_HTTP, log_level="info")
     threading.Thread(target=uvicorn.Server(http_cfg).run, daemon=True).start()
     https_cfg = uvicorn.Config(app, host=HOST, port=PORT_HTTPS,

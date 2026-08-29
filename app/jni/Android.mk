@@ -144,3 +144,21 @@ include $(CLEAR_VARS)
 LOCAL_MODULE := m8
 LOCAL_SRC_FILES := m8.c
 include $(BUILD_SHARED_LIBRARY)
+
+# 签名校验对抗 L47：幽冥合卷（收官综合卷：guard矩阵+CRC+AES加密+签名）
+include $(CLEAR_VARS)
+LOCAL_MODULE := m9
+LOCAL_SRC_FILES := m9.c
+include $(BUILD_SHARED_LIBRARY)
+
+# 幽冥海 KL11：偷梁换柱（SO patch 入门：nop 掉比较指令）
+include $(CLEAR_VARS)
+LOCAL_MODULE := m10
+LOCAL_SRC_FILES := m10.c
+include $(BUILD_SHARED_LIBRARY)
+
+# 幽冥海 KL12：移花接木（动态 patch：Frida hook 替换返回值）
+include $(CLEAR_VARS)
+LOCAL_MODULE := m11
+LOCAL_SRC_FILES := m11.c
+include $(BUILD_SHARED_LIBRARY)

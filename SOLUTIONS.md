@@ -2691,7 +2691,87 @@ print(total)   # 51008
 
 ---
 
-### KL7：裂魂之匣（流沙河第二关 · 魔改 DES）
+### L47：幽冥合卷（签名校验对抗收官 · 四重防线）
+
+**考点**：签名校验对抗的终极大考——四重防线同时叠加，任何单一手段都不够：
+
+1. **三点互验记账**（ticks 三路交叉核账）：三个独立计数器互相同步检查，篡改任一计数器会导致三路不一致→拒绝服务
+2. **CRC 自校验**（可执行段完整性）：libl47.so 对自身可执行段做 CRC32 校验，基线在 JNI_OnLoad 建立；任何 inline hook 都会改变 CRC→被检测
+3. **certHash 密钥派生**：密钥由证书 DER 派生，重打包者证书不同→派生 key 不同→全部 403
+4. **AES 加密响应**：响应不再是明文 nums，而是 AES 加密的密文，需要额外解密步骤
+
+```text
+密钥派生：
+  certDER   = 从 APK 签名中提取的 X.509 证书 DER
+  certHash  = SHA-256(certDER)
+  hmac_key  = SHA-256(certHash ‖ b"Fatdog_seal")       # 完整 32 字节
+  aes_key   = hmac_key[:16]                              # 前 16 字节
+
+请求签名：
+  enc  = hex(AES-ECB(aes_key, "page=N&ts=T" 零填充))
+  sign = HMAC-SHA256(hmac_key, enc)
+
+响应解密：
+  response = AES-ECB-Decrypt(aes_key, bytes.fromhex(d))
+  # 解密后格式: "page=N|nums=1,2,3,..."
+```
+
+**协议**：POST `https://…:8443/api/l47`，表单字段 page、ts、sign、enc。响应 `{"d": hex(AES(nums))}`。
+
+**静态路线（Python 全复刻，先 python server.py）**
+
+```python
+import hashlib, hmac, time, requests
+from Crypto.Cipher import AES
+
+cert_hash = bytes.fromhex("3bb2134ca3b10bacd43965d0838efa90eef3765eed8832929168ca0e221237fe")
+hmac_key  = hashlib.sha256(cert_hash + b"Fatdog_seal").digest()
+aes_key   = hmac_key[:16]
+
+def pkcs7_pad(data, block_size=16):
+    pad_len = block_size - (len(data) % block_size)
+    return data + bytes([pad_len] * pad_len)
+
+def aes_ecb_encrypt(key, plaintext):
+    cipher = AES.new(key, AES.MODE_ECB)
+    return cipher.encrypt(pkcs7_pad(plaintext))
+
+def aes_ecb_decrypt(key, ciphertext):
+    cipher = AES.new(key, AES.MODE_ECB)
+    plaintext = cipher.decrypt(ciphertext)
+    pad_len = plaintext[-1]
+    return plaintext[:-pad_len]
+
+total = 0
+for page in range(1, 101):
+    ts   = int(time.time())
+    enc  = aes_ecb_encrypt(aes_key, f"page={page}&ts={ts}".encode()).hex()
+    sign = hmac.new(hmac_key, enc.encode(), hashlib.sha256).hexdigest()
+    r = requests.post("https://127.0.0.1:8443/api/l47",
+                      data={"page": page, "ts": ts, "sign": sign, "enc": enc},
+                      verify="certs/ca.crt", timeout=5).json()
+    nums_hex = r["d"]
+    plaintext = aes_ecb_decrypt(aes_key, bytes.fromhex(nums_hex))
+    nums = list(map(int, plaintext.decode().split("nums=")[1].split(",")))
+    assert len(nums) == 10, r
+    total += sum(nums)
+print(total)   # 52437
+```
+
+**动态路线（三选一）**
+
+1. **Frida（官方主解）**：spawn 抢跑——在 JNI_OnLoad 之前注入钩子，拦截三点互验记账 + 摘要出口，伪造三路 ticks 一致；Hook CRC 校验器恒返回基线值；拦截 AES 加密出口拿明文 nums。这是本关的标准 Frida 路线。
+2. **patch so**：定位 CRC 校验器（k47_crc_check）改字节废掉；定位比较点（memcmp）偏移 Hook 恒等；但注意三点互验需要同时处理三个计数器，否则仍会被检测。
+3. **重打包完整复刻**：还原四重防线的所有参数后，用 Python 完整复刻请求+响应解密，完全绕过 App——静态路线免疫所有运行时防线。
+
+**坑位提醒**：
+- `Fatdog_steal`（steal）与真标记 `Fatdog_seal`（seal）一字之差，命中即 403 静默拒绝
+- CRC 校验器里的假基线值是诱饵——用它建立的基线永远不匹配运行时 CRC
+- 记账 ticks 的虚假计数值：三个计数器中有一个会被故意设成错误值，篡改它会导致三路不一致
+- AES 加密响应的解密是必须步骤——拿到 `{"d": hex}` 后不解密直接解析会得到乱码
+- SEED52=20280426（用于服务端种子验证）
+
+答案：加和 `52437`；flag `FLAG_18_L47{four_shields_fallen}`
 
 **考点**：libm2.so 手写 DES——S 盒骨架可认（S1 开头 `14 04 0d 01`）、E/P/PC1/PC2 全是标准，但三处被动手脚：
 

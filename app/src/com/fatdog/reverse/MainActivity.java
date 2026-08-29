@@ -41,7 +41,7 @@ public class MainActivity extends Activity {
             {R.id.btn_pages15, R.id.btn_rc16, R.id.btn_f17, R.id.btn_r18, R.id.btn_l19},
             {R.id.btn_t21, R.id.btn_p22, R.id.btn_w23, R.id.btn_g24, R.id.btn_n25, R.id.btn_m26, R.id.btn_f27},
             {R.id.btn_l28, R.id.btn_l29, R.id.btn_l30, R.id.btn_l31, R.id.btn_l32, R.id.btn_l33, R.id.btn_l34, R.id.btn_l35, R.id.btn_l36, R.id.btn_l37},
-            {R.id.btn_l43, R.id.btn_l44, R.id.btn_l45, R.id.btn_l46},
+            {R.id.btn_l43, R.id.btn_l44, R.id.btn_l45, R.id.btn_l46, R.id.btn_l47},
     };
 
     private FrameLayout host;
@@ -294,6 +294,7 @@ public class MainActivity extends Activity {
         bind(R.id.btn_l44, t44Activity.class);
         bind(R.id.btn_l45, u45Activity.class);
         bind(R.id.btn_l46, v51Activity.class);
+        bind(R.id.btn_l47, w52Activity.class);
     }
 
     private void bind(int id, final Class<?> target) {
@@ -539,15 +540,30 @@ public class MainActivity extends Activity {
                 });
             }
         } else {
-            TextView soon = new TextView(this);
-            String zone = kunlunCat == 1 ? "流沙河" : "幽冥海";
-            soon.setText(zone + " 尚未开辟……\n风沙之下，另有玄机。");
-            soon.setTextSize(14);
-            soon.setTextColor(ThemeKit.muted(dark));
-            soon.setGravity(Gravity.CENTER);
-            soon.setPadding(0, Ui.dp(40), 0, 0);
-            list.addView(soon, new LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+            /* 幽冥海：KL11 起，SO patch 对抗 */
+            String[] names = {"偷梁换柱", "移花接木"};
+            for (int i = 0; i < names.length; i++) {
+                final int kl = 11 + i;
+                boolean open = PassLog.isDone(this, "KL" + kl);
+                Button b = new Button(this);
+                b.setText("KL" + kl + " · " + names[i] + (open ? " ✔" : ""));
+                b.setEnabled(kl == 11 || PassLog.isDone(this, "KL" + (kl - 1)));
+                b.setAlpha(b.isEnabled() ? 1f : 0.55f);
+                Ui.styleButton(b);
+                LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+                lp.topMargin = Ui.dp(12);
+                list.addView(b, lp);
+                final Class<?> target = kl == 11 ? s48Activity.class
+                        : (kl == 12 ? t49Activity.class : null);
+                if (target != null) {
+                    b.setOnClickListener(new View.OnClickListener() {
+                        @Override public void onClick(View v) {
+                            startActivity(new Intent(MainActivity.this, target));
+                        }
+                    });
+                }
+            }
         }
 
         scroll.addView(col);
