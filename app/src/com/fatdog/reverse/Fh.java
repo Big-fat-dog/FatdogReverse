@@ -4,7 +4,7 @@ package com.fatdog.reverse;
 // 并带记账守卫防整体替换。任何 inline hook 都会被抓——三条官方解法见关卡提示。
 public class Fh {
     static {
-        System.loadLibrary("l33");
+        System.loadLibrary("sable");
     }
 
     private Fh() {

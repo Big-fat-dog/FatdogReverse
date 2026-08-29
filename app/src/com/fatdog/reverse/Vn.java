@@ -4,7 +4,7 @@ package com.fatdog.reverse;
 // 密钥全部以 UTF-16 码元（\x 十六进制字面值）存放——strings 默认一无所获。
 public class Vn {
     static {
-        System.loadLibrary("l30");
+        System.loadLibrary("mica");
     }
 
     // HMAC-SHA256 签名全在 C 里算——但四个候选里只有一个是真身

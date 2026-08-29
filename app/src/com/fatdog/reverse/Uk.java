@@ -5,7 +5,7 @@ package com.fatdog.reverse;
 // Frida hook seal 强制返回正确值即可过——比静态 nop 容易得多。
 public class Uk {
     static {
-        System.loadLibrary("m11");
+        System.loadLibrary("kraken");
     }
 
     private Uk() {

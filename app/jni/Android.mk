@@ -5,207 +5,227 @@ LOCAL_MODULE := native
 LOCAL_SRC_FILES := native.c
 include $(BUILD_SHARED_LIBRARY)
 
-# 关卡 28：缄默之钥（密钥异或藏 .rodata，运行时解码）
+# L28
 include $(CLEAR_VARS)
-LOCAL_MODULE := l28
-LOCAL_SRC_FILES := l28.c
+LOCAL_MODULE := axol
+LOCAL_SRC_FILES := axol.c
 include $(BUILD_SHARED_LIBRARY)
 
-# 关卡 29：隐姓埋名（JNI_OnLoad 动态注册 + 双诱饵导出）
+# L29
 include $(CLEAR_VARS)
-LOCAL_MODULE := l29
-LOCAL_SRC_FILES := l29.c
+LOCAL_MODULE := fern
+LOCAL_SRC_FILES := fern.c
 include $(BUILD_SHARED_LIBRARY)
 
-# 关卡 30：无名剑冢（UTF-16 藏钥 + 函数指针表派发 + 三诱饵）
+# L30
 include $(CLEAR_VARS)
-LOCAL_MODULE := l30
-LOCAL_SRC_FILES := l30.c
+LOCAL_MODULE := mica
+LOCAL_SRC_FILES := mica.c
 include $(BUILD_SHARED_LIBRARY)
 
-# 关卡 31：两界穿针（跨层拼装 + 干扰包）
+# L31
 include $(CLEAR_VARS)
-LOCAL_MODULE := l31
-LOCAL_SRC_FILES := l31.c
+LOCAL_MODULE := quill
+LOCAL_SRC_FILES := quill.c
 include $(BUILD_SHARED_LIBRARY)
 
-# 关卡 32：心魔哨兵（四路反检测 + 静默投毒）
+# L32
 include $(CLEAR_VARS)
-LOCAL_MODULE := l32
-LOCAL_SRC_FILES := l32.c
+LOCAL_MODULE := raven
+LOCAL_SRC_FILES := raven.c
 include $(BUILD_SHARED_LIBRARY)
 
-# 关卡 33：金刚不坏（CRC 自校验 + 记账守卫，三解全开）
+# L33
 include $(CLEAR_VARS)
-LOCAL_MODULE := l33
-LOCAL_SRC_FILES := l33.c
+LOCAL_MODULE := sable
+LOCAL_SRC_FILES := sable.c
 include $(BUILD_SHARED_LIBRARY)
 
-# 关卡 34：万法归墟（综合卷：动态注册+Feistel+哨兵+CRC+响应RC4）
+# L34
 include $(CLEAR_VARS)
-LOCAL_MODULE := l34
-LOCAL_SRC_FILES := l34.c
+LOCAL_MODULE := talon
+LOCAL_SRC_FILES := talon.c
 include $(BUILD_SHARED_LIBRARY)
 
-# 关卡 35：双匣暗渡（手写 3DES+SM4 常量识别 + 干扰包）
+# L35
 include $(CLEAR_VARS)
-LOCAL_MODULE := l35
-LOCAL_SRC_FILES := l35.c
+LOCAL_MODULE := umbra
+LOCAL_SRC_FILES := umbra.c
 include $(BUILD_SHARED_LIBRARY)
 
-# 关卡 36：查表识君（手写 AES-128，Base64 藏钥）
+# L36
 include $(CLEAR_VARS)
-LOCAL_MODULE := l36
-LOCAL_SRC_FILES := l36.c
+LOCAL_MODULE := vigor
+LOCAL_SRC_FILES := vigor.c
 include $(BUILD_SHARED_LIBRARY)
 
-# 关卡 37：雪崩之谜（SHA-256 变体 IV + RC4 叠加）
+# L37
 include $(CLEAR_VARS)
-LOCAL_MODULE := l37
-LOCAL_SRC_FILES := l37.c
+LOCAL_MODULE := wyvern
+LOCAL_SRC_FILES := wyvern.c
 include $(BUILD_SHARED_LIBRARY)
 
-# 昆仑 KL1：山门（unidbg 最小骨架）
+# KL1
 include $(CLEAR_VARS)
-LOCAL_MODULE := kunlun1
-LOCAL_SRC_FILES := kunlun1.c
+LOCAL_MODULE := cedar
+LOCAL_SRC_FILES := cedar.c
 include $(BUILD_SHARED_LIBRARY)
 
-# 昆仑 KL2
+# KL2
 include $(CLEAR_VARS)
-LOCAL_MODULE := kunlun2
-LOCAL_SRC_FILES := kunlun2.c
+LOCAL_MODULE := lotus
+LOCAL_SRC_FILES := lotus.c
 include $(BUILD_SHARED_LIBRARY)
 
-# 昆仑 KL3
+# KL3
 include $(CLEAR_VARS)
-LOCAL_MODULE := kunlun3
-LOCAL_SRC_FILES := kunlun3.c
+LOCAL_MODULE := maple
+LOCAL_SRC_FILES := maple.c
 include $(BUILD_SHARED_LIBRARY)
 
-# 昆仑 KL4
+# KL4
 include $(CLEAR_VARS)
-LOCAL_MODULE := kunlun4
-LOCAL_SRC_FILES := kunlun4.c
+LOCAL_MODULE := rivet
+LOCAL_SRC_FILES := rivet.c
 include $(BUILD_SHARED_LIBRARY)
 
-# 昆仑 KL5
+# KL5
 include $(CLEAR_VARS)
-LOCAL_MODULE := kunlun5
-LOCAL_SRC_FILES := kunlun5.c
+LOCAL_MODULE := tulip
+LOCAL_SRC_FILES := tulip.c
 include $(BUILD_SHARED_LIBRARY)
 
-# 流沙河首关：冰封之钥（魔改 AES-128，Rcon 三处换血）
+# KL6
 include $(CLEAR_VARS)
-LOCAL_MODULE := m1
-LOCAL_SRC_FILES := m1.c
+LOCAL_MODULE := ember
+LOCAL_SRC_FILES := ember.c
 include $(BUILD_SHARED_LIBRARY)
 
-# 流沙河第二关：裂魂之匣（魔改 DES，IP 换位 + S3 换值）
+# KL7
 include $(CLEAR_VARS)
-LOCAL_MODULE := m2
-LOCAL_SRC_FILES := m2.c
+LOCAL_MODULE := frost
+LOCAL_SRC_FILES := frost.c
 include $(BUILD_SHARED_LIBRARY)
 
-# 流沙河第三关：幽泉之眼（魔改 SM4，CK 尾部 8 值换血）
+# KL8
 include $(CLEAR_VARS)
-LOCAL_MODULE := m3
-LOCAL_SRC_FILES := m3.c
+LOCAL_MODULE := ivory
+LOCAL_SRC_FILES := ivory.c
 include $(BUILD_SHARED_LIBRARY)
 
-# 流沙河第四关：天罡北斗（魔改 RC4，KSA 初排换血 + PRGA 过掩码）
+# KL9
 include $(CLEAR_VARS)
-LOCAL_MODULE := m4
-LOCAL_SRC_FILES := m4.c
+LOCAL_MODULE := jade
+LOCAL_SRC_FILES := jade.c
 include $(BUILD_SHARED_LIBRARY)
 
-# 流沙河收官关：万象归一（魔改 SHA256 变体 + 魔改 AES 综合卷）
+# KL10
 include $(CLEAR_VARS)
-LOCAL_MODULE := m5
-LOCAL_SRC_FILES := m5.c
+LOCAL_MODULE := onyx
+LOCAL_SRC_FILES := onyx.c
 include $(BUILD_SHARED_LIBRARY)
 
-# 签名校验对抗 L44：偷天换日（摘要下沉 native + 记账守卫）
+# L44
 include $(CLEAR_VARS)
-LOCAL_MODULE := m6
-LOCAL_SRC_FILES := m6.c
+LOCAL_MODULE := pearl
+LOCAL_SRC_FILES := pearl.c
 include $(BUILD_SHARED_LIBRARY)
 
-
-# 签名校验对抗 L45：移形换影（native 自读 APK 剥 PKCS#7，需要 zlib 解压条目）
+# L45
 include $(CLEAR_VARS)
-LOCAL_MODULE := m7
-LOCAL_SRC_FILES := m7.c
+LOCAL_MODULE := coral
+LOCAL_SRC_FILES := coral.c
 LOCAL_LDLIBS := -lz
 include $(BUILD_SHARED_LIBRARY)
 
-# 签名校验对抗 L46：以签为钥（证书 DER 派生 HMAC 密钥，L4 型主打）
+# L46
 include $(CLEAR_VARS)
-LOCAL_MODULE := m8
-LOCAL_SRC_FILES := m8.c
+LOCAL_MODULE := amber
+LOCAL_SRC_FILES := amber.c
 include $(BUILD_SHARED_LIBRARY)
 
-# 签名校验对抗 L47：幽冥合卷（收官综合卷：guard矩阵+CRC+AES加密+签名）
+# L47
 include $(CLEAR_VARS)
-LOCAL_MODULE := m9
-LOCAL_SRC_FILES := m9.c
+LOCAL_MODULE := felix
+LOCAL_SRC_FILES := felix.c
 include $(BUILD_SHARED_LIBRARY)
 
-# 幽冥海 KL11：偷梁换柱（SO patch 入门：nop 掉比较指令）
+# KL11
 include $(CLEAR_VARS)
-LOCAL_MODULE := m10
-LOCAL_SRC_FILES := m10.c
+LOCAL_MODULE := helix
+LOCAL_SRC_FILES := helix.c
 include $(BUILD_SHARED_LIBRARY)
 
-# 幽冥海 KL12：移花接木（动态 patch：Frida hook 替换返回值）
+# KL12
 include $(CLEAR_VARS)
-LOCAL_MODULE := m11
-LOCAL_SRC_FILES := m11.c
+LOCAL_MODULE := kraken
+LOCAL_SRC_FILES := kraken.c
 include $(BUILD_SHARED_LIBRARY)
 
-# 幽冥海 KL13：声东击西（反 patch 对抗：CRC 自校验）
+# KL13
 include $(CLEAR_VARS)
-LOCAL_MODULE    := m12
-LOCAL_SRC_FILES := m12.c
-LOCAL_LDLIBS    := -llog
+LOCAL_MODULE := mantis
+LOCAL_SRC_FILES := mantis.c
+LOCAL_LDLIBS := -llog
 include $(BUILD_SHARED_LIBRARY)
 
-# 幽冥海 KL14：偷天换日（多 so 交叉验证）
+# KL14
 include $(CLEAR_VARS)
-LOCAL_MODULE    := m13a
-LOCAL_SRC_FILES := m13a.c
-LOCAL_LDLIBS    := -llog -ldl
-include $(BUILD_SHARED_LIBRARY)
-
-include $(CLEAR_VARS)
-LOCAL_MODULE    := m13b
-LOCAL_SRC_FILES := m13b.c
-LOCAL_LDLIBS    := -llog -ldl
+LOCAL_MODULE := nebula
+LOCAL_SRC_FILES := nebula.c
+LOCAL_LDLIBS := -llog -ldl
 include $(BUILD_SHARED_LIBRARY)
 
 include $(CLEAR_VARS)
-LOCAL_MODULE    := m13c
-LOCAL_SRC_FILES := m13c.c
-LOCAL_LDLIBS    := -llog -ldl
+LOCAL_MODULE := opera
+LOCAL_SRC_FILES := opera.c
+LOCAL_LDLIBS := -llog -ldl
 include $(BUILD_SHARED_LIBRARY)
 
-# 幽冥海 KL15：万法归宗（综合收官卷）
 include $(CLEAR_VARS)
-LOCAL_MODULE    := m14
-LOCAL_SRC_FILES := m14.c
-LOCAL_LDLIBS    := -llog
+LOCAL_MODULE := plume
+LOCAL_SRC_FILES := plume.c
+LOCAL_LDLIBS := -llog -ldl
 include $(BUILD_SHARED_LIBRARY)
 
-# 太玄之初 KL16：破壳新生（一代壳 DEX 静态加密）
+# KL15
 include $(CLEAR_VARS)
-LOCAL_MODULE    := k16
-LOCAL_SRC_FILES := k16.c
-LOCAL_LDLIBS    := -llog
+LOCAL_MODULE := shale
+LOCAL_SRC_FILES := shale.c
+LOCAL_LDLIBS := -llog
 include $(BUILD_SHARED_LIBRARY)
 
-# 太玄之初 KL17：金蝉脱壳（二代壳 DEX 热加载 + 反调试）
+# KL16
 include $(CLEAR_VARS)
-LOCAL_MODULE    := k17
-LOCAL_SRC_FILES := k17.c
-LOCAL_LDLIBS    := -llog
+LOCAL_MODULE := taupe
+LOCAL_SRC_FILES := taupe.c
+LOCAL_LDLIBS := -llog
+include $(BUILD_SHARED_LIBRARY)
+
+# KL17
+include $(CLEAR_VARS)
+LOCAL_MODULE := viola
+LOCAL_SRC_FILES := viola.c
+LOCAL_LDLIBS := -llog
+include $(BUILD_SHARED_LIBRARY)
+
+# KL18
+include $(CLEAR_VARS)
+LOCAL_MODULE := blaze
+LOCAL_SRC_FILES := blaze.c
+LOCAL_LDLIBS := -llog
+include $(BUILD_SHARED_LIBRARY)
+
+# KL19
+include $(CLEAR_VARS)
+LOCAL_MODULE := bison
+LOCAL_SRC_FILES := bison.c
+LOCAL_LDLIBS := -llog
+include $(BUILD_SHARED_LIBRARY)
+
+# KL20
+include $(CLEAR_VARS)
+LOCAL_MODULE := delta
+LOCAL_SRC_FILES := delta.c
+LOCAL_LDLIBS := -llog
 include $(BUILD_SHARED_LIBRARY)

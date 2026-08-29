@@ -7,7 +7,7 @@ package com.fatdog.reverse;
 // 记账守卫与 L44 同构：assertGuard 三连核账防整体替换。
 public class Wn {
     static {
-        System.loadLibrary("m7");
+        System.loadLibrary("coral");
     }
 
     private Wn() {

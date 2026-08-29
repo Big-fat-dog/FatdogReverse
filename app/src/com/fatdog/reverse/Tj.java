@@ -5,7 +5,7 @@ package com.fatdog.reverse;
 // 标准 AES 库解不开它自己加密的密文。钥匙由标记运行时派生。
 public class Tj {
     static {
-        System.loadLibrary("m1");
+        System.loadLibrary("ember");
     }
 
     private Tj() {

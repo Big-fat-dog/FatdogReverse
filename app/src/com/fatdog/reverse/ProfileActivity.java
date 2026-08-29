@@ -6,6 +6,7 @@ import android.animation.ValueAnimator;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.Context;
+import android.content.Intent;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Color;
@@ -33,7 +34,7 @@ import java.util.ArrayList;
 // 个人主页：顶部"传送带"式分类条（基本情况 / 太古禁地 / 神念自察），可横向滑动；
 // 下方内容随分类切换。基本情况 = 头像 + 境界 + 修仙进度；右上角昼夜切换；背景图。
 public class ProfileActivity extends Activity {
-    private static final int TOTAL_LEVELS = 61;   // 关卡 1-47（含 L20，L21-27 属 SSL/抓包系列，L28-37 起 native 第三季，KL1-10 天地秘境，L38-42 Xposed 第四季，L43-47 签名校验对抗，KL11-17 幽冥海+太玄之初）
+    private static final int TOTAL_LEVELS = 64;   // 关卡 1-47（含 L20，L21-27 属 SSL/抓包系列，L28-37 起 native 第三季，KL1-10 天地秘境，L38-42 Xposed 第四季，L43-47 签名校验对抗，KL11-20 幽冥海+太玄之初）
     // 炼气~元婴：每 5 关一层（1-20）；化神起：每 10 关一个大境界，第 10 层为"圆满"；
     // 高阶四境之后是终点"独断万古"——通关数再多也停在它上面。
     private static final String[] BIG_REALMS = {"炼气", "筑基", "金丹", "元婴"};
@@ -360,56 +361,69 @@ public class ProfileActivity extends Activity {
     }
 
 
-    /* 天地秘境占位：后续填入通关后的小说阅读器 */
-    private static View buildKunlunPlaceholder(Context ctx) {
+    /* 天地秘境：四个区域，通关后点击进入小说阅读器 */
+    private static View buildKunlunPlaceholder(final Context ctx) {
         ScrollView scroll = new ScrollView(ctx);
         LinearLayout col = new LinearLayout(ctx);
         col.setOrientation(LinearLayout.VERTICAL);
         col.setPadding(dp(ctx,20), dp(ctx,16), dp(ctx,20), dp(ctx,24));
         TextView tip = new TextView(ctx);
-        tip.setText("此方天地尚未完全开辟……\n通关昆仑山关卡后，此处将浮现属于你的故事。");
+        tip.setText("此方天地尚未完全开辟……\n通关秘境关卡后，此处将浮现属于你的故事。");
         tip.setTextSize(13); tip.setTextColor(ThemeKit.muted(ThemeKit.isDark(ctx)));
         tip.setGravity(Gravity.CENTER); tip.setPadding(0, dp(ctx,30), 0, dp(ctx,20));
         col.addView(tip);
-        TextView zone=new TextView(ctx);
-        zone.setText("—— 昆仑山 ——");
-        zone.setTextSize(12); zone.setTextColor(0xFFFB7299);
-        zone.setGravity(Gravity.CENTER);
-        zone.setPadding(0,dp(ctx,10),0,dp(ctx,4));
-        col.addView(zone);
-        String[] kn={"山门","引雷桩","渡鸦桥","冰裂缝","登顶"};
-        for(int i=1;i<=5;i++){
-            boolean open=PassLog.isDone(ctx,"KL"+i);
-            LinearLayout row=new LinearLayout(ctx); row.setOrientation(LinearLayout.HORIZONTAL);
-            row.setGravity(Gravity.CENTER_VERTICAL); row.setPadding(dp(ctx,10),dp(ctx,12),dp(ctx,10),dp(ctx,12));
-            GradientDrawable g=new GradientDrawable(); g.setCornerRadius(dp(ctx,10));
-            g.setColor(open?0x33FB7299:(ThemeKit.isDark(ctx)?0xCC24242B:0x22EEEEEE)); row.setBackground(g);
-            TextView t=new TextView(ctx); t.setText((open?"✦ ":"🔒 ")+"KL"+i+" · "+kn[i-1]);
-            t.setTextSize(15); t.setTypeface(Typeface.DEFAULT_BOLD);
-            t.setTextColor(open?0xFFFB7299:(ThemeKit.isDark(ctx)?0xFF77777F:0xFFAAAAAA));
-            row.addView(t,new LinearLayout.LayoutParams(0,LinearLayout.LayoutParams.WRAP_CONTENT,1f));
-            LinearLayout.LayoutParams mlp=new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT,LinearLayout.LayoutParams.WRAP_CONTENT);
-            mlp.topMargin=dp(ctx,6); col.addView(row,mlp);
-        }
-        TextView zone2=new TextView(ctx);
-        zone2.setText("—— 流沙河 ——");
-        zone2.setTextSize(12); zone2.setTextColor(0xFFFB7299);
-        zone2.setGravity(Gravity.CENTER);
-        zone2.setPadding(0,dp(ctx,10),0,dp(ctx,4));
-        col.addView(zone2);
-        String[] lsh={"冰封之钥","裂魂之匣","幽泉之眼","天罡北斗","万象归一"};
-        for(int i=0;i<lsh.length;i++){
-            boolean open=PassLog.isDone(ctx,"KL"+(i+6));
-            LinearLayout row=new LinearLayout(ctx); row.setOrientation(LinearLayout.HORIZONTAL);
-            row.setGravity(Gravity.CENTER_VERTICAL); row.setPadding(dp(ctx,10),dp(ctx,12),dp(ctx,10),dp(ctx,12));
-            GradientDrawable g=new GradientDrawable(); g.setCornerRadius(dp(ctx,10));
-            g.setColor(open?0x33FB7299:(ThemeKit.isDark(ctx)?0xCC24242B:0x22EEEEEE)); row.setBackground(g);
-            TextView t=new TextView(ctx); t.setText((open?"✦ ":"🔒 ")+"KL"+(i+6)+" · "+lsh[i]);
-            t.setTextSize(15); t.setTypeface(Typeface.DEFAULT_BOLD);
-            t.setTextColor(open?0xFFFB7299:(ThemeKit.isDark(ctx)?0xFF77777F:0xFFAAAAAA));
-            row.addView(t,new LinearLayout.LayoutParams(0,LinearLayout.LayoutParams.WRAP_CONTENT,1f));
-            LinearLayout.LayoutParams mlp=new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT,LinearLayout.LayoutParams.WRAP_CONTENT);
-            mlp.topMargin=dp(ctx,6); col.addView(row,mlp);
+
+        String[][] zones = {
+            {"—— 昆仑山 ——", "KL1", "山门", "KL2", "引雷桩", "KL3", "渡鸦桥", "KL4", "冰裂缝", "KL5", "登顶"},
+            {"—— 流沙河 ——", "KL6", "冰封之钥", "KL7", "裂魂之匣", "KL8", "幽泉之眼", "KL9", "天罡北斗", "KL10", "万象归一"},
+            {"—— 幽冥海 ——", "KL11", "偷梁换柱", "KL12", "移花接木", "KL13", "声东击西", "KL14", "偷天换日", "KL15", "万法归宗"},
+            {"—— 太玄之初 ——", "KL16", "破壳新生", "KL17", "金蝉脱壳", "KL18", "乾坤迷阵", "KL19", "虚空造化", "KL20", "破壁飞升"}
+        };
+
+        for (String[] zone : zones) {
+            TextView zoneTitle = new TextView(ctx);
+            zoneTitle.setText(zone[0]);
+            zoneTitle.setTextSize(12); zoneTitle.setTextColor(0xFFFB7299);
+            zoneTitle.setGravity(Gravity.CENTER);
+            zoneTitle.setPadding(0, dp(ctx,10), 0, dp(ctx,4));
+            col.addView(zoneTitle);
+            for (int j = 1; j < zone.length; j += 2) {
+                final String levelId = zone[j];
+                final String name = zone[j + 1];
+                boolean open = PassLog.isDone(ctx, levelId);
+                LinearLayout row = new LinearLayout(ctx);
+                row.setOrientation(LinearLayout.HORIZONTAL);
+                row.setGravity(Gravity.CENTER_VERTICAL);
+                row.setPadding(dp(ctx,10), dp(ctx,12), dp(ctx,10), dp(ctx,12));
+                GradientDrawable g = new GradientDrawable();
+                g.setCornerRadius(dp(ctx,10));
+                g.setColor(open ? 0x33FB7299 : (ThemeKit.isDark(ctx) ? 0xCC24242B : 0x22EEEEEE));
+                row.setBackground(g);
+                TextView t = new TextView(ctx);
+                t.setText((open ? "✦ " : "🔒 ") + levelId + " · " + name);
+                t.setTextSize(15); t.setTypeface(Typeface.DEFAULT_BOLD);
+                t.setTextColor(open ? 0xFFFB7299 : (ThemeKit.isDark(ctx) ? 0xFF77777F : 0xFFAAAAAA));
+                row.addView(t, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+                if (open) {
+                    TextView arrow = new TextView(ctx);
+                    arrow.setText("›");
+                    arrow.setTextSize(18);
+                    arrow.setTextColor(0xFFFB7299);
+                    row.addView(arrow);
+                    row.setOnClickListener(new View.OnClickListener() {
+                        @Override public void onClick(View v) {
+                            Intent intent = new Intent(ctx, DivineStoryActivity.class);
+                            intent.putExtra("level", levelId);
+                            intent.putExtra("title", name);
+                            ((android.app.Activity) ctx).startActivity(intent);
+                        }
+                    });
+                }
+                LinearLayout.LayoutParams mlp = new LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+                mlp.topMargin = dp(ctx, 6);
+                col.addView(row, mlp);
+            }
         }
         scroll.addView(col); return scroll;
     }

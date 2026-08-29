@@ -569,7 +569,7 @@ public class MainActivity extends Activity {
             }
         } else if (kunlunCat == 3) {
             /* 太玄之初：KL16 起，三代壳保护 */
-            String[] names = {"破壳新生", "金蝉脱壳"};
+            String[] names = {"破壳新生", "金蝉脱壳", "乾坤迷阵", "虚空造化", "破壁飞升"};
             for (int i = 0; i < names.length; i++) {
                 final int kl = 16 + i;
                 boolean open = PassLog.isDone(this, "KL" + kl);
@@ -583,7 +583,10 @@ public class MainActivity extends Activity {
                 lp.topMargin = Ui.dp(12);
                 list.addView(b, lp);
                 final Class<?> target = kl == 16 ? y53Activity.class
-                        : (kl == 17 ? z54Activity.class : null);
+                        : (kl == 17 ? z54Activity.class
+                        : (kl == 18 ? a55Activity.class
+                        : (kl == 19 ? b56Activity.class
+                        : (kl == 20 ? c57Activity.class : null))));
                 if (target != null) {
                     b.setOnClickListener(new View.OnClickListener() {
                         @Override public void onClick(View v) {

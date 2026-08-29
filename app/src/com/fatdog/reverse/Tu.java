@@ -6,7 +6,7 @@ package com.fatdog.reverse;
 // patch 方法：nop 掉 guard 里的条件跳转指令，使 guard 恒返回 1。
 public class Tu {
     static {
-        System.loadLibrary("m10");
+        System.loadLibrary("helix");
     }
 
     private Tu() {

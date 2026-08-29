@@ -6,7 +6,7 @@ package com.fatdog.reverse;
 // 两层骨架都能认出——找改动点才是本题。
 public class Ws {
     static {
-        System.loadLibrary("m5");
+        System.loadLibrary("onyx");
     }
 
     private Ws() {

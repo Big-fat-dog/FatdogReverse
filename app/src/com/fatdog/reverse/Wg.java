@@ -6,7 +6,7 @@ package com.fatdog.reverse;
 // 正解唯一：偷出 App 运行时算出的真实 certHash，带真哈希离线复刻整条链取数。
 public class Wg {
     static {
-        System.loadLibrary("m8");
+        System.loadLibrary("amber");
     }
 
     private Wg() {

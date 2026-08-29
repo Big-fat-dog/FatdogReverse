@@ -5,7 +5,7 @@ package com.fatdog.reverse;
 // Fatdog_sneak 运行时派生。认算法靠魔数：DES 的 S1 盒、SM4 的 d6 90 e9 fe。
 public class Ir {
     static {
-        System.loadLibrary("l35");
+        System.loadLibrary("umbra");
     }
 
     private Ir() {

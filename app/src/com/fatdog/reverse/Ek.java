@@ -2,10 +2,10 @@ package com.fatdog.reverse;
 
 /**
  * KL17 金蝉脱壳：JNI 桥——二代壳 DEX 热加载 + 反调试。
- * loadLibrary("k17")
+ * loadLibrary("viola")
  */
 public final class Ek {
-    static { System.loadLibrary("k17"); }
+    static { System.loadLibrary("viola"); }
 
     /** 反调试三重检测 + 反hook，全部通过返回 1 */
     public static native int nativeAntiDebug();

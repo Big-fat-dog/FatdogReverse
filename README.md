@@ -87,6 +87,8 @@ APK 结构刻意做得和真实 App 一致：图标（5 种密度）、XML 布�
 | KL15 | 万法归宗 | ★★★★★ | 多阶段递进谜题：computeA→B→C→verify 四个独立入口 | 三阶段答案推导 + 三输入框提交 | pact | Fatdog_packed | libm14.so |
 | KL16 | 破壳新生 | ★ | 一代壳 DEX 静态加密：XOR+旋转+组内累积三轮解密 | 追踪解密入口 → 还原算法 → 提取种子 | pack | packer | libk16.so |
 | KL17 | 金蝉脱壳 | ★★ | 二代壳 DEX 热加载+反调试：ptrace/TracerPid/Frida端口三重检测 | 绕过反调试 → 分析解密逻辑 → 算出答案 | unpack | unpacker | libk17.so |
+| KL18 | 乾坤迷阵 | ★★★ | OLLVM 控制流平坦化：16 case 状态机 + 指令替换 + 字符串加密 | 识别状态机 → 标记真实/虚假 case → 还原算法 | unfold | folder | libk18.so |
+| KL19 | 虚空造化 | ★★★★ | VMP 虚拟机保护：寄存器式 8 寄存器 + 25 条指令 + 轮转 XOR 加密 | 逆向 VM 解释器 → 提取字节码 → 逐指令翻译 | reverse | reverser | libk19.so |
 
 每关的**解题思路分级提示**见下方折叠块；完整题解（含 Python 复刻代码与 Frida 脚本）在 `SOLUTIONS.md`（建议先自己练）。
 
@@ -645,4 +647,4 @@ license 链路：`base64 → AES解密(密钥A在XBox) → AES解密(密钥B在M
 - 天地秘境·流沙河分区：KL6 冰封之钥、KL7 裂魂之匣已落地（魔改算法五连关 KL6-KL10，编号接续昆仑山，入口在天地秘境「流沙河」页签；后续规划见 PLANNED.md）
 - **标记变更（自 L28 起）**：密钥/口令等标记弃用 `fatdemo_` 前缀，改用 `Fatdog_<情绪词>`（情绪词用尽换动词，如 `Fatdog_unhappy` / `Fatdog_sneak`）；L1-27 保持不变，完整规范见 `SKILL.md` §四
 - 天地秘境·幽冥海分区：KL11-KL15 五关已落地（SO patch 对抗五连关，入口在天地秘境「幽冥海」页签；后续太玄之初规划见 PLANNED.md）
-- 天地秘境·太玄之初分区：KL16 破壳新生、KL17 金蝉脱壳已落地（一代壳+二代壳，入口在天地秘境「太玄之初」页签；KL18-KL20 规划见 PLANNED.md）
+- 天地秘境·太玄之初分区：KL16-KL20 已落地（一代壳+二代壳+OLLVM+VMP+三代壳综合收官卷，入口在天地秘境「太玄之初」页签）

@@ -2,10 +2,10 @@ package com.fatdog.reverse;
 
 /**
  * KL14 偷天换日：JNI 桥——三 so 交叉验证。
- * loadLibrary("m13a") + loadLibrary("m13b") + loadLibrary("m13c")
+ * loadLibrary("nebula") + loadLibrary("opera") + loadLibrary("plume")
  */
 public final class Zn {
-    static { System.loadLibrary("m13a"); System.loadLibrary("m13b"); System.loadLibrary("m13c"); }
+    static { System.loadLibrary("nebula"); System.loadLibrary("opera"); System.loadLibrary("plume"); }
 
     /** 跨 so 调用入口：a XOR b */
     public static native int nativeXor(int a, int b);

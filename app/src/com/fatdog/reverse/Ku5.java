@@ -1,7 +1,7 @@
 package com.fatdog.reverse;
 
 public class Ku5 {
-    static { System.loadLibrary("kunlun5"); }
+    static { System.loadLibrary("tulip"); }
     private Ku5() {}
     public static native String nativeClimb(int seed);
 

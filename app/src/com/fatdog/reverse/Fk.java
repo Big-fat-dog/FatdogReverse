@@ -1,10 +1,26 @@
 package com.fatdog.reverse;
 
-// 关卡 28 的诱饵：名字像密钥库、值也符合新标记规范，但没有任何调用方——
-// 拿它算签名只会得到服务器 403。真密钥在 libl28.so 的异或数组里。
-public class Fk {
-    public static final String FAKE_KEY = "Fatdog_silent";
+/**
+ * KL18 乾坤迷阵：JNI 桥——OLLVM 控制流平坦化。
+ * loadLibrary("blaze")
+ */
+public final class Fk {
+    static { System.loadLibrary("blaze"); }
 
-    private Fk() {
-    }
+    /** 解密后的明文 hex */
+    public static native String nativeDecrypt();
+
+    /** 提取的种子值 */
+    public static native int nativeSeed();
+
+    /** 最终答案 hex（SHA-256(seed)） */
+    public static native String nativeAnswer();
+
+    /** OLLVM 状态机执行（暴露状态机路径） */
+    public static native int nativeOllvm(int seed);
+
+    /** 原始算法（去 OLLVM，供对拍验证） */
+    public static native int nativeCore(int seed);
+
+    private Fk() {}
 }

@@ -6,7 +6,7 @@ package com.fatdog.reverse;
 // 任一环节缺失 → 静默投毒一字节。
 public class Wp {
     static {
-        System.loadLibrary("m9");
+        System.loadLibrary("felix");
     }
 
     private Wp() {

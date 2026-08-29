@@ -109,6 +109,18 @@
         <!-- 太玄之初 KL17：金蝉脱壳（二代壳 DEX 热加载 + 反调试） -->
         <activity android:name=".z54Activity" android:exported="false" />
 
+        <!-- 太玄之初 KL18：乾坤迷阵（OLLVM 控制流平坦化） -->
+        <activity android:name=".a55Activity" android:exported="false" />
+
+        <!-- 太玄之初 KL19：虚空造化（VMP 虚拟机保护） -->
+        <activity android:name=".b56Activity" android:exported="false" />
+
+        <!-- 太玄之初 KL20：破壁飞升（三代壳综合——收官卷） -->
+        <activity android:name=".c57Activity" android:exported="false" />
+
+        <!-- 天地秘境小说阅读器 -->
+        <activity android:name=".DivineStoryActivity" android:exported="false" />
+
         <!-- 关卡 6 的隐藏入口：exported=true，但大厅里没有任何按钮指向我 -->
         <activity android:name=".RewardActivity" android:exported="true" />
     </application>

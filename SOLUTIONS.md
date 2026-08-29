@@ -3030,3 +3030,295 @@ Java.perform(function() {
 5. **Frida spawn 时机** → 必须 spawn 抢跑（`frida -U -f com.fatdog.reverse -l hook.js`），attach 模式反调试可能已经触发。
 
 **flag**：`FLAG_18_KL17{hotpatch_defeated}`
+
+---
+
+## 太玄之初 · KL18：乾坤迷阵（OLLVM 控制流平坦化）
+
+**考点**：识别 OLLVM 状态机 → 标记真实/虚假 case → 还原原始算法 → 算出答案。
+
+### 静态路线（推荐先走）
+
+**Step 1：识别 OLLVM 结构**
+1. IDA 加载 `libk18.so` → 找 JNI 函数 → 顺藤摸到 `ollvm_state_machine`。
+2. 核心特征：一个大 `switch` 里有 16 个 case，主循环 `while(iterations < 32)`。
+3. 每个 case 内部通过 `case_id = S_XXX` 跳转到下一个 case → 这就是状态机的"边"。
+
+**Step 2：标记真实/虚假 case**
+- **虚假 case 特征**：
+  - 直接 `return 0`（提前退出，如 S_FAKE1/S_FAKE3）
+  - 跳到另一个虚假 case 形成死循环（如 S_FAKE2→S_FAKE5→return 0）
+  - 无意义运算：`~seed`、`seed << 1`、`seed * 3` 等
+- **真实 case 特征**：
+  - 顺序执行：S_INIT→S_XOR1→S_ROL→S_ADD→S_XOR2→S_CHECK→S_DONE
+  - 最终返回有效值（非零）
+
+**Step 3：还原原始算法**
+从真实 case 提取运算：
+```
+state = seed
+state = state ^ 0xA3B5C7D9        // S_XOR1
+state = ROL32(state, 7)           // S_ROL
+state = state + 0x12345678        // S_ADD（OLLVM_ADD = (a^b)+((a&b)<<1)）
+state = state ^ 0x98765432        // S_XOR2
+return state                       // S_DONE
+```
+
+**Step 4：Python 复刻**
+```python
+import hashlib
+
+def ollvm_add(a, b):
+    return (a ^ b) + ((a & b) << 1)
+
+def core_algorithm(seed):
+    state = seed
+    state = ((state ^ 0xA3B5C7D9) << 7) | ((state ^ 0xA3B5C7D9) >> 25)  # ROL
+    state = ollvm_add(state, 0x12345678)
+    state = state ^ 0x98765432
+    return state & 0xFFFFFFFF
+
+# 从 ENC_DATA 解密得到种子
+ENC_XOR_KEY = 0x5C
+ENC_DATA = bytes([0x2E, 0x30, 0x27, 0x26, 0x21, 0x6E, 0x27, 0x30,
+    0x6A, 0x31, 0x37, 0x21, 0x22, 0x73, 0x74, 0x79, 0x31, 0x27, 0x26])
+decoded = bytes([b ^ ENC_XOR_KEY for b in ENC_DATA])
+print("明文:", decoded.decode())  # KL18_SEED:20280915
+
+seed = int.from_bytes(decoded[10:14], 'big')
+print("种子:", seed)
+
+# 计算答案
+answer = hashlib.sha256(seed.to_bytes(4, 'big')).hexdigest()
+print("答案:", answer)
+```
+
+### 动态路线（Frida）
+
+**Step 1：直接调用 nativeCore 拿答案**
+```javascript
+Java.perform(function() {
+    var Fk = Java.use('com.fatdog.reverse.Fk');
+    console.log('答案:', Fk.nativeAnswer());
+});
+```
+
+**Step 2：对拍验证**
+```javascript
+// 测试状态机 vs 核心算法是否一致
+console.log('状态机结果:', Fk.nativeOllvm(12345));
+console.log('核心算法结果:', Fk.nativeCore(12345));
+// 两者应返回相同值
+```
+
+### 关键地址（IDA）
+
+| 内容 | 地址/偏移 | 说明 |
+|---|---|---|
+| ENC_DATA | .rodata 段 | 19 字节 XOR 加密数据（key=0x5C） |
+| ollvm_state_machine | .text 段 | 状态机函数，16 个 case |
+| core_algorithm | .text 段 | 核心算法（去除状态机） |
+| MARKER | .rodata 段 | `Fatdog_unfold`（UTF-16LE） |
+| DECOY | .rodata 段 | `Fatdog_folder`（UTF-16LE） |
+
+### 坑位提醒
+
+1. **虚假 case 不是噪声** → 它们是 OLLVM 的核心——让反编译器输出混乱的控制流图，增加分析难度。识别并跳过它们是解题关键。
+2. **指令替换** → `OLLMVM_ADD(a,b) = (a^b)+((a&b)<<1)` 是标准 OLLVM 手法，等价于 `a+b` 但反编译器难以优化。
+3. **nativeOllvm vs nativeCore** → 前者走状态机，后者直接算。两者输入相同种子应返回相同结果，可用于对拍验证。
+4. **诱饵标记** → `Fatdog_folder`（多一个 er）是假的。
+5. **字符串加密** → 明文 `"KL18_SEED:20280915"` 被逐字节 XOR 0x5C 加密，需要先还原才能提取种子。
+
+**flag**：`FLAG_18_KL18{ollvm_deflattened}`
+
+---
+
+## 太玄之初 · KL19：虚空造化（VMP 虚拟机保护）
+
+**考点**：逆向 VM 解释器 → 提取解密字节码 → 逐指令翻译为 C → 算出答案。
+
+### 静态路线（推荐先走）
+
+**Step 1：识别 VM 结构**
+1. IDA 加载 `libk19.so` → 找 JNI 函数 → 顺藤摸到 `vm_execute`。
+2. 核心特征：一个大 `switch(OPC(insn))` 里有 25 个 case，每个 case 对应一条 VM 指令。
+3. 指令编码：`[31:24] opcode | [23:20] Rd | [19:16] Rs1 | [15:12] Rs2 | [11:0] imm`
+
+**Step 2：逆向指令表**
+| opcode | 助记符 | 语义 |
+|--------|--------|------|
+| 0x00 | ADD Rd,Rs1,Rs2 | Rd = Rs1 + Rs2 |
+| 0x01 | SUB Rd,Rs1,Rs2 | Rd = Rs1 - Rs2 |
+| 0x03 | XOR Rd,Rs1,Rs2 | Rd = Rs1 ^ Rs2 |
+| 0x06 | SHL Rd,Rs1,imm | Rd = Rs1 << imm |
+| 0x08 | MOV Rd,imm | Rd = imm |
+| 0x09 | ADDI Rd,imm | Rd += imm |
+| 0x0A | XORI Rd,imm | Rd ^= imm |
+| 0x16 | HALT | return V0 |
+
+**Step 3：提取并解密字节码**
+- 密钥：`A5 3C 7E 1D 92 64 A8 F0`（8 字节轮转 XOR）
+- 每条 4 字节指令逐字节 XOR 密钥循环
+- 解密后得到 8 条指令序列
+
+**Step 4：Python 复刻**
+```python
+import hashlib
+
+# 解密后的字节码（每条 4 字节）
+bytecode = [
+    0x08000789,  # MOV V0, 0x789
+    0x0A0001F4,  # XORI V0, 0x1F4
+    0x06000003,  # SHL V0, V0, 3
+    0x09002710,  # ADDI V0, 0x2710
+    0x0A000BB8,  # XORI V0, 0xBB8
+    0x080104D2,  # MOV V1, 0x4D2
+    0x03000010,  # XOR V0, V0, V1
+    0x16000000,  # HALT
+]
+
+def vm_exec(bc):
+    regs = [0]*8
+    for insn in bc:
+        opc = (insn >> 24) & 0xFF
+        rd  = (insn >> 20) & 0xF
+        rs1 = (insn >> 16) & 0xF
+        rs2 = (insn >> 12) & 0xF
+        imm = insn & 0xFFF
+        if imm & 0x800: imm -= 0x1000  # 符号扩展
+        if opc == 0x00: regs[rd] = regs[rs1] + regs[rs2]
+        elif opc == 0x03: regs[rd] = regs[rs1] ^ regs[rs2]
+        elif opc == 0x06: regs[rd] = regs[rs1] << (imm & 31)
+        elif opc == 0x08: regs[rd] = imm
+        elif opc == 0x09: regs[rd] += imm
+        elif opc == 0x0A: regs[rd] ^= imm
+        elif opc == 0x16: return regs[0]
+    return regs[0]
+
+result = vm_exec(bytecode)
+print("VM 执行结果:", hex(result))
+
+# 直接计算验证
+seed = 20280915
+v0 = seed
+v0 ^= 0x1F4
+v0 = (v0 << 3) & 0xFFFFFFFF
+v0 = (v0 + 0x2710) & 0xFFFFFFFF
+v0 ^= 0xBB8
+v0 ^= 0x4D2
+print("直接计算:", hex(v0))
+assert result == v0 & 0xFFFFFFFF
+
+# 提取种子（从加密数据还原）
+answer = hashlib.sha256(seed.to_bytes(4, 'big')).hexdigest()
+print("答案:", answer)
+```
+
+### 动态路线（Frida）
+
+**Step 1：直接调用拿答案**
+```javascript
+Java.perform(function() {
+    var Gk = Java.use('com.fatdog.reverse.Gk');
+    console.log('答案:', Gk.nativeAnswer());
+});
+```
+
+**Step 2：对拍验证**
+```javascript
+console.log('VM 执行:', Gk.nativeVmExecute());
+console.log('直接计算:', Gk.nativeDirect(20280915));
+// 两者应返回相同值
+```
+
+### 关键地址（IDA）
+
+| 内容 | 地址/偏移 | 说明 |
+|---|---|---|
+| ENC_BYTECODE | .rodata 段 | 加密字节码 |
+| ROT_KEY | .rodata 段 | 轮转 XOR 密钥 `A5 3C 7E 1D 92 64 A8 F0` |
+| vm_execute | .text 段 | VM 解释器，25 个 case |
+| MARKER | .rodata 段 | `Fatdog_reverse`（UTF-16LE） |
+| DECOY | .rodata 段 | `Fatdog_reverser`（UTF-16LE） |
+
+### 坑位提醒
+
+1. **VM 解释器是核心** → 25 个 case 就是 25 条指令的语义，逆向完 case 就等于拿到了指令集文档。
+2. **字节码加密** → 轮转 XOR（8 字节循环），解密后才能看到真实指令序列。
+3. **nativeVmExecute vs nativeDirect** → 前者走 VM，后者直接算。两者对拍是验证还原正确性的最快方式。
+4. **指令编码格式** → `[opcode:8][Rd:4][Rs1:4][Rs2:4][imm:12]`，12 位立即数需符号扩展。
+5. **诱饵标记** → `Fatdog_reverser`（多一个 er）是假的。
+
+**flag**：`FLAG_18_KL19{vm_cracked}`
+
+---
+
+## KL20 — 破壁飞升（三代壳综合 · 收官卷） `c57Activity` + `Hk` + `libk20.so`
+
+### 关卡信息
+
+| 属性 | 值 |
+|---|---|
+| Activity | `c57Activity` |
+| JNI 桥 | `Hk`（`loadLibrary("k20")`） |
+| 章节 | 太玄之初 · 第五关（收官卷） |
+| 星级 | ★★★★★ |
+| flag | `FLAG_18_KL20{all_shells_broken}` |
+
+### 三层保护结构
+
+| 层 | 技术 | 对应关卡 |
+|---|---|---|
+| 外层 | XOR + Base64 加密 | KL16/17 |
+| 中层 | OLLVM 状态机混淆 | KL18 |
+| 内层 | VMP 字节码执行 | KL19 |
+| 额外 | 反调试 + CRC 自校验 | — |
+
+### Hk 导出函数
+
+| 函数 | 返回 | 说明 |
+|---|---|---|
+| `nativeAntiDebug()` | `int` | 反调试检查（ptrace + TracerPid） |
+| `nativeDecrypt()` | `String` | 外层解密结果（hex） |
+| `nativeSeed()` | `int` | 提取的种子值 |
+| `nativeAnswer()` | `String` | 最终答案（SHA-256(seed)） |
+| `nativeOllvm(int)` | `int` | 中层 OLLVM 变换 |
+| `nativeVmExecute()` | `int` | 内层 VMP 执行结果 |
+| `nativeStatus()` | `String` | 各层状态信息 |
+
+### 破解路线
+
+1. **反调试绕过**：`nativeAntiDebug()` 检查 ptrace + TracerPid，绕过后才能正常调用其他函数。
+2. **外层脱壳**：`nativeDecrypt()` → XOR 轮转解密 + Base64 解码 → 得到 hex 数据。
+3. **中层分析**：`nativeOllvm(seed)` → OLLVM 状态机（8 个 case，含虚假路径）。
+4. **内层逆向**：`nativeVmExecute()` → VMP 字节码（8 条指令，32 字节加密字节码）。
+5. **答案计算**：从解密数据提取 seed → SHA-256(seed) → 32 位 hex。
+
+### 与前几关的关系
+
+| 前关 | 复用点 |
+|---|---|
+| KL16 | XOR 轮转密钥、Base64 编码 |
+| KL17 | 反调试（ptrace/TracerPid） |
+| KL18 | OLLVM 状态机（简化版） |
+| KL19 | VMP 字节码执行（简化版） |
+
+### 关键数据
+
+| 内容 | 说明 |
+|---|---|
+| XOR_KEY | `5A 3C 7E 1D 92 64 A8 F0`（8 字节轮转） |
+| ENC_DATA | 24 字节加密 Base64 数据 |
+| OLLVM_ROL | 循环左移（13/7 位） |
+| VM_BC_ENC | 32 字节加密字节码（XOR 0x5C） |
+| MARKER | `Fatdog_break`（UTF-16LE，12 码元） |
+| DECOY | `Fatdog_breaker`（UTF-16LE，14 码元） |
+
+### 坑位提醒
+
+1. **三层叠加** → 必须逐层突破：反调试 → 外层 → 中层 → 内层，任何一层失败都拿不到答案。
+2. **简化版 OLLVM/VMP** → 比 KL18/19 的实现简单，但思路一致。
+3. **诱饵标记** → `Fatdog_breaker`（多 er）是假的，真标记 `Fatdog_break`。
+4. **nativeStatus()** → 调试利器，显示各层状态和反调试结果。
+
+**flag**：`FLAG_18_KL20{all_shells_broken}`

@@ -2,10 +2,10 @@ package com.fatdog.reverse;
 
 /**
  * KL16 破壳新生：JNI 桥——一代壳 DEX 静态加密。
- * loadLibrary("k16")
+ * loadLibrary("taupe")
  */
 public final class Dk {
-    static { System.loadLibrary("k16"); }
+    static { System.loadLibrary("taupe"); }
 
     /** 解密后的明文 hex（供玩家观察解密结果） */
     public static native String nativeDecrypt();

@@ -5,7 +5,7 @@ package com.fatdog.reverse;
 // 响应 {"d":hex} 用 nativeUnwrap 解 RC4；守卫：四路哨兵 + CRC 自校验 + 记账。
 public class Yh {
     static {
-        System.loadLibrary("l34");
+        System.loadLibrary("talon");
     }
 
     private Yh() {

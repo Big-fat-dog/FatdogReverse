@@ -5,7 +5,7 @@ package com.fatdog.reverse;
 // 被换过血，标准 SM4 解不开它自己加密的密文。钥匙由标记运行时派生。
 public class Uq {
     static {
-        System.loadLibrary("m3");
+        System.loadLibrary("ivory");
     }
 
     private Uq() {

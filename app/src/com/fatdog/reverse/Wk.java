@@ -7,7 +7,7 @@ package com.fatdog.reverse;
 // HMAC 密钥前半仍按惯例异或藏匿，后半在 Xh。
 public class Wk {
     static {
-        System.loadLibrary("m6");
+        System.loadLibrary("pearl");
     }
 
     private Wk() {

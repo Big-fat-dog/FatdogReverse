@@ -4,7 +4,7 @@ package com.fatdog.reverse;
 // 挂着 Frida 时密钥被静默改一个字节（全部错签）；isPoisoned 供 App 弹一次警告窗。
 public class Bt {
     static {
-        System.loadLibrary("l32");
+        System.loadLibrary("raven");
     }
 
     private Bt() {

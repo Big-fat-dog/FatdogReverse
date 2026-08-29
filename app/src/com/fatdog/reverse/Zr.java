@@ -5,7 +5,7 @@ package com.fatdog.reverse;
 // 之后每次签名/加密 native 都回调 Ke.partA 取件：单看任何一侧都拿不到完整密钥。
 public class Zr {
     static {
-        System.loadLibrary("l31");
+        System.loadLibrary("quill");
         bindKeyClass(com.fatdog.reverse.q.Ke.class);
     }
 

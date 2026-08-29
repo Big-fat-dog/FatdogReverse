@@ -5,7 +5,7 @@ package com.fatdog.reverse;
 // 标准 RC4 解不开它自己加密的密文。钥匙由标记运行时派生。
 public class Vr {
     static {
-        System.loadLibrary("m4");
+        System.loadLibrary("jade");
     }
 
     private Vr() {

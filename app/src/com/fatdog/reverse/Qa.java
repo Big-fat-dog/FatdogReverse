@@ -5,7 +5,7 @@ package com.fatdog.reverse;
 // hashlib 对不上不是 bug，是"雪崩"本身。
 public class Qa {
     static {
-        System.loadLibrary("l37");
+        System.loadLibrary("wyvern");
     }
 
     private Qa() {

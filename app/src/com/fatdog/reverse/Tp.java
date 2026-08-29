@@ -5,7 +5,7 @@ package com.fatdog.reverse;
 // S3 盒两值换位，标准 DES 库解不开它自己加密的密文。钥匙由标记运行时派生。
 public class Tp {
     static {
-        System.loadLibrary("m2");
+        System.loadLibrary("frost");
     }
 
     private Tp() {

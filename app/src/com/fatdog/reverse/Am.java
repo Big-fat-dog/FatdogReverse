@@ -2,7 +2,7 @@ package com.fatdog.reverse;
 
 /**
  * KL15 万法归宗：JNI 桥——多阶段谜题。
- * loadLibrary("m14")
+ * loadLibrary("shale")
  *
  * 四个独立入口，不再是简单的 guard→answer：
  *   computeA() → 阶段 A 种子值
@@ -11,7 +11,7 @@ package com.fatdog.reverse;
  *   verify(a,b,c) → 三值全对返回 1
  */
 public final class Am {
-    static { System.loadLibrary("m14"); }
+    static { System.loadLibrary("shale"); }
 
     /** 综合校验（兼容旧接口）：反调试+CRC，返回 1=通过, -1=反调试, -2=CRC */
     public static native int nativeGuard(int input);

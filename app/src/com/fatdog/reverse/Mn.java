@@ -5,7 +5,7 @@ package com.fatdog.reverse;
 // （Base64 不是加密）。mac 钥匙由标记运行时派生。
 public class Mn {
     static {
-        System.loadLibrary("l36");
+        System.loadLibrary("vigor");
     }
 
     private Mn() {

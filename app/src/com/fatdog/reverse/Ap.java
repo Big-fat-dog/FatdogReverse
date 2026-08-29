@@ -5,7 +5,7 @@ package com.fatdog.reverse;
 // patch 任何指令都会改变 CRC → 校验失败 → 静默返回 0。
 public class Ap {
     static {
-        System.loadLibrary("m12");
+        System.loadLibrary("mantis");
     }
 
     private Ap() {
