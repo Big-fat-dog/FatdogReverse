@@ -2820,3 +2820,213 @@ print(total)   # 48865
 **动态路线**：jadx 从 o44Activity 顺藤摸到 Tp/Vq——Frida `Java.use('com.fatdog.reverse.Tp')` 直接调用 nativeEncDes/nativeSign 拿现成参数对拍或转发；IDA 路线则从 S1 盒 xref 定位 m2 的 Feistel 函数与子密钥编排，对比 IP 表开头（57,50,42,34 ≠ 标准 58,50,42,34）即实锤第一处魔改。
 
 **坑位提醒**：`Ww.FAKE_KEY = Fatdog_scatter` 与真标记一字之差（命中即 403）；`strings libm2.so` 默认看不见真标记，要 `-el`；别把 `m2_decoy_seal` 的密文当宝；用标准 pycryptodome 3DES 构造的请求服务端解不开（返回 nums 空数组）——这正是"必须还原魔改点"的反证。答案：加和 `48865`；flag `FLAG_18_KL7{soul_box_shattered}`
+
+---
+
+## 太玄之初 · KL16：破壳新生（一代壳 DEX 静态加密）
+
+**考点**：识别 APK 壳类型 → 追踪 Application 入口 → 逆向 so 中的解密算法 → Python 复刻还原 DEX。
+
+### 静态路线（推荐先走）
+
+**Step 1：识别壳**
+1. jadx 打开 APK → 只能看到壳的 Application 类（`android:name` 指向壳入口）。
+2. `AndroidManifest.xml` 中 `application` 节点的 `android:name` 不是项目自己的 Activity，而是一个"奇怪"的类名 → 实锤加壳。
+3. 用 `apktool d FatdogReverse.apk -o out` 解包，查看 `lib/` 目录下有 `libk16.so` → 壳的核心逻辑在 native 层。
+
+**Step 2：追踪解密入口**
+1. jadx 搜索 `attachBaseContext` → 找到壳的 Application 类。
+2. `attachBaseContext` 内部调用了一个 native 方法 → 这就是解密入口。
+3. 搜索 `System.loadLibrary` → 加载的是 `k16` → 对应 `libk16.so`。
+
+**Step 3：IDA 逆向 libk16.so**
+1. IDA 加载 `libk16.so`（arm64-v8a）。
+2. 搜索字符串 `Fatdog_pack` → 定位到 `.rodata` 段 → 这是真标记（诱饵 `Fatdog_packer` 也在附近）。
+3. 从 JNI_OnLoad 或 `Java_com_fatdog_reverse_Dk_*` 函数入手 → 找到 `decrypt` 函数。
+4. 分析 `decrypt` 函数：
+   - 第一轮：每个字节 XOR `XOR_KEY[i % 8]`（密钥 `5A 3C 7E 1D 92 64 A8 F0`）
+   - 第二轮：循环左移 3 位（`out[i] = (out[i] << 3) | (out[i] >> 5)`）
+   - 第三轮：每 8 字节组内 XOR 累积（`acc = XOR(组内所有字节)`，再 XOR 每个字节）
+5. 密钥 `XOR_KEY` 在 `.rodata` 段以全局数组形式存在 → `strings -el libk16.so` 可以看到。
+
+**Step 4：Python 复刻**
+```python
+import hashlib
+
+XOR_KEY = bytes([0x5A, 0x3C, 0x7E, 0x1D, 0x92, 0x64, 0xA8, 0xF0])
+
+# 从 IDA 或 Frida 拿到的加密数据
+ENC_DEX = bytes([
+    0x7C, 0x1A, 0x0E, 0x65, 0x2D, 0x4F, 0xC3, 0xB8,
+    0x91, 0xD7, 0x3E, 0xA2, 0x54, 0x86, 0xFB, 0x09,
+    0xC5, 0x73, 0x1D, 0xAE, 0x48, 0xBF, 0x62, 0x30,
+    0xE7, 0x9C, 0x55, 0x8A, 0x13, 0xD6, 0x7F, 0x41
+])
+
+def decrypt(enc):
+    # 第一轮：XOR + rotate
+    dec = bytearray(len(enc))
+    for i in range(len(enc)):
+        dec[i] = enc[i] ^ XOR_KEY[i % 8]
+        dec[i] = ((dec[i] << 3) | (dec[i] >> 5)) & 0xFF
+    # 第二轮：组内 XOR 累积
+    for i in range(0, len(dec), 8):
+        acc = 0
+        for j in range(8):
+            if i + j < len(dec):
+                acc ^= dec[i + j]
+        for j in range(8):
+            if i + j < len(dec):
+                dec[i + j] ^= acc
+    return bytes(dec)
+
+decrypted = decrypt(ENC_DEX)
+print("解密结果:", decrypted)
+# 前10字节 ASCII = "KL16_SEED:"，接下来4字节 = 种子值
+
+seed = int.from_bytes(decrypted[10:14], 'big')
+print("种子:", seed)
+
+# SHA-256(seed) 得答案
+answer = hashlib.sha256(seed.to_bytes(4, 'big')).hexdigest()
+print("答案:", answer)
+```
+
+**Step 5：提交答案**
+- 将 Python 算出的 32 位 hex 答案填入 App 的输入框 → 点击"提交" → 通过。
+
+### 动态路线（Frida）
+
+**Step 1：Hook 解密函数**
+```javascript
+Java.perform(function() {
+    var Dk = Java.use('com.fatdog.reverse.Dk');
+    console.log('解密结果:', Dk.nativeDecrypt());
+    console.log('种子:', Dk.nativeSeed());
+    console.log('答案:', Dk.nativeAnswer());
+});
+```
+
+**Step 2：直接拿答案**
+- Frida 控制台输出的 `nativeAnswer()` 就是最终答案 → 直接填入提交。
+
+### 关键地址（IDA）
+
+| 内容 | 地址/偏移 | 说明 |
+|---|---|---|
+| XOR_KEY | .rodata 段 | `5A 3C 7E 1D 92 64 A8 F0` |
+| ENC_DEX | .rodata 段 | 32 字节加密数据 |
+| decrypt() | .text 段 | 解密函数，可从 JNI 函数 xref 找到 |
+| MARKER | .rodata 段 | `Fatdog_pack`（UTF-16LE） |
+| DECOY | .rodata 段 | `Fatdog_packer`（UTF-16LE） |
+
+### 坑位提醒
+
+1. **不要直接看 Application 类** → 壳的 Application 只是 stub，真实代码在加密的 DEX 中。
+2. **XOR_KEY 不在 Java 层** → 密钥硬编码在 so 的 .rodata 段，Java 层看不到。
+3. **解密有三轮** → 只做 XOR 不够，还有循环移位和组内累积，少一步结果都不对。
+4. **诱饵标记** → `Fatdog_packer`（多一个 er）是假的，用它计算会得到错误答案。
+5. **加密数据的位置** → 在 so 的 .rodata 段全局数组中，不在 assets 里（简化设计）。
+
+**flag**：`FLAG_18_KL16{shell_broken}`
+
+---
+
+## 太玄之初 · KL17：金蝉脱壳（二代壳 DEX 热加载 + 反调试）
+
+**考点**：识别反调试机制 → 绕过三重检测 → 分析解密逻辑 → 算出答案。
+
+### 静态路线（推荐先走）
+
+**Step 1：识别反调试**
+1. IDA 加载 `libk17.so` → 搜索字符串 `TracerPid` / `27042` / `ptrace` → 定位反调试函数。
+2. `JNI_OnLoad` 中调用 `save_prologue()`（反 hook）+ 初始化 CRC 基线。
+3. 导出函数 `nativeAntiDebug` 内部依次调用三个检测：
+   - `check_ptrace()`：fork 子进程 → `ptrace(PTRACE_TRACEME)` 占坑
+   - `check_tracer_pid()`：读 `/proc/self/status` → 解析 `TracerPid:` 行
+   - `check_frida_port()`：`connect(127.0.0.1:27042)` 探测 Frida 端口
+
+**Step 2：绕过反调试**
+- **Frida 路线**（推荐）：spawn 抢跑 → hook 三个检测函数强制返回正确值
+  ```javascript
+  // hook ptrace：强制返回 0（成功）
+  Interceptor.attach(Module.findExportByName('libc.so', 'ptrace'), {
+      onEnter: function(args) { args[0] = 0; },  // PTRACE_TRACEME = 0
+      onLeave: function(retval) { retval.replace(0); }
+  });
+  // hook connect：端口 27042 时强制返回 -1（连接失败 = 没有 Frida）
+  Interceptor.attach(Module.findExportByName('libc.so', 'connect'), {
+      onEnter: function(args) {
+          var port = (args[2].readU16() << 8) | args[2].readU8(1);
+          this.isFrida = (port === 27042);
+      },
+      onLeave: function(retval) {
+          if (this.isFrida) retval.replace(-1);
+      }
+  });
+  ```
+- **patch 路线**：nop 掉三处检测调用 + nop mmap 比对
+
+**Step 3：分析解密逻辑**
+1. `nativeDecrypt` 函数：先 XOR 还原 Base64 → 再 Base64 解码 → 得明文 `"KL17_SEED:20280703"`
+2. 密钥 `XOR_KEY` 在 .rodata 段：`3B 7A 2E C1 58 0F 94 D6`
+3. `nativeSeed`：从解密结果第 11 字节取 4 字节作为种子
+4. `nativeAnswer`：`SHA-256(seed_bytes)` 全文 hex
+
+**Step 4：Python 复刻**
+```python
+import hashlib, base64
+
+XOR_KEY = bytes([0x3B, 0x7A, 0x2E, 0xC1, 0x58, 0x0F, 0x94, 0xD6])
+ENC_DEX = bytes([
+    0x51, 0x2E, 0x4A, 0x08, 0x6E, 0x53, 0x7B, 0x1D,
+    0x48, 0x3F, 0x25, 0x5A, 0x72, 0x61, 0x0C, 0x3E,
+    0x6B, 0x4D, 0x78, 0x2A, 0x15, 0x59, 0x3C, 0x07
+])
+
+# 第一轮：XOR 还原 Base64
+xored = bytes([ENC_DEX[i] ^ XOR_KEY[i % 8] for i in range(len(ENC_DEX))])
+# Base64 解码
+decoded = base64.b64decode(xored)
+print("明文:", decoded.decode())  # KL17_SEED:20280703
+
+seed = int.from_bytes(decoded[11:15], 'big')
+print("种子:", seed)
+
+answer = hashlib.sha256(seed.to_bytes(4, 'big')).hexdigest()
+print("答案:", answer)
+```
+
+### 动态路线（Frida）
+
+**Step 1：绕过反调试后直接调用**
+```javascript
+Java.perform(function() {
+    // 先绕过反调试（见上文 hook 代码）
+    var Ek = Java.use('com.fatdog.reverse.Ek');
+    console.log('状态:', Ek.nativeStatus());
+    console.log('答案:', Ek.nativeAnswer());
+});
+```
+
+### 关键地址（IDA）
+
+| 内容 | 地址/偏移 | 说明 |
+|---|---|---|
+| XOR_KEY | .rodata 段 | `3B 7A 2E C1 58 0F 94 D6` |
+| ENC_DEX | .rodata 段 | 24 字节 Base64+XOR 加密数据 |
+| check_ptrace | .text 段 | 反调试①：ptrace 占坑 |
+| check_tracer_pid | .text 段 | 反调试②：读 TracerPid |
+| check_frida_port | .text 段 | 反调试③：探 27042 端口 |
+| MARKER | .rodata 段 | `Fatdog_unpack`（UTF-16LE） |
+| DECOY | .rodata 段 | `Fatdog_unpacker`（UTF-16LE） |
+
+### 坑位提醒
+
+1. **三重反调试缺一不可** → 只绕过 ptrace 不够，TracerPid 和 Frida 端口也要处理。
+2. **反 hook 检测** → `save_prologue` 在 `JNI_OnLoad` 里保存函数头，定时比对；Frida inline hook 会被抓。
+3. **解密两层** → 先 XOR 还原 Base64，再 Base64 解码，少一层得不到明文。
+4. **诱饵标记** → `Fatdog_unpacker`（多一个 er）是假的。
+5. **Frida spawn 时机** → 必须 spawn 抢跑（`frida -U -f com.fatdog.reverse -l hook.js`），attach 模式反调试可能已经触发。
+
+**flag**：`FLAG_18_KL17{hotpatch_defeated}`

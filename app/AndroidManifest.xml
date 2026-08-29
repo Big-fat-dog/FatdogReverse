@@ -94,6 +94,21 @@
         <!-- 幽冥海 KL12：移花接木（Frida hook 入门） -->
         <activity android:name=".t49Activity" android:exported="false" />
 
+        <!-- 幽冥海 KL13：声东击西（CRC 自校验反 patch） -->
+        <activity android:name=".u50Activity" android:exported="false" />
+
+        <!-- 幽冥海 KL14：偷天换日（多 so 交叉验证） -->
+        <activity android:name=".v51Activity" android:exported="false" />
+
+        <!-- 幽冥海 KL15：万法归宗（综合收官卷） -->
+        <activity android:name=".x52Activity" android:exported="false" />
+
+        <!-- 太玄之初 KL16：破壳新生（一代壳 DEX 静态加密） -->
+        <activity android:name=".y53Activity" android:exported="false" />
+
+        <!-- 太玄之初 KL17：金蝉脱壳（二代壳 DEX 热加载 + 反调试） -->
+        <activity android:name=".z54Activity" android:exported="false" />
+
         <!-- 关卡 6 的隐藏入口：exported=true，但大厅里没有任何按钮指向我 -->
         <activity android:name=".RewardActivity" android:exported="true" />
     </application>

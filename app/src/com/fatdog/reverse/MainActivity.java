@@ -442,7 +442,7 @@ public class MainActivity extends Activity {
         LinearLayout cats = new LinearLayout(this);
         cats.setOrientation(LinearLayout.HORIZONTAL);
         cats.setPadding(Ui.dp(4), Ui.dp(12), Ui.dp(4), Ui.dp(4));
-        final String[] catNames = {"昆仑山", "流沙河", "幽冥海"};
+        final String[] catNames = {"昆仑山", "流沙河", "幽冥海", "太玄之初"};
         for (int i = 0; i < catNames.length; i++) {
             final int idx = i;
             TextView chip = new TextView(this);
@@ -539,9 +539,9 @@ public class MainActivity extends Activity {
                     }
                 });
             }
-        } else {
+        } else if (kunlunCat == 2) {
             /* 幽冥海：KL11 起，SO patch 对抗 */
-            String[] names = {"偷梁换柱", "移花接木"};
+            String[] names = {"偷梁换柱", "移花接木", "声东击西", "偷天换日", "万法归宗"};
             for (int i = 0; i < names.length; i++) {
                 final int kl = 11 + i;
                 boolean open = PassLog.isDone(this, "KL" + kl);
@@ -555,7 +555,35 @@ public class MainActivity extends Activity {
                 lp.topMargin = Ui.dp(12);
                 list.addView(b, lp);
                 final Class<?> target = kl == 11 ? s48Activity.class
-                        : (kl == 12 ? t49Activity.class : null);
+                        : (kl == 12 ? t49Activity.class
+                        : (kl == 13 ? u50Activity.class
+                        : (kl == 14 ? v51Activity.class
+                        : (kl == 15 ? x52Activity.class : null))));
+                if (target != null) {
+                    b.setOnClickListener(new View.OnClickListener() {
+                        @Override public void onClick(View v) {
+                            startActivity(new Intent(MainActivity.this, target));
+                        }
+                    });
+                }
+            }
+        } else if (kunlunCat == 3) {
+            /* 太玄之初：KL16 起，三代壳保护 */
+            String[] names = {"破壳新生", "金蝉脱壳"};
+            for (int i = 0; i < names.length; i++) {
+                final int kl = 16 + i;
+                boolean open = PassLog.isDone(this, "KL" + kl);
+                Button b = new Button(this);
+                b.setText("KL" + kl + " · " + names[i] + (open ? " ✔" : ""));
+                b.setEnabled(kl == 16 || PassLog.isDone(this, "KL" + (kl - 1)));
+                b.setAlpha(b.isEnabled() ? 1f : 0.55f);
+                Ui.styleButton(b);
+                LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+                lp.topMargin = Ui.dp(12);
+                list.addView(b, lp);
+                final Class<?> target = kl == 16 ? y53Activity.class
+                        : (kl == 17 ? z54Activity.class : null);
                 if (target != null) {
                     b.setOnClickListener(new View.OnClickListener() {
                         @Override public void onClick(View v) {

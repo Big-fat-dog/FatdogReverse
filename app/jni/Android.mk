@@ -162,3 +162,50 @@ include $(CLEAR_VARS)
 LOCAL_MODULE := m11
 LOCAL_SRC_FILES := m11.c
 include $(BUILD_SHARED_LIBRARY)
+
+# 幽冥海 KL13：声东击西（反 patch 对抗：CRC 自校验）
+include $(CLEAR_VARS)
+LOCAL_MODULE    := m12
+LOCAL_SRC_FILES := m12.c
+LOCAL_LDLIBS    := -llog
+include $(BUILD_SHARED_LIBRARY)
+
+# 幽冥海 KL14：偷天换日（多 so 交叉验证）
+include $(CLEAR_VARS)
+LOCAL_MODULE    := m13a
+LOCAL_SRC_FILES := m13a.c
+LOCAL_LDLIBS    := -llog -ldl
+include $(BUILD_SHARED_LIBRARY)
+
+include $(CLEAR_VARS)
+LOCAL_MODULE    := m13b
+LOCAL_SRC_FILES := m13b.c
+LOCAL_LDLIBS    := -llog -ldl
+include $(BUILD_SHARED_LIBRARY)
+
+include $(CLEAR_VARS)
+LOCAL_MODULE    := m13c
+LOCAL_SRC_FILES := m13c.c
+LOCAL_LDLIBS    := -llog -ldl
+include $(BUILD_SHARED_LIBRARY)
+
+# 幽冥海 KL15：万法归宗（综合收官卷）
+include $(CLEAR_VARS)
+LOCAL_MODULE    := m14
+LOCAL_SRC_FILES := m14.c
+LOCAL_LDLIBS    := -llog
+include $(BUILD_SHARED_LIBRARY)
+
+# 太玄之初 KL16：破壳新生（一代壳 DEX 静态加密）
+include $(CLEAR_VARS)
+LOCAL_MODULE    := k16
+LOCAL_SRC_FILES := k16.c
+LOCAL_LDLIBS    := -llog
+include $(BUILD_SHARED_LIBRARY)
+
+# 太玄之初 KL17：金蝉脱壳（二代壳 DEX 热加载 + 反调试）
+include $(CLEAR_VARS)
+LOCAL_MODULE    := k17
+LOCAL_SRC_FILES := k17.c
+LOCAL_LDLIBS    := -llog
+include $(BUILD_SHARED_LIBRARY)
