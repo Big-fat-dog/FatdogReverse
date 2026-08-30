@@ -34,6 +34,7 @@ def find_sdk():
             return v
     guesses = [
         os.path.expandvars(r'%LOCALAPPDATA%\Android\Sdk'),
+        r'D:\Andorid\SDK',
         r'C:\Android\Sdk', r'C:\Android', r'E:\Android\Sdk', r'D:\Android\Sdk',
         os.path.expanduser('~/Android/Sdk'),
     ]

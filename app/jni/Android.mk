@@ -229,3 +229,15 @@ LOCAL_MODULE := delta
 LOCAL_SRC_FILES := delta.c
 LOCAL_LDLIBS := -llog
 include $(BUILD_SHARED_LIBRARY)
+
+# KL21
+include $(CLEAR_VARS)
+LOCAL_MODULE := fox
+LOCAL_SRC_FILES := fox.c
+include $(BUILD_SHARED_LIBRARY)
+
+# KL22
+include $(CLEAR_VARS)
+LOCAL_MODULE := owl
+LOCAL_SRC_FILES := owl.c
+include $(BUILD_SHARED_LIBRARY)

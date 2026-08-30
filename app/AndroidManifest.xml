@@ -117,6 +117,8 @@
 
         <!-- 太玄之初 KL20：破壁飞升（三代壳综合——收官卷） -->
         <activity android:name=".c57Activity" android:exported="false" />
+        <activity android:name=".c58Activity" android:exported="false" />
+        <activity android:name=".d59Activity" android:exported="false" />
 
         <!-- 天地秘境小说阅读器 -->
         <activity android:name=".DivineStoryActivity" android:exported="false" />

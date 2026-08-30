@@ -442,7 +442,7 @@ public class MainActivity extends Activity {
         LinearLayout cats = new LinearLayout(this);
         cats.setOrientation(LinearLayout.HORIZONTAL);
         cats.setPadding(Ui.dp(4), Ui.dp(12), Ui.dp(4), Ui.dp(4));
-        final String[] catNames = {"昆仑山", "流沙河", "幽冥海", "太玄之初"};
+        final String[] catNames = {"昆仑山", "流沙河", "幽冥海", "太玄之初", "扶桑树"};
         for (int i = 0; i < catNames.length; i++) {
             final int idx = i;
             TextView chip = new TextView(this);
@@ -587,6 +587,32 @@ public class MainActivity extends Activity {
                         : (kl == 18 ? a55Activity.class
                         : (kl == 19 ? b56Activity.class
                         : (kl == 20 ? c57Activity.class : null))));
+                if (target != null) {
+                    b.setOnClickListener(new View.OnClickListener() {
+                        @Override public void onClick(View v) {
+                            startActivity(new Intent(MainActivity.this, target));
+                        }
+                    });
+                }
+            }
+        } else if (kunlunCat == 4) {
+            /* 扶桑树：KL21 起，Frida 检测对抗 */
+            String[] names = {"枯叶听风", "落影寻痕"};
+            int[] klNums = {21, 22};
+            for (int i = 0; i < names.length; i++) {
+                final int kl = klNums[i];
+                boolean open = PassLog.isDone(this, "KL" + kl);
+                Button b = new Button(this);
+                b.setText("KL" + kl + " · " + names[i] + (open ? " ✔" : ""));
+                b.setEnabled(kl == 21 || PassLog.isDone(this, "KL" + (kl - 1)));
+                b.setAlpha(b.isEnabled() ? 1f : 0.55f);
+                Ui.styleButton(b);
+                LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+                lp.topMargin = Ui.dp(12);
+                list.addView(b, lp);
+                final Class<?> target = kl == 21 ? c58Activity.class
+                        : (kl == 22 ? d59Activity.class : null);
                 if (target != null) {
                     b.setOnClickListener(new View.OnClickListener() {
                         @Override public void onClick(View v) {
