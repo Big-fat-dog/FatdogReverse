@@ -1,0 +1,13 @@
+syntax = "proto3";
+package fatdog.kl30;
+
+message PageRequest {
+    uint32 page = 1;
+    uint64 ts   = 2;
+}
+
+message PageResponse {
+    uint32         code = 1;
+    repeated int32 nums = 2;
+    bytes          sign = 3;
+}

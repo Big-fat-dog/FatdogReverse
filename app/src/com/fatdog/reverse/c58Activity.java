@@ -48,7 +48,7 @@ public class c58Activity extends Activity {
                 + "两路 Frida 检测（OR 判定）：\n"
                 + "  ① 端口探测：connect 27042/27043/27044\n"
                 + "  ② D-Bus 指纹：解析 /proc/net/tcp\n\n"
-                + "标记：Fatdog_breeze（真）/ Fatdog_gust（假）");
+                + "标记：两个标记一真一假，需仔细辨别");
         tv.setGravity(Gravity.CENTER);
         root.addView(tv, Ui.wrap(6));
 
@@ -120,7 +120,7 @@ public class c58Activity extends Activity {
                                 + "  • IDA 分析 → 提取 SHA-256(SEED)\n"
                                 + "  • SEED = 20280715\n"
                                 + "  • 答案 = sha256(0x{SEED的4字节大端表示})\n\n"
-                                + "注意诱饵 Fatdog_gust（少 r），真标记 Fatdog_breeze。")
+                                + "注意两个标记中有一个是诱饵，仔细对比拼写差异。")
                         .setPositiveButton("知道了", null)
                         .show();
             }

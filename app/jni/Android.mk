@@ -241,3 +241,51 @@ include $(CLEAR_VARS)
 LOCAL_MODULE := owl
 LOCAL_SRC_FILES := owl.c
 include $(BUILD_SHARED_LIBRARY)
+
+# KL23
+include $(CLEAR_VARS)
+LOCAL_MODULE := sun
+LOCAL_SRC_FILES := sun.c
+include $(BUILD_SHARED_LIBRARY)
+
+# KL24
+include $(CLEAR_VARS)
+LOCAL_MODULE := ice
+LOCAL_SRC_FILES := ice.c
+include $(BUILD_SHARED_LIBRARY)
+
+# KL25
+include $(CLEAR_VARS)
+LOCAL_MODULE := mist
+LOCAL_SRC_FILES := mist.c
+include $(BUILD_SHARED_LIBRARY)
+
+# KL26
+include $(CLEAR_VARS)
+LOCAL_MODULE := dusk
+LOCAL_SRC_FILES := dusk.c
+include $(BUILD_SHARED_LIBRARY)
+
+# KL27
+include $(CLEAR_VARS)
+LOCAL_MODULE := veil
+LOCAL_SRC_FILES := veil.c
+include $(BUILD_SHARED_LIBRARY)
+
+# KL28
+include $(CLEAR_VARS)
+LOCAL_MODULE := snow
+LOCAL_SRC_FILES := snow.c
+include $(BUILD_SHARED_LIBRARY)
+
+# KL29
+include $(CLEAR_VARS)
+LOCAL_MODULE := tide
+LOCAL_SRC_FILES := tide.c
+include $(BUILD_SHARED_LIBRARY)
+
+# KL30
+include $(CLEAR_VARS)
+LOCAL_MODULE := loom
+LOCAL_SRC_FILES := loom.c
+include $(BUILD_SHARED_LIBRARY)

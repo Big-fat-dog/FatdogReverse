@@ -119,6 +119,14 @@
         <activity android:name=".c57Activity" android:exported="false" />
         <activity android:name=".c58Activity" android:exported="false" />
         <activity android:name=".d59Activity" android:exported="false" />
+        <activity android:name=".e60Activity" android:exported="false" />
+        <activity android:name=".f61Activity" android:exported="false" />
+        <activity android:name=".g62Activity" android:exported="false" />
+        <activity android:name=".h63Activity" android:exported="false" />
+        <activity android:name=".i64Activity" android:exported="false" />
+        <activity android:name=".j65Activity" android:exported="false" />
+        <activity android:name=".tideActivity" android:exported="false" />
+        <activity android:name=".loomActivity" android:exported="false" />
 
         <!-- 天地秘境小说阅读器 -->
         <activity android:name=".DivineStoryActivity" android:exported="false" />

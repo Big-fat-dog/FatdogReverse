@@ -14,20 +14,18 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 /**
- * 扶桑树 KL22 落影寻痕：/proc/self/fd 扫描 + maps 搜索。
- * libowl.so 导出五个函数：
- *   int    nativeFridaDetect()  — 综合检测（fd+maps，OR 判定）
- *   int    nativeFdScan()       — fd 扫描子结果
- *   int    nativeMapsScan()     — maps 搜索子结果
+ * 扶桑树 KL25 暮雾锁听：三重检测 NAND 判定。
+ * libmist.so 导出六个函数：
+ *   int    nativeMapsFrida()    — maps 特征搜索
+ *   int    nativeOpenHook()     — open hook 检测
+ *   int    nativeAuxvHook()     — auxv hook 检测
+ *   int    nativeFridaDetect()  — 综合检测（NAND）
  *   String nativeAnswer()       — 最终答案
  *   String nativeStatus()       — 检测详情
  *
- * 破解路线：① hook nativeFridaDetect 返回 0
- *           ② hook readlinkat 返回假路径
- *           ③ hook opendir 过滤 fd
- *           ④ 静态复刻：IDA 提取 SHA-256(SEED=20280716)
+ * 关键创新：NAND 判定（只有三路全部触发才判定）
  */
-public class d59Activity extends Activity {
+public class g62Activity extends Activity {
 
     @Override protected void onCreate(Bundle b) {
         super.onCreate(b);
@@ -38,16 +36,18 @@ public class d59Activity extends Activity {
         root.setPadding(Ui.dp(16), Ui.dp(20), Ui.dp(16), Ui.dp(12));
 
         TextView tv = new TextView(this);
-        tv.setText("KL22 · 落影寻痕（★★ fd 层检测）\n\n"
-                + "libowl.so 导出五个函数：\n"
+        tv.setText("KL25 · 暮雾锁听（★★★ NAND 判定）\n\n"
+                + "libmist.so 导出六个函数：\n"
+                + "  int    nativeMapsFrida()\n"
+                + "  int    nativeOpenHook()\n"
+                + "  int    nativeAuxvHook()\n"
                 + "  int    nativeFridaDetect()\n"
-                + "  int    nativeFdScan()\n"
-                + "  int    nativeMapsScan()\n"
                 + "  String nativeAnswer()\n"
                 + "  String nativeStatus()\n\n"
-                + "两路 Frida 检测（OR 判定）：\n"
-                + "  ① fd 扫描：readlink /proc/self/fd → memfd:frida-agent\n"
-                + "  ② maps 搜索：/proc/self/maps 含 frida 字符串\n\n"
+                + "NAND 判定（只有三路全部触发才判定）：\n"
+                + "  ① maps frida 特征\n"
+                + "  ② open hook 检测\n"
+                + "  ③ auxv hook 检测\n\n"
                 + "标记：两个标记一真一假，需仔细辨别");
         tv.setGravity(Gravity.CENTER);
         root.addView(tv, Ui.wrap(6));
@@ -64,8 +64,8 @@ public class d59Activity extends Activity {
         runBtn.setText("运行检测"); Ui.styleButton(runBtn);
         runBtn.setOnClickListener(new View.OnClickListener() {
             @Override public void onClick(View v) {
-                int result = Nk.nativeFridaDetect();
-                String status = Nk.nativeStatus();
+                int result = Rk.nativeFridaDetect();
+                String status = Rk.nativeStatus();
                 statusTv.setText("检测结果: " + (result == 1 ? "检出 Frida" : "未检出") + "\n\n" + status);
                 statusTv.setTextColor(result == 1 ? 0xFFFF6B6B : 0xFF51CF66);
             }
@@ -86,13 +86,13 @@ public class d59Activity extends Activity {
         subBtn.setOnClickListener(new View.OnClickListener() {
             @Override public void onClick(View v) {
                 String ans = ansIn.getText().toString().trim();
-                if (ans.isEmpty()) { Toast.makeText(d59Activity.this, "请输入答案", Toast.LENGTH_SHORT).show(); return; }
-                String expected = Nk.nativeAnswer();
+                if (ans.isEmpty()) { Toast.makeText(g62Activity.this, "请输入答案", Toast.LENGTH_SHORT).show(); return; }
+                String expected = Rk.nativeAnswer();
                 if (ans.equals(expected)) {
-                    Celebration.show(d59Activity.this, "FLAG_18_KL22{shadow_leaves_no_trace}");
-                    PassLog.mark(d59Activity.this, "KL22");
+                    Celebration.show(g62Activity.this, "FLAG_18_KL25{mist_locks_the_ears}");
+                    PassLog.mark(g62Activity.this, "KL25");
                 } else {
-                    Toast.makeText(d59Activity.this, "答案不对，再想想。", Toast.LENGTH_SHORT).show();
+                    Toast.makeText(g62Activity.this, "答案不对，再想想。", Toast.LENGTH_SHORT).show();
                 }
             }
         });
@@ -102,20 +102,18 @@ public class d59Activity extends Activity {
         hint.setText("提示"); Ui.styleButton(hint);
         hint.setOnClickListener(new View.OnClickListener() {
             @Override public void onClick(View v) {
-                new AlertDialog.Builder(d59Activity.this)
+                new AlertDialog.Builder(g62Activity.this)
                         .setTitle("提示")
-                        .setMessage("fd 层 + maps 双重检测：\n\n"
-                                + "① fd 扫描：遍历 /proc/self/fd，readlink 检查是否含 memfd:frida-agent\n"
-                                + "② maps 搜索：解析 /proc/self/maps，搜索 frida/gadget/gum-js-loop 等关键词\n\n"
-                                + "两路 OR 判定——任一检出即判定。\n\n"
+                        .setMessage("三重 NAND 判定：\n\n"
+                                + "只有三路全部触发才判定 Frida 存在\n"
+                                + "（与 OR/AND 不同——需要全部检测点同时命中）\n\n"
+                                + "① maps frida 特征搜索\n"
+                                + "② open hook 检测（fd 异常）\n"
+                                + "③ auxv hook 检测（AT_PHDR 篡改）\n\n"
                                 + "绕过路线：\n"
-                                + "  • hook readlinkat 返回假路径（如 /dev/null）\n"
-                                + "  • hook opendir 过滤 frida 相关 fd\n"
-                                + "  • 重命名 frida-agent 二进制\n\n"
-                                + "静态复刻路线：\n"
-                                + "  • IDA 分析 → 提取 SHA-256(SEED)\n"
-                                + "  • SEED = 20280716\n"
-                                + "  • 答案 = sha256(0x{SEED的4字节大端表示})\n\n"
+                                + "  • 只需让任一路不触发即可\n"
+                                + "  • 混合绕过：满足部分但不满足全部\n\n"
+                                + "静态复刻：SEED = 20280719\n\n"
                                 + "注意两个标记中有一个是诱饵，仔细对比拼写差异。")
                         .setPositiveButton("知道了", null)
                         .show();
@@ -123,7 +121,7 @@ public class d59Activity extends Activity {
         });
         root.addView(hint, Ui.wrap(8));
 
-        root.addView(Ui.banner(this, R.drawable.level_kl22, 140));
+        root.addView(Ui.banner(this, R.drawable.level_kl25, 140));
 
         setContentView(root);
         ThemeKit.apply(this);

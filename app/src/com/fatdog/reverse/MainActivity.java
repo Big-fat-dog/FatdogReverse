@@ -442,7 +442,7 @@ public class MainActivity extends Activity {
         LinearLayout cats = new LinearLayout(this);
         cats.setOrientation(LinearLayout.HORIZONTAL);
         cats.setPadding(Ui.dp(4), Ui.dp(12), Ui.dp(4), Ui.dp(4));
-        final String[] catNames = {"昆仑山", "流沙河", "幽冥海", "太玄之初", "扶桑树"};
+        final String[] catNames = {"昆仑山", "流沙河", "幽冥海", "太玄之初", "扶桑树", "天机阁"};
         for (int i = 0; i < catNames.length; i++) {
             final int idx = i;
             TextView chip = new TextView(this);
@@ -597,8 +597,8 @@ public class MainActivity extends Activity {
             }
         } else if (kunlunCat == 4) {
             /* 扶桑树：KL21 起，Frida 检测对抗 */
-            String[] names = {"枯叶听风", "落影寻痕"};
-            int[] klNums = {21, 22};
+            String[] names = {"枯叶听风", "落影寻痕", "照妖显形", "冰鉴悬镜", "暮雾锁听", "暮霭沉沉", "轻纱覆影", "雪落无痕"};
+            int[] klNums = {21, 22, 23, 24, 25, 26, 27, 28};
             for (int i = 0; i < names.length; i++) {
                 final int kl = klNums[i];
                 boolean open = PassLog.isDone(this, "KL" + kl);
@@ -612,7 +612,14 @@ public class MainActivity extends Activity {
                 lp.topMargin = Ui.dp(12);
                 list.addView(b, lp);
                 final Class<?> target = kl == 21 ? c58Activity.class
-                        : (kl == 22 ? d59Activity.class : null);
+                        : (kl == 22 ? d59Activity.class
+                        : (kl == 23 ? e60Activity.class
+                        : (kl == 24 ? f61Activity.class
+                        : (kl == 25 ? g62Activity.class
+                        : (kl == 26 ? h63Activity.class
+                        : (kl == 27 ? i64Activity.class
+                        : (kl == 28 ? j65Activity.class : null)))))));
+
                 if (target != null) {
                     b.setOnClickListener(new View.OnClickListener() {
                         @Override public void onClick(View v) {
@@ -620,6 +627,29 @@ public class MainActivity extends Activity {
                         }
                     });
                 }
+            }
+        } else if (kunlunCat == 5) {
+            /* 天机阁：KL29 起，协议逆向对抗 */
+            String[] names = {"暗流涌动", "天机织锦"};
+            int[] klNums = {29, 30};
+            for (int i = 0; i < names.length; i++) {
+                final int kl = klNums[i];
+                boolean open = PassLog.isDone(this, "KL" + kl);
+                Button b = new Button(this);
+                b.setText("KL" + kl + " · " + names[i] + (open ? " ✔" : ""));
+                b.setEnabled(kl == 29 || PassLog.isDone(this, "KL" + (kl - 1)));
+                b.setAlpha(b.isEnabled() ? 1f : 0.55f);
+                Ui.styleButton(b);
+                LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+                lp.topMargin = Ui.dp(12);
+                list.addView(b, lp);
+                final Class<?> target = (kl == 29) ? tideActivity.class : loomActivity.class;
+                b.setOnClickListener(new View.OnClickListener() {
+                    @Override public void onClick(View v) {
+                        startActivity(new Intent(MainActivity.this, target));
+                    }
+                });
             }
         }
 
