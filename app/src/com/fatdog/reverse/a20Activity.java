@@ -8,6 +8,7 @@ import android.view.Gravity;
 import android.view.View;
 import android.widget.Button;
 import android.widget.LinearLayout;
+import android.widget.ScrollView;
 import android.widget.TextView;
 
 // 关卡 20：万恶广告劫（smali）。
@@ -91,7 +92,7 @@ public class a20Activity extends Activity {
         successBox.setVisibility(View.GONE);
         box.addView(successBox, Ui.wrap(24));
 
-        setContentView(box);
+        setContentView(Ui.wrapScroll(box));
         ThemeKit.apply(this);
     }
 

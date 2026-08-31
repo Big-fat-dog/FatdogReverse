@@ -4,6 +4,7 @@ import android.app.Activity;
 import android.os.Bundle;
 import android.view.Gravity;
 import android.widget.LinearLayout;
+import android.widget.ScrollView;
 import android.widget.TextView;
 
 // L40 探囊取物：模块读出 SecretVault.s_hiddenKey 后调用 reportStolenKey 回传即自动通关。
@@ -33,7 +34,7 @@ public class xp40Activity extends Activity {
         box.addView(status, Ui.wrap(4));
         box.addView(Ui.banner(this, R.drawable.level_40, 140));
 
-        setContentView(box); ThemeKit.apply(this);
+        setContentView(Ui.wrapScroll(box)); ThemeKit.apply(this);
         // 触发一次字段访问让 Xposed 模块有机会 Hook
         String v = SecretVault.getKey();
     }

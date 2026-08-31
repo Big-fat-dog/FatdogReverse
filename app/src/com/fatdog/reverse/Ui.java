@@ -6,6 +6,7 @@ import android.graphics.Typeface;
 import android.widget.Button;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
+import android.widget.ScrollView;
 
 // 关卡页面通用构件：底部完整显示图片、统一的控件间距。
 public class Ui {
@@ -65,6 +66,14 @@ public class Ui {
         LinearLayout.LayoutParams p = wrap();
         p.topMargin = dp(topDp);
         return p;
+    }
+
+    // 将 LinearLayout 包裹进 ScrollView，使内容可滚动
+    public static ScrollView wrapScroll(LinearLayout content) {
+        ScrollView sv = new ScrollView(content.getContext());
+        sv.setFillViewport(true);
+        sv.addView(content);
+        return sv;
     }
 
     public static int dp(int v) {

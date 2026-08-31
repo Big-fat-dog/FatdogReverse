@@ -3,12 +3,15 @@ package com.fatdog.reverse;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.graphics.Color;
+import android.graphics.drawable.GradientDrawable;
 import android.graphics.Typeface;
 import android.os.Bundle;
 import android.view.Gravity;
 import android.view.View;
 import android.widget.Button;
 import android.widget.EditText;
+import android.widget.GridLayout;
+import android.widget.HorizontalScrollView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -33,7 +36,6 @@ import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.RequestBody;
 import okhttp3.Response;
-import okhttp3.ResponseBody;
 
 /**
  * 天机阁 KL30 天机织锦（Protobuf 二进制协议）
@@ -55,108 +57,140 @@ public class loomActivity extends Activity {
     private String base;
     private boolean loading;
     private int currentPage = 1;
+    private int loadedMax = 0;
+
+    private TextView status;
+    private final TextView[] cells = new TextView[10];
+    private LinearLayout pageBar;
+    private EditText pageInput;
+    private EditText ansInput;
 
     @Override protected void onCreate(Bundle b) {
         super.onCreate(b);
-
         base = NetHost.httpsBase();
         initClient();
 
-        LinearLayout root = new LinearLayout(this);
-        root.setOrientation(LinearLayout.VERTICAL);
-        root.setGravity(Gravity.CENTER_HORIZONTAL);
-        root.setPadding(Ui.dp(16), Ui.dp(20), Ui.dp(16), Ui.dp(12));
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setGravity(Gravity.CENTER_HORIZONTAL);
+        box.setPadding(Ui.dp(16), Ui.dp(14), Ui.dp(16), Ui.dp(12));
 
         TextView tv = new TextView(this);
-        tv.setText("KL30 · 天机织锦（★★ Protobuf 二进制协议）\n\n"
+        tv.setText("KL30 · 天机织锦（★★ Protobuf 二进制协议）\n"
                 + "libloom.so 导出四个函数：\n"
                 + "  byte[] nativeBuildRequest(page, ts)\n"
                 + "  boolean nativeVerifyResponse(data)\n"
                 + "  int[]   nativeParseNums(data)\n"
-                + "  String  nativeAnswer()\n\n"
-                + "请求/响应均为 Protobuf 编码\n"
-                + "标记：两个标记一真一假，需仔细辨别");
+                + "  String  nativeAnswer()\n"
+                + "请求/响应均为 Protobuf 编码");
         tv.setGravity(Gravity.CENTER);
-        root.addView(tv, Ui.wrap(6));
+        box.addView(tv, Ui.wrap(4));
 
-        statusTv = new TextView(this);
-        statusTv.setText("点击「取数」加载第 1 页");
-        statusTv.setTextColor(Color.LTGRAY);
-        statusTv.setTypeface(Typeface.MONOSPACE);
-        statusTv.setTextSize(12);
-        statusTv.setGravity(Gravity.CENTER);
-        root.addView(statusTv, Ui.fullWidth(6));
+        status = new TextView(this);
+        status.setText("准备中…");
+        status.setGravity(Gravity.CENTER);
+        status.setTextColor(ThemeKit.muted(ThemeKit.isDark(this)));
+        box.addView(status, Ui.wrap(8));
 
-        dataTv = new TextView(this);
-        dataTv.setTypeface(Typeface.MONOSPACE);
-        dataTv.setTextSize(13);
-        dataTv.setTextColor(Color.WHITE);
-        dataTv.setPadding(Ui.dp(8), Ui.dp(8), Ui.dp(8), Ui.dp(8));
-        root.addView(dataTv, Ui.fullWidth(8));
+        // 数字网格：5 列 x 2 行，最多 10 个数字
+        GridLayout grid = new GridLayout(this);
+        grid.setColumnCount(5);
+        grid.setRowCount(2);
+        for (int i = 0; i < 10; i++) {
+            TextView c = new TextView(this);
+            c.setGravity(Gravity.CENTER);
+            c.setTextSize(17);
+            c.setTypeface(Typeface.DEFAULT_BOLD);
+            c.setTextColor(0xFFECECF2);
+            GradientDrawable bg = new GradientDrawable();
+            bg.setShape(GradientDrawable.RECTANGLE);
+            bg.setCornerRadius(Ui.dp(10));
+            bg.setColor(0xFF24242B);
+            c.setBackground(bg);
+            c.setPadding(0, Ui.dp(8), 0, Ui.dp(8));
+            GridLayout.LayoutParams lp = new GridLayout.LayoutParams();
+            lp.width = 0;
+            lp.height = GridLayout.LayoutParams.WRAP_CONTENT;
+            lp.columnSpec = GridLayout.spec(i % 5, 1f);
+            lp.rowSpec = GridLayout.spec(i / 5);
+            lp.setMargins(Ui.dp(3), Ui.dp(3), Ui.dp(3), Ui.dp(3));
+            grid.addView(c, lp);
+            cells[i] = c;
+        }
+        box.addView(grid, Ui.fullWidth(12));
 
-        /* 导航按钮 */
-        navBar = new LinearLayout(this);
-        navBar.setOrientation(LinearLayout.HORIZONTAL);
-        navBar.setGravity(Gravity.CENTER);
-        root.addView(navBar, Ui.wrap(6));
+        // 分页导航：上一页 / [页码窗口] / 下一页
+        LinearLayout navRow = new LinearLayout(this);
+        navRow.setOrientation(LinearLayout.HORIZONTAL);
+        navRow.setGravity(Gravity.CENTER_VERTICAL);
 
-        Button fetchBtn = new Button(this);
-        fetchBtn.setText("取数"); Ui.styleButton(fetchBtn);
-        fetchBtn.setOnClickListener(new View.OnClickListener() {
-            @Override public void onClick(View v) { loadPage(currentPage); }
-        });
-        root.addView(fetchBtn, Ui.wrap(10));
-
-        EditText pageIn = new EditText(this);
-        pageIn.setHint("页码 1-" + PAGES);
-        pageIn.setTextColor(Color.WHITE);
-        pageIn.setTypeface(Typeface.MONOSPACE);
-        pageIn.setBackgroundColor(0x33FFFFFF);
-        int p = Ui.dp(10);
-        pageIn.setPadding(p, p, p, p);
-        root.addView(pageIn, Ui.fullWidth(10));
-        pageInput = pageIn;
-
-        Button goBtn = new Button(this);
-        goBtn.setText("跳转"); Ui.styleButton(goBtn);
-        goBtn.setOnClickListener(new View.OnClickListener() {
+        Button prev = new Button(this);
+        prev.setText("◀ 上一页");
+        Ui.styleButton(prev);
+        navRow.addView(prev, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+        prev.setOnClickListener(new View.OnClickListener() {
             @Override public void onClick(View v) {
-                String s = pageInput.getText().toString().trim();
-                if (s.isEmpty()) return;
-                int pg = Integer.parseInt(s);
-                if (pg >= 1 && pg <= PAGES) { currentPage = pg; loadPage(pg); }
+                if (currentPage > 1) loadPage(currentPage - 1);
             }
         });
-        root.addView(goBtn, Ui.wrap(10));
 
-        EditText ansIn = new EditText(this);
-        ansIn.setHint("输入答案（32位 hex）");
-        ansIn.setTextColor(Color.WHITE);
-        ansIn.setTypeface(Typeface.MONOSPACE);
-        ansIn.setBackgroundColor(0x33FFFFFF);
-        ansIn.setPadding(p, p, p, p);
-        root.addView(ansIn, Ui.fullWidth(10));
-        ansInput = ansIn;
+        HorizontalScrollView hsv = new HorizontalScrollView(this);
+        hsv.setHorizontalScrollBarEnabled(false);
+        pageBar = new LinearLayout(this);
+        pageBar.setOrientation(LinearLayout.HORIZONTAL);
+        hsv.addView(pageBar);
+        navRow.addView(hsv, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
 
-        Button subBtn = new Button(this);
-        subBtn.setText("提交答案"); Ui.styleButton(subBtn);
-        subBtn.setOnClickListener(new View.OnClickListener() {
+        Button next = new Button(this);
+        next.setText("下一页 ▶");
+        Ui.styleButton(next);
+        navRow.addView(next, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+        next.setOnClickListener(new View.OnClickListener() {
             @Override public void onClick(View v) {
-                String ans = ansInput.getText().toString().trim();
-                if (ans.isEmpty()) { Toast.makeText(loomActivity.this, "请输入答案", Toast.LENGTH_SHORT).show(); return; }
-                String expected = Ck.nativeAnswer();
-                if (ans.equals(expected)) {
-                    Celebration.show(loomActivity.this, "FLAG_18_KL30{heavenly_loom}");
-                    PassLog.mark(loomActivity.this, "KL30");
-                } else {
-                    Toast.makeText(loomActivity.this, "答案不对，再想想。", Toast.LENGTH_SHORT).show();
+                if (currentPage < PAGES) loadPage(currentPage + 1);
+            }
+        });
+
+        box.addView(navRow, Ui.fullWidth(14));
+
+        // 跳转到指定页
+        LinearLayout jumpRow = new LinearLayout(this);
+        jumpRow.setOrientation(LinearLayout.HORIZONTAL);
+        jumpRow.setGravity(Gravity.CENTER_VERTICAL);
+        pageInput = new EditText(this);
+        pageInput.setHint("页码 1-" + PAGES);
+        pageInput.setLayoutParams(new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+        jumpRow.addView(pageInput);
+        Button jump = new Button(this);
+        jump.setText("跳转");
+        Ui.styleButton(jump);
+        jumpRow.addView(jump);
+        jump.setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View v) {
+                String s = pageInput.getText().toString().trim();
+                try {
+                    int p = Integer.parseInt(s);
+                    if (p >= 1 && p <= PAGES) loadPage(p);
+                    else Toast.makeText(loomActivity.this, "页码超出范围 1-" + PAGES, Toast.LENGTH_SHORT).show();
+                } catch (Exception e) {
+                    Toast.makeText(loomActivity.this, "请输入页码", Toast.LENGTH_SHORT).show();
                 }
             }
         });
-        root.addView(subBtn, Ui.wrap(10));
+        box.addView(jumpRow, Ui.fullWidth(10));
+
+        ansInput = new EditText(this);
+        ansInput.setHint("输入答案（32位 hex）");
+        ansInput.setLayoutParams(Ui.fullWidth(22));
+        box.addView(ansInput);
+
+        Button subBtn = new Button(this);
+        subBtn.setText("提交答案");
+        Ui.styleButton(subBtn);
+        box.addView(subBtn, Ui.wrap(14));
 
         Button hint = new Button(this);
-        hint.setText("提示"); Ui.styleButton(hint);
+        hint.setText("提示");
         hint.setOnClickListener(new View.OnClickListener() {
             @Override public void onClick(View v) {
                 new AlertDialog.Builder(loomActivity.this)
@@ -171,20 +205,70 @@ public class loomActivity extends Activity {
                         .show();
             }
         });
-        root.addView(hint, Ui.wrap(8));
+        box.addView(hint, Ui.wrap(10));
 
-        root.addView(Ui.banner(this, R.drawable.level_kl30, 140));
+        box.addView(Ui.banner(this, R.drawable.level_kl30, 150));
 
-        setContentView(root);
+        setContentView(Ui.wrapScroll(box));
         ThemeKit.apply(this);
+
+        subBtn.setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View v) {
+                String ans = ansInput.getText().toString().trim();
+                if (ans.isEmpty()) { Toast.makeText(loomActivity.this, "请输入答案", Toast.LENGTH_SHORT).show(); return; }
+                String expected = Ck.nativeAnswer();
+                if (ans.equals(expected)) {
+                    Celebration.show(loomActivity.this, "FLAG_18_KL30{heavenly_loom}");
+                    PassLog.mark(loomActivity.this, "KL30");
+                } else {
+                    Toast.makeText(loomActivity.this, "答案不对，再想想。", Toast.LENGTH_SHORT).show();
+                }
+            }
+        });
+
+        loadPage(1);
     }
 
-    /* ---------- UI 引用 ---------- */
-    private TextView statusTv;
-    private TextView dataTv;
-    private LinearLayout navBar;
-    private EditText pageInput;
-    private EditText ansInput;
+    private void render(int[] nums) {
+        for (int i = 0; i < cells.length; i++) {
+            if (i < nums.length) {
+                cells[i].setText(String.valueOf(nums[i]));
+                cells[i].setVisibility(View.VISIBLE);
+            } else {
+                cells[i].setVisibility(View.INVISIBLE);
+            }
+        }
+    }
+
+    private void renderNav() {
+        pageBar.removeAllViews();
+        int win = 3;
+        int start = Math.max(1, currentPage - win);
+        int end = Math.min(PAGES, currentPage + win);
+        for (int p = start; p <= end; p++) {
+            final int fp = p;
+            TextView chip = new TextView(this);
+            chip.setText(String.valueOf(p));
+            chip.setTextSize(14);
+            chip.setTypeface(Typeface.DEFAULT_BOLD);
+            chip.setGravity(Gravity.CENTER);
+            chip.setPadding(Ui.dp(12), Ui.dp(6), Ui.dp(12), Ui.dp(6));
+            GradientDrawable g = new GradientDrawable();
+            g.setShape(GradientDrawable.RECTANGLE);
+            g.setCornerRadius(Ui.dp(14));
+            boolean sel = (p == currentPage);
+            g.setColor(sel ? 0xFFFB7299 : (ThemeKit.isDark(this) ? 0xFF2A2A33 : 0xFFF1F1F4));
+            chip.setBackground(g);
+            chip.setTextColor(sel ? 0xFFFFFFFF : (ThemeKit.isDark(this) ? 0xFFD8D8E0 : 0xFF3A3A42));
+            chip.setOnClickListener(new View.OnClickListener() {
+                @Override public void onClick(View v) {
+                    if (fp != currentPage) loadPage(fp);
+                }
+            });
+            pageBar.addView(chip, new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+        }
+    }
 
     /* ---------- TLS ---------- */
     private void initClient() {
@@ -219,7 +303,7 @@ public class loomActivity extends Activity {
     private void loadPage(final int page) {
         if (loading) return;
         loading = true;
-        statusTv.setText("正在请求第 " + page + " 页…");
+        status.setText("正在请求第 " + page + " 页…");
 
         final long ts = System.currentTimeMillis() / 1000;
         byte[] reqBytes = Ck.nativeBuildRequest(page, ts);
@@ -231,7 +315,7 @@ public class loomActivity extends Activity {
             @Override public void onFailure(Call call, java.io.IOException e) {
                 loading = false;
                 runOnUiThread(new Runnable() {
-                    @Override public void run() { statusTv.setText("请求失败: " + e.getMessage()); }
+                    @Override public void run() { status.setText("请求失败: " + e.getMessage() + "（可重试）"); }
                 });
             }
             @Override public void onResponse(Call call, Response rsp) {
@@ -240,7 +324,7 @@ public class loomActivity extends Activity {
                         final String msg = "HTTP " + rsp.code();
                         loading = false;
                         runOnUiThread(new Runnable() {
-                            @Override public void run() { statusTv.setText(msg); }
+                            @Override public void run() { status.setText(msg); }
                         });
                         return;
                     }
@@ -251,16 +335,12 @@ public class loomActivity extends Activity {
                     runOnUiThread(new Runnable() {
                         @Override public void run() {
                             currentPage = page;
+                            if (page > loadedMax) loadedMax = page;
                             if (ok && nums.length > 0) {
-                                StringBuilder sb = new StringBuilder();
-                                for (int i = 0; i < nums.length; i++) {
-                                    if (i > 0) sb.append(", ");
-                                    sb.append(nums[i]);
-                                }
-                                dataTv.setText("第 " + page + " 页 (" + nums.length + " 个):\n" + sb.toString());
-                                statusTv.setText("已加载第 " + page + " / " + PAGES + " 页 ✔");
+                                render(nums);
+                                status.setText("已加载第 " + page + " / " + PAGES + " 页，本页 " + nums.length + " 个数字");
                             } else {
-                                statusTv.setText("响应验证失败");
+                                status.setText("响应验证失败");
                             }
                             renderNav();
                         }
@@ -268,30 +348,10 @@ public class loomActivity extends Activity {
                 } catch (Exception e) {
                     loading = false;
                     runOnUiThread(new Runnable() {
-                        @Override public void run() { statusTv.setText("解析失败: " + e.getMessage()); }
+                        @Override public void run() { status.setText("解析失败: " + e.getMessage()); }
                     });
                 }
             }
         });
-    }
-
-    private void renderNav() {
-        navBar.removeAllViews();
-        if (currentPage > 1) {
-            Button prev = new Button(this);
-            prev.setText("◀ 上一页"); Ui.styleButton(prev);
-            prev.setOnClickListener(new View.OnClickListener() {
-                @Override public void onClick(View v) { loadPage(currentPage - 1); }
-            });
-            navBar.addView(prev);
-        }
-        if (currentPage < PAGES) {
-            Button next = new Button(this);
-            next.setText("下一页 ▶"); Ui.styleButton(next);
-            next.setOnClickListener(new View.OnClickListener() {
-                @Override public void onClick(View v) { loadPage(currentPage + 1); }
-            });
-            navBar.addView(next);
-        }
     }
 }

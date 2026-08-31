@@ -10,6 +10,7 @@ import android.view.View;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.LinearLayout;
+import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -92,7 +93,7 @@ public class a55Activity extends Activity {
         // banner
         root.addView(Ui.banner(this, R.drawable.level_kl18, 140));
 
-        setContentView(root);
+        setContentView(Ui.wrapScroll(root));
         ThemeKit.apply(this);
     }
 }

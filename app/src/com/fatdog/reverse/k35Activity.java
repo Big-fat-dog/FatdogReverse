@@ -12,6 +12,7 @@ import android.widget.EditText;
 import android.widget.GridLayout;
 import android.widget.HorizontalScrollView;
 import android.widget.LinearLayout;
+import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -177,7 +178,7 @@ public class k35Activity extends Activity {
 
         box.addView(Ui.banner(this, R.drawable.level_35, 150));
 
-        setContentView(box);
+        setContentView(Ui.wrapScroll(box));
         ThemeKit.apply(this);
 
         subBtn.setOnClickListener(new View.OnClickListener() {

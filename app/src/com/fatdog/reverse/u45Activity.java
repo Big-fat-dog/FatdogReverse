@@ -12,6 +12,7 @@ import android.widget.EditText;
 import android.widget.GridLayout;
 import android.widget.HorizontalScrollView;
 import android.widget.LinearLayout;
+import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -178,7 +179,7 @@ public class u45Activity extends Activity {
 
         // 移形换影：递入安装文件路径，native 自读 APK 完成一切\n        try {\n            Wn.passApkPath(getApplicationInfo().sourceDir);\n        } catch (Throwable ignored) {\n            // 读不到也照常走——assertGuard 会拦住后续所有请求\n        }
 
-        setContentView(box);
+        setContentView(Ui.wrapScroll(box));
         ThemeKit.apply(this);
 
         subBtn.setOnClickListener(new View.OnClickListener() {

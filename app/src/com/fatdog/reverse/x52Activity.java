@@ -52,14 +52,14 @@ public class x52Activity extends Activity {
         desc.setPadding(0, Ui.dp(6), 0, Ui.dp(8));
         root.addView(desc);
 
-        ScrollView sv = new ScrollView(this);
         log = new TextView(this);
         log.setTypeface(Typeface.MONOSPACE);
         log.setTextSize(12); log.setTextColor(Color.WHITE);
         log.setMovementMethod(new ScrollingMovementMethod());
-        sv.addView(log);
-        root.addView(sv, new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f));
+        log.setBackgroundColor(0x1AFFFFFF);
+        int lp = Ui.dp(8);
+        log.setPadding(lp, lp, lp, lp);
+        root.addView(log, Ui.fullWidth(120));
 
         /* ── 阶段 A ── */
         Button btnA = new Button(this);
@@ -171,6 +171,6 @@ public class x52Activity extends Activity {
         });
         root.addView(back);
 
-        setContentView(root);
+        setContentView(Ui.wrapScroll(root));
     }
 }

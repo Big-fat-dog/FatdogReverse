@@ -5,6 +5,7 @@ import android.app.Activity;
 import android.os.Bundle;
 import android.view.Gravity;
 import android.widget.LinearLayout;
+import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -43,7 +44,7 @@ public class xp39Activity extends Activity {
 
         box.addView(Ui.banner(this, R.drawable.level_39, 140));
 
-        setContentView(box);
+        setContentView(Ui.wrapScroll(box));
         ThemeKit.apply(this);
 
         // 触发验证——如果玩家 Hook 了 before 并替换了参数，这里会返回 true

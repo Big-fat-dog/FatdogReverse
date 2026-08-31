@@ -50,15 +50,14 @@ public class v51Activity extends Activity {
         desc.setPadding(0, Ui.dp(6), 0, Ui.dp(10));
         root.addView(desc);
 
-        ScrollView sv = new ScrollView(this);
         log = new TextView(this);
         log.setTypeface(android.graphics.Typeface.MONOSPACE);
         log.setTextSize(12); log.setTextColor(Color.WHITE);
         log.setMovementMethod(new ScrollingMovementMethod());
-        sv.addView(log);
-        LinearLayout.LayoutParams svLp = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f);
-        root.addView(sv, svLp);
+        log.setBackgroundColor(0x1AFFFFFF);
+        int lp = Ui.dp(8);
+        log.setPadding(lp, lp, lp, lp);
+        root.addView(log, Ui.fullWidth(120));
 
         /* 三步操作 */
         Button btnA = new Button(this);
@@ -90,18 +89,6 @@ public class v51Activity extends Activity {
             }
         });
         root.addView(btnC);
-
-        /* 一键取答案 */
-        Button btnOne = new Button(this);
-        btnOne.setText("一键取答案（C 内部交叉调用）"); Ui.styleButton(btnOne);
-        btnOne.setOnClickListener(new View.OnClickListener() {
-            @Override public void onClick(View v) {
-                String r = Zn.nativeCombineFromC();
-                append("[One] nativeCombineFromC → " + r);
-                ansBox.setText(r);
-            }
-        });
-        root.addView(btnOne);
 
         /* 提交 */
         ansBox = new EditText(this);
@@ -141,6 +128,6 @@ public class v51Activity extends Activity {
         });
         root.addView(back);
 
-        setContentView(root);
+        setContentView(Ui.wrapScroll(root));
     }
 }

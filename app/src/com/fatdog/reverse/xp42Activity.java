@@ -7,6 +7,7 @@ import android.view.Gravity;
 import android.view.View;
 import android.widget.Button;
 import android.widget.LinearLayout;
+import android.widget.ScrollView;
 import android.widget.TextView;
 
 public class xp42Activity extends Activity {
@@ -44,7 +45,7 @@ public class xp42Activity extends Activity {
 
         box.addView(Ui.banner(this, R.drawable.level_42, 140));
 
-        setContentView(box); ThemeKit.apply(this);
+        setContentView(Ui.wrapScroll(box)); ThemeKit.apply(this);
 
         // 冷启动检测：如果 Xposed Hook 仍生效则通关
         if (Kl42Gate.coldStartCheck() && Kl42Gate.getTicks() > 0) {

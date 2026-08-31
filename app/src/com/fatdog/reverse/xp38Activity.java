@@ -5,6 +5,7 @@ import android.app.Activity;
 import android.os.Bundle;
 import android.view.Gravity;
 import android.widget.LinearLayout;
+import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -42,7 +43,7 @@ public class xp38Activity extends Activity {
 
         box.addView(Ui.banner(this, R.drawable.level_38, 140));
 
-        setContentView(box);
+        setContentView(Ui.wrapScroll(box));
         ThemeKit.apply(this);
     }
 

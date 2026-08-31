@@ -12,6 +12,7 @@ import android.widget.EditText;
 import android.widget.GridLayout;
 import android.widget.HorizontalScrollView;
 import android.widget.LinearLayout;
+import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -173,7 +174,7 @@ public class z24Activity extends Activity {
 
         box.addView(Ui.banner(this, R.drawable.level_24, 120));
 
-        setContentView(box);
+        setContentView(Ui.wrapScroll(box));
         ThemeKit.apply(this);
 
         subBtn.setOnClickListener(new View.OnClickListener() {

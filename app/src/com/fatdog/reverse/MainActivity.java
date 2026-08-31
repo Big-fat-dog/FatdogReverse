@@ -481,36 +481,22 @@ public class MainActivity extends Activity {
                 boolean open = PassLog.isDone(this, "KL" + i);
                 Button b = new Button(this);
                 b.setText("KL" + i + " · " + names[i - 1] + (open ? " ✔" : ""));
-                b.setEnabled(lv == 1 || (lv == 2 && PassLog.isDone(this, "KL1")) || (lv == 3 && PassLog.isDone(this, "KL2")) || (lv == 4 && PassLog.isDone(this, "KL3")) || (lv == 5 && PassLog.isDone(this, "KL4")) || open);
+                b.setEnabled(true);
                 b.setAlpha(b.isEnabled() ? 1f : 0.55f);
                 Ui.styleButton(b);
                 LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
                         LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
                 lp.topMargin = Ui.dp(12);
                 list.addView(b, lp);
-                if (lv == 1) b.setOnClickListener(new View.OnClickListener() {
+                final Class<?> target;
+                if (lv == 1) target = kn1Activity.class;
+                else if (lv == 2) target = kn2Activity.class;
+                else if (lv == 3) target = kn3Activity.class;
+                else if (lv == 4) target = kn4Activity.class;
+                else target = kn5Activity.class;
+                b.setOnClickListener(new View.OnClickListener() {
                     @Override public void onClick(View v) {
-                        startActivity(new Intent(MainActivity.this, kn1Activity.class));
-                    }
-                });
-                else if (lv == 2 && PassLog.isDone(this, "KL1")) b.setOnClickListener(new View.OnClickListener() {
-                    @Override public void onClick(View v) {
-                        startActivity(new Intent(MainActivity.this, kn2Activity.class));
-                    }
-                });
-                else if (lv == 3 && PassLog.isDone(this, "KL2")) b.setOnClickListener(new View.OnClickListener() {
-                    @Override public void onClick(View v) {
-                        startActivity(new Intent(MainActivity.this, kn3Activity.class));
-                    }
-                });
-                else if (lv == 4 && PassLog.isDone(this, "KL3")) b.setOnClickListener(new View.OnClickListener() {
-                    @Override public void onClick(View v) {
-                        startActivity(new Intent(MainActivity.this, kn4Activity.class));
-                    }
-                });
-                else if (lv == 5 && PassLog.isDone(this, "KL4")) b.setOnClickListener(new View.OnClickListener() {
-                    @Override public void onClick(View v) {
-                        startActivity(new Intent(MainActivity.this, kn5Activity.class));
+                        startActivity(new Intent(MainActivity.this, target));
                     }
                 });
             }
@@ -522,7 +508,7 @@ public class MainActivity extends Activity {
                 boolean open = PassLog.isDone(this, "KL" + kl);
                 Button b = new Button(this);
                 b.setText("KL" + kl + " · " + names[i] + (open ? " ✔" : ""));
-                b.setEnabled(kl == 6 || PassLog.isDone(this, "KL6"));
+                b.setEnabled(true);
                 b.setAlpha(b.isEnabled() ? 1f : 0.55f);
                 Ui.styleButton(b);
                 LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
@@ -547,7 +533,7 @@ public class MainActivity extends Activity {
                 boolean open = PassLog.isDone(this, "KL" + kl);
                 Button b = new Button(this);
                 b.setText("KL" + kl + " · " + names[i] + (open ? " ✔" : ""));
-                b.setEnabled(kl == 11 || PassLog.isDone(this, "KL" + (kl - 1)));
+                b.setEnabled(true);
                 b.setAlpha(b.isEnabled() ? 1f : 0.55f);
                 Ui.styleButton(b);
                 LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
@@ -575,7 +561,7 @@ public class MainActivity extends Activity {
                 boolean open = PassLog.isDone(this, "KL" + kl);
                 Button b = new Button(this);
                 b.setText("KL" + kl + " · " + names[i] + (open ? " ✔" : ""));
-                b.setEnabled(kl == 16 || PassLog.isDone(this, "KL" + (kl - 1)));
+                b.setEnabled(true);
                 b.setAlpha(b.isEnabled() ? 1f : 0.55f);
                 Ui.styleButton(b);
                 LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
@@ -604,7 +590,7 @@ public class MainActivity extends Activity {
                 boolean open = PassLog.isDone(this, "KL" + kl);
                 Button b = new Button(this);
                 b.setText("KL" + kl + " · " + names[i] + (open ? " ✔" : ""));
-                b.setEnabled(kl == 21 || PassLog.isDone(this, "KL" + (kl - 1)));
+                b.setEnabled(true);
                 b.setAlpha(b.isEnabled() ? 1f : 0.55f);
                 Ui.styleButton(b);
                 LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
@@ -637,7 +623,7 @@ public class MainActivity extends Activity {
                 boolean open = PassLog.isDone(this, "KL" + kl);
                 Button b = new Button(this);
                 b.setText("KL" + kl + " · " + names[i] + (open ? " ✔" : ""));
-                b.setEnabled(kl == 29 || PassLog.isDone(this, "KL" + (kl - 1)));
+                b.setEnabled(true);
                 b.setAlpha(b.isEnabled() ? 1f : 0.55f);
                 Ui.styleButton(b);
                 LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(

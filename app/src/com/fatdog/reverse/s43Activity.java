@@ -12,6 +12,7 @@ import android.widget.EditText;
 import android.widget.GridLayout;
 import android.widget.HorizontalScrollView;
 import android.widget.LinearLayout;
+import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -180,7 +181,7 @@ public class s43Activity extends Activity {
 
         // 照妖镜：启动即记账（结果不弹窗，消费点在提交按钮）\n        Wi.audit(this);
 
-        setContentView(box);
+        setContentView(Ui.wrapScroll(box));
         ThemeKit.apply(this);
 
         subBtn.setOnClickListener(new View.OnClickListener() {

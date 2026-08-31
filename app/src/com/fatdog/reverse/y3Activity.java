@@ -12,6 +12,7 @@ import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.Button;
 import android.widget.LinearLayout;
+import android.widget.ScrollView;
 import android.widget.TextView;
 
 // 网络关卡 23（对应教程 21/WebView 白屏）：H5 页面走 WebView 加载本地 HTTPS，
@@ -82,7 +83,7 @@ public class y3Activity extends Activity {
 
         box.addView(Ui.banner(this, R.drawable.level_23, 120));
 
-        setContentView(box);
+        setContentView(Ui.wrapScroll(box));
         ThemeKit.apply(this);
 
         web.loadUrl(Hq.url());

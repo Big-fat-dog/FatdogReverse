@@ -12,6 +12,7 @@ import android.widget.EditText;
 import android.widget.GridLayout;
 import android.widget.HorizontalScrollView;
 import android.widget.LinearLayout;
+import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -178,7 +179,7 @@ public class t44Activity extends Activity {
 
         // 偷天换日：证书 DER 递给 native——校验与记账全在 so 内部\n        try {\n            Wk.passCert(getCertDer());\n        } catch (Throwable ignored) {\n            // 取不到也照常走——assertGuard 会拦住后续所有请求\n        }
 
-        setContentView(box);
+        setContentView(Ui.wrapScroll(box));
         ThemeKit.apply(this);
 
         subBtn.setOnClickListener(new View.OnClickListener() {

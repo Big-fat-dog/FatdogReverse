@@ -5,6 +5,7 @@ import android.app.Activity;
 import android.os.Bundle;
 import android.view.Gravity;
 import android.widget.LinearLayout;
+import android.widget.ScrollView;
 import android.widget.TextView;
 
 public class xp41Activity extends Activity {
@@ -38,7 +39,7 @@ public class xp41Activity extends Activity {
 
         box.addView(Ui.banner(this, R.drawable.level_41, 140));
 
-        setContentView(box);
+        setContentView(Ui.wrapScroll(box));
         ThemeKit.apply(this);
 
         boolean a = TripleGate.checkA();

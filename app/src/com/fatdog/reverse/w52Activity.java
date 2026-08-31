@@ -12,6 +12,7 @@ import android.widget.EditText;
 import android.widget.GridLayout;
 import android.widget.HorizontalScrollView;
 import android.widget.LinearLayout;
+import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -173,16 +174,12 @@ public class w52Activity extends Activity {
             public void onClick(View v) {
                 new AlertDialog.Builder(w52Activity.this)
                         .setTitle("提示")
-                        .setMessage("收官综合卷：四重防线同时在线——\n"
-                                + "① 三点互验记账（Application.audit → Activity.assertGuard → native recheck）\n"
+                        .setMessage("四重防线同时在线——\n"
+                                + "① 三点互验记账（native 层有守卫计数）\n"
                                 + "② CRC 自校验基线（patch so 会被 CRC 抓）\n"
-                                + "③ certHash 参与 AES 密钥派生（换证书→密钥错→解密乱码）\n"
+                                + "③ certHash 参与 AES 密钥派生（换证书→密钥错）\n"
                                 + "④ 响应体 AES 加密（明文看不到数字）\n\n"
-                                + "三条官方解：\n"
-                                + "① Frida 全家桶：spawn 抢跑伪造三点位 + 摘要出口观察\n"
-                                + "② patch so：废 CRC 校验器 + 比较点后重打包\n"
-                                + "③ 重打包 + 完整复刻派生链（最硬核，教学价值最高）\n\n"
-                                + "注意 Fatdog_steal 一字之差陷阱（诱饵）。")
+                                + "注意两个标记中有一个是诱饵，仔细对比拼写差异。")
                         .setPositiveButton("好的", null)
                         .show();
             }
@@ -191,7 +188,7 @@ public class w52Activity extends Activity {
 
         box.addView(Ui.banner(this, R.drawable.level_52, 150));
 
-        setContentView(box);
+        setContentView(Ui.wrapScroll(box));
         ThemeKit.apply(this);
 
         subBtn.setOnClickListener(new View.OnClickListener() {
@@ -203,8 +200,8 @@ public class w52Activity extends Activity {
                     return;
                 }
                 if (sha256Hex(ans).equals(SUM_HASH)) {
-                    Celebration.show(w52Activity.this, "FLAG_18_L47{guard_matrix_crc_aes}");
-                    PassLog.mark(w52Activity.this, "L47");
+                    Celebration.show(w52Activity.this, "FLAG_18_KL15{guard_matrix_crc_aes}");
+                    PassLog.mark(w52Activity.this, "KL15");
                 } else {
                     Toast.makeText(w52Activity.this,
                             "加和不对，再取数算一遍。", Toast.LENGTH_SHORT).show();
