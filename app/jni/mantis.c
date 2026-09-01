@@ -113,7 +113,7 @@ int guard(int input) {
  */
 int check(void) {
     if (!verify_crc()) return 0;
-    return 1;
+    return guard(0); /* 未 patch 时 guard(0)=0，门禁初始关闭 */
 }
 
 /* --- 诱饵导出 --- */

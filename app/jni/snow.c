@@ -45,7 +45,8 @@ static int detect_signal_handler(void) {
     usleep(1000);  /* 等待信号处理 */
 
     /* 正常情况下应该收到信号，Frida 可能干扰 */
-    return 0;  /* 简化：主要依赖 ptrace 检测 */
+    /* 正常情况下 handler 应已触发；未触发即可疑 */
+    return sigusr1_count == 0 ? 1 : 0;
 }
 
 /* ============================================================

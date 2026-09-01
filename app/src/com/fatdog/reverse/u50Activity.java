@@ -44,10 +44,16 @@ public class u50Activity extends Activity {
         // check 状态显示
         final TextView checkStatus = new TextView(this);
         int g = Ap.nativeCheck();
-        checkStatus.setText("check() = " + g + (g == 1 ? "（CRC 通过 ✓）" : "（CRC 失败 / 未 patch）"));
+        checkStatus.setText("check() = " + g + (g == 1 ? "（guard 已通过 ✓）" : "（guard 未通过 / 未 patch）"));
         checkStatus.setGravity(Gravity.CENTER);
         checkStatus.setTextColor(g == 1 ? 0xFF67C23A : 0xFFFB7299);
         box.addView(checkStatus, Ui.wrap(6));
+
+        // 答案输入框
+        final EditText ansIn = new EditText(this);
+        ansIn.setHint("提交 guard(MAGIC) 的返回值（十进制）");
+        ansIn.setLayoutParams(Ui.fullWidth(14));
+        ansIn.setEnabled(g == 1);
 
         // 重新检测按钮
         Button recheck = new Button(this);
@@ -57,17 +63,13 @@ public class u50Activity extends Activity {
             @Override
             public void onClick(View v) {
                 int g = Ap.nativeCheck();
-                checkStatus.setText("check() = " + g + (g == 1 ? "（CRC 通过 ✓）" : "（CRC 失败 / 未 patch）"));
+                checkStatus.setText("check() = " + g + (g == 1 ? "（guard 已通过 ✓）" : "（guard 未通过 / 未 patch）"));
                 checkStatus.setTextColor(g == 1 ? 0xFF67C23A : 0xFFFB7299);
+                ansIn.setEnabled(g == 1);
             }
         });
         box.addView(recheck, Ui.wrap(10));
 
-        // 答案输入框
-        final EditText ansIn = new EditText(this);
-        ansIn.setHint("提交 guard(MAGIC) 的返回值（十进制）");
-        ansIn.setLayoutParams(Ui.fullWidth(14));
-        ansIn.setEnabled(false);
         box.addView(ansIn);
 
         Button subBtn = new Button(this);

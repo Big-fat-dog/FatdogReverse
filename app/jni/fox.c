@@ -177,26 +177,38 @@ static int detect_dbus_fingerprint(void) {
          * Frida 的 D-Bus 通道会绑定到 loopback 的高端口，关键是看
          * local_address 是否为 0100007F（127.0.0.1 大端） */
         if (local_addr == 0x0100007F && local_port > 1024) {
-            /* 进一步检查：读取 /proc/net/tcp 的状态列 */
+            /* 进一步检查：对端端口必须是 frida-server 的默认监听端口。
+             * 注入后的 agent 会建立 127.0.0.1:27042-27044 连接；
+             * 只匹配本地 loopback 高端口会误报（正常 App 也常有 loopback 连接）。 */
+            char *rem_start = sp2 + 1;
+            while (*rem_start == ' ') rem_start++;
+            char *rem_end = strchr(rem_start, ' ');
+            if (!rem_end) break;
+            char *rem_colon = strchr(rem_start, ':');
+            if (!rem_colon || rem_colon >= rem_end) break;
+            int rem_plen = (int)(rem_end - rem_colon - 1);
+            if (rem_plen >= (int)sizeof(port_str)) { line = strchr(p, '\n'); if (line) line++; continue; }
+            char rem_port_str[16];
+            memcpy(rem_port_str, rem_colon + 1, rem_plen);
+            rem_port_str[rem_plen] = '\0';
+            uint32_t remote_port = (uint32_t)strtoul(rem_port_str, NULL, 16);
+            if (remote_port != 27042 && remote_port != 27043 && remote_port != 27044) {
+                line = strchr(p, '\n'); if (line) line++; continue;
+            }
+
             /* 状态 01 = ESTABLISHED */
-            /* 跳过 rem_address */
-            char *rem = strchr(sp2 + 1, ' ');
-            if (!rem) break;
-            while (*rem == ' ') rem++;
-            char *st_end = strchr(rem, ' ');
+            char *st_start = rem_end;
+            while (*st_start == ' ') st_start++;
+            char *st_end = strchr(st_start, ' ');
             if (!st_end) break;
             char st_str[8];
-            int st_len = (int)(st_end - rem);
+            int st_len = (int)(st_end - st_start);
             if (st_len >= (int)sizeof(st_str)) { line = strchr(p, '\n'); if (line) line++; continue; }
-            memcpy(st_str, rem, st_len);
+            memcpy(st_str, st_start, st_len);
             st_str[st_len] = '\0';
             uint32_t state = (uint32_t)strtoul(st_str, NULL, 16);
 
-            /* ESTABLISHED 状态 + loopback 高端口 + 进一步检查 uid/inode
-             * 这里简化：只要满足条件就标记可疑 */
             if (state == 1) { /* ESTABLISHED */
-                /* 检查是否在同进程内（通过 inode 匹配）
-                 * 简化处理：循环返回 1 */
                 return 1;
             }
         }

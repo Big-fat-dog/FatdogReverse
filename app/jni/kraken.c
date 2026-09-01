@@ -2,7 +2,6 @@
  * 幽冥海 KL12：移花接木——动态 patch（Frida hook）入门。
  *
  * 核心思路：seal() 内嵌常量 0x1337CAFE，check() 校验它。
- * 静态 patch 需要改多处（seal 的返回值 + check 的比较点），
  * 但 Frida 只需一行 hook seal 强制返回正确值即可——这正是本关要教的。
  *
  * 标记（真）：Fatdog_forge  — UTF-16 码元，非 static 非 const 全局存放。
@@ -35,8 +34,7 @@ static const jchar DECOY[] = {
 #define XOR_KEY 0x0000BEEF
 
 /*
- * seal()：内嵌常量，返回固定值。
- * 编译后返回值藏在 .rodata 或立即数指令中，IDA 一眼可见。
+ * seal()：内嵌常量，初始返回错误值 0x1337C411，hook 后返回真值 0x1337CAFE。
  *
  * Frida 解法（本关主解）：
  *   Interceptor.attach(Module.findExportByName("libm11.so","seal"), {
@@ -45,7 +43,7 @@ static const jchar DECOY[] = {
  *   一行搞定——hook 返回值比改二进制容易得多。
  */
 int seal(void) {
-    return SEAL_MAGIC;
+    return SEAL_MAGIC ^ XOR_KEY; /* 未 hook 时返回 0x1337C411，check 保持关闭 */
 }
 
 /*

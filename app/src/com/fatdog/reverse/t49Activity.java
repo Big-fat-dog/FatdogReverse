@@ -49,6 +49,12 @@ public class t49Activity extends Activity {
         checkStatus.setTextColor(g == 1 ? 0xFF67C23A : 0xFFFB7299);
         box.addView(checkStatus, Ui.wrap(6));
 
+        // 答案输入框
+        final EditText ansIn = new EditText(this);
+        ansIn.setHint("提交 seal() 的返回值（十六进制，如 0x1337cafe）");
+        ansIn.setLayoutParams(Ui.fullWidth(14));
+        ansIn.setEnabled(g == 1);
+
         // 重新检测按钮
         Button recheck = new Button(this);
         recheck.setText("重新检测 check");
@@ -60,15 +66,11 @@ public class t49Activity extends Activity {
                 int g = Uk.nativeCheck(s);
                 checkStatus.setText("check(seal()) = " + g + (g == 1 ? "（已 hook ✓）" : "（未 hook）"));
                 checkStatus.setTextColor(g == 1 ? 0xFF67C23A : 0xFFFB7299);
+                ansIn.setEnabled(g == 1);
             }
         });
         box.addView(recheck, Ui.wrap(10));
 
-        // 答案输入框
-        final EditText ansIn = new EditText(this);
-        ansIn.setHint("提交 seal() 的返回值（十六进制，如 0x1337cafe）");
-        ansIn.setLayoutParams(Ui.fullWidth(14));
-        ansIn.setEnabled(false);
         box.addView(ansIn);
 
         Button subBtn = new Button(this);
