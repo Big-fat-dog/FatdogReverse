@@ -72,6 +72,7 @@
         <activity android:name=".s43Activity" android:exported="false" />
         <activity android:name=".t44Activity" android:exported="false" />
         <activity android:name=".u45Activity" android:exported="false" />
+        <activity android:name=".v46Activity" android:exported="false" />
         <activity android:name=".xp38Activity" android:exported="false" />
         <activity android:name=".xp39Activity" android:exported="false" />
         <activity android:name=".xp40Activity" android:exported="false" />
@@ -84,7 +85,6 @@
         <activity android:name=".ForbiddenStoryActivity" android:exported="false" />
         <activity android:name=".DivineReflectionActivity" android:exported="false" />
 
-        <activity android:name=".v51Activity" android:exported="false" />
 
         <activity android:name=".w52Activity" android:exported="false" />
 

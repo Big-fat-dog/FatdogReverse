@@ -1,10 +1,9 @@
 package com.fatdog.reverse;
 
-
 import android.app.Activity;
 import android.app.AlertDialog;
-import android.os.Bundle;
 import android.graphics.drawable.GradientDrawable;
+import android.os.Bundle;
 import android.view.Gravity;
 import android.view.View;
 import android.widget.Button;
@@ -21,16 +20,14 @@ import org.json.JSONObject;
 import java.io.InputStream;
 import java.security.MessageDigest;
 
-// 签名校验对抗第五课 · 幽冥合卷（收官综合卷，★★★★★）：
-// 三点互验记账（Application 记账 → Activity 核账 → native 再核账互锁）
-// + CRC 自校验基线 + certHash 参与 AES 密钥派生 + 响应 AES 加密。
-// 任一环节缺失 → 静默投毒一字节。
-public class w52Activity extends Activity {
-    static final String SUM_HASH = "33aaee41697efda99ea79542e882d8b3d437cd85c196944e60fe6d408a3d1c77";
+// 签名校验对抗第四课 · 以签为钥（L4 派生型主打）：
+// key = SHA256(certDER ‖ "Fatdog_bind")，直接 HMAC-SHA256 整个表单。
+// 没有 if 判断签名对错——重打包者的证书不同→派生 key 不同→服务端全部 403 零提示。
+// 正解：运行时偷出 App 自己算的真实 certHash，离线复刻整条链取数。
+public class v46Activity extends Activity {
+    static final String SUM_HASH = "2227606ab8e049608fb66ca7c3ef80bf2e5316d6029fedf31627187e6af0dcca";
     static final int PAGES = 100;
     static final int PER_PAGE = 10;
-    private static final int GUARD_TICK = 0xABCD;
-    private static final int GUARD_RECHECK = 1;
 
     private TextView status;
     private final TextView[] cells = new TextView[10];
@@ -45,17 +42,14 @@ public class w52Activity extends Activity {
         super.onCreate(savedInstanceState);
         base = baseUrl();
 
-        /* ====== 三点互验记账：Application 记账（native 层计数） ====== */
-        Wp.nativeAudit();
-
         LinearLayout box = new LinearLayout(this);
         box.setOrientation(LinearLayout.VERTICAL);
         box.setGravity(Gravity.CENTER_HORIZONTAL);
         box.setPadding(Ui.dp(16), Ui.dp(14), Ui.dp(16), Ui.dp(12));
 
         TextView tv = new TextView(this);
-        tv.setText("三点互验 + CRC 自校验 + 证书派生密钥 + AES 加密响应。\n"
-                + "四重防线同时在线，缺一即投毒。收官综合卷，集中所有招式。");
+        tv.setText("证书 DER 派生密钥：key = SHA256(certHash ‖ Fatdog_bind)。\n"
+                + "没有 if 判断——重打包者证书不同→派生 key 不同→全 403 零提示。");
         tv.setGravity(Gravity.CENTER);
         box.addView(tv, Ui.wrap(4));
 
@@ -65,11 +59,7 @@ public class w52Activity extends Activity {
         status.setTextColor(ThemeKit.muted(ThemeKit.isDark(this)));
         box.addView(status, Ui.wrap(8));
 
-        /* ====== 三点互验记账：Activity 核账 + native 再核账 ====== */
-        if (!Wp.nativeGuard(GUARD_TICK, GUARD_RECHECK)) {
-            status.setText("守卫校验失败（CRC/guard 被篡改）");
-        }
-
+        // 数字网格：5 列 x 2 行，最多 10 个数字
         GridLayout grid = new GridLayout(this);
         grid.setColumnCount(5);
         grid.setRowCount(2);
@@ -96,6 +86,7 @@ public class w52Activity extends Activity {
         }
         box.addView(grid, Ui.fullWidth(12));
 
+        // 分页导航：上一页 / [页码窗口] / 下一页
         LinearLayout navRow = new LinearLayout(this);
         navRow.setOrientation(LinearLayout.HORIZONTAL);
         navRow.setGravity(Gravity.CENTER_VERTICAL);
@@ -131,6 +122,7 @@ public class w52Activity extends Activity {
 
         box.addView(navRow, Ui.fullWidth(14));
 
+        // 跳转到指定页
         LinearLayout jumpRow = new LinearLayout(this);
         jumpRow.setOrientation(LinearLayout.HORIZONTAL);
         jumpRow.setGravity(Gravity.CENTER_VERTICAL);
@@ -149,9 +141,9 @@ public class w52Activity extends Activity {
                 try {
                     int p = Integer.parseInt(s);
                     if (p >= 1 && p <= PAGES) loadPage(p);
-                    else Toast.makeText(w52Activity.this, "页码超出范围 1-" + PAGES, Toast.LENGTH_SHORT).show();
+                    else Toast.makeText(v46Activity.this, "页码超出范围 1-" + PAGES, Toast.LENGTH_SHORT).show();
                 } catch (Exception e) {
-                    Toast.makeText(w52Activity.this, "请输入页码", Toast.LENGTH_SHORT).show();
+                    Toast.makeText(v46Activity.this, "请输入页码", Toast.LENGTH_SHORT).show();
                 }
             }
         });
@@ -172,21 +164,18 @@ public class w52Activity extends Activity {
         hint.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                new AlertDialog.Builder(w52Activity.this)
+                new AlertDialog.Builder(v46Activity.this)
                         .setTitle("提示")
-                        .setMessage("四重防线同时在线——\n"
-                                + "① 三点互验记账（native 层有守卫计数）\n"
-                                + "② CRC 自校验基线（patch so 会被 CRC 抓）\n"
-                                + "③ certHash 参与 AES 密钥派生（换证书→密钥错）\n"
-                                + "④ 响应体 AES 加密（明文看不到数字）\n\n"
-                                + "注意两个标记中有一个是诱饵，仔细对比拼写差异。")
+                        .setMessage("本关没有 if 判断签名对错——key 由证书 DER 派生：key = SHA256(certHash ‖ b\"Fatdog_bind\")，直接 HMAC-SHA256 整个表单。\n"
+                                + "重打包者的证书不同→派生 key 不同→全部 403 零提示。\n"
+                                + "三条正解：① Frida hook Wg.nativeSign() 抓派生密钥后 Python 复刻；② unidbg 调 JNI 派生函数拿 32 字节 key；③ IDA 还原 m8.c 的 BENCH_X → XOR 0x66 还原 SHA-256 → Python 算派生 key → HMAC 取数。加和 51008。")
                         .setPositiveButton("好的", null)
                         .show();
             }
         });
         box.addView(hint, Ui.wrap(10));
 
-        box.addView(Ui.banner(this, R.drawable.level_52, 150));
+        box.addView(Ui.banner(this, R.drawable.level_51, 150));
 
         setContentView(Ui.wrapScroll(box));
         ThemeKit.apply(this);
@@ -195,15 +184,11 @@ public class w52Activity extends Activity {
             @Override
             public void onClick(View v) {
                 String ans = ansIn.getText().toString().trim();
-                if (SUM_HASH.isEmpty() || SUM_HASH.startsWith("待")) {
-                    Toast.makeText(w52Activity.this, "本关尚在开发中", Toast.LENGTH_SHORT).show();
-                    return;
-                }
                 if (sha256Hex(ans).equals(SUM_HASH)) {
-                    Celebration.show(w52Activity.this, "FLAG_18_L47{guard_matrix_crc_aes}");
-                    PassLog.mark(w52Activity.this, "L47");
+                    Celebration.show(v46Activity.this, "FLAG_18_L46{key_derived_from_cert}");
+                    PassLog.mark(v46Activity.this, "L46");
                 } else {
-                    Toast.makeText(w52Activity.this,
+                    Toast.makeText(v46Activity.this,
                             "加和不对，再取数算一遍。", Toast.LENGTH_SHORT).show();
                 }
             }
@@ -216,7 +201,7 @@ public class w52Activity extends Activity {
         if (loading) return;
         loading = true;
         status.setText("正在请求第 " + page + " 页…");
-        Zd.fetchPage(base, page, new Zd.Cb() {
+        Zc.fetchPage(base, page, new Zc.Cb() {
             @Override
             public void onPage(final int got, final int[] nums) {
                 runOnUiThread(new Runnable() {
@@ -300,7 +285,7 @@ public class w52Activity extends Activity {
             JSONObject cfg = new JSONObject(readAssets("config.json"));
             return NetHost.resolve(cfg.getJSONObject("server").getString("api_base_url"), true);
         } catch (Exception e) {
-            return Zd.BASE;
+            return Zc.BASE;
         }
     }
 

@@ -293,7 +293,7 @@ public class MainActivity extends Activity {
         bind(R.id.btn_l43, s43Activity.class);
         bind(R.id.btn_l44, t44Activity.class);
         bind(R.id.btn_l45, u45Activity.class);
-        bind(R.id.btn_l46, v51Activity.class);
+        bind(R.id.btn_l46, v46Activity.class);
         bind(R.id.btn_l47, w52Activity.class);
     }
 

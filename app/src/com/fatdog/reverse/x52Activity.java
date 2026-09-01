@@ -1,10 +1,11 @@
 package com.fatdog.reverse;
 
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.os.Bundle;
-import android.text.method.ScrollingMovementMethod;
+import android.view.Gravity;
 import android.view.View;
 import android.widget.Button;
 import android.widget.EditText;
@@ -16,127 +17,62 @@ import android.widget.Toast;
 /**
  * KL15 万法归宗（★★★★★ 综合收官卷）。
  *
- * 与前几关不同：三阶段递进谜题，不是简单的 guard→answer。
- *   阶段 A：computeA → 种子值
- *   阶段 B：computeB(a) → 基于 A 的衍生值
- *   阶段 C：computeC(a,b) → 组合 A+B 的最终值
- *   验证：verify(a,b,c) → 三值全对才解锁
+ * 三阶段递进谜题，四个独立 native 入口：
+ *   computeA() → computeB(a) → computeC(a,b) → verify(a,b,c)
+ * 三个值全部还原正确才能通过，UI 不自动填入、不打印中间值。
  */
 public class x52Activity extends Activity {
 
-    private TextView log;
     private EditText aBox, bBox, cBox;
-    private int valA, valB, valC;
-
-    private void append(String s) { log.append(s + "\n"); }
 
     @Override protected void onCreate(Bundle b) {
         super.onCreate(b);
 
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(Ui.dp(22), Ui.dp(18), Ui.dp(22), Ui.dp(12));
+        root.setGravity(Gravity.CENTER_HORIZONTAL);
+        root.setPadding(Ui.dp(16), Ui.dp(20), Ui.dp(16), Ui.dp(12));
 
-        root.addView(Ui.banner(this, R.drawable.level_kl15, 140));
+        TextView tv = new TextView(this);
+        tv.setText("KL15 · 万法归宗（★★★★★）\n\n"
+                + "三阶段递进谜题，每阶段算法不同：\n"
+                + "A=XOR+移位，B=CRC衍生，C=SHA256组合。\n\n"
+                + "按 computeA → computeB(a) → computeC(a,b) 还原，\n"
+                + "三值全对 verify 才返回 1，本关不自动填答案。");
+        tv.setGravity(Gravity.CENTER);
+        tv.setTextColor(Color.WHITE);
+        tv.setTextSize(15);
+        root.addView(tv, Ui.wrap(6));
 
-        TextView hi = new TextView(this);
-        hi.setText("KL15 · 万法归宗（★★★★★）");
-        hi.setTextSize(18); hi.setTextColor(Color.WHITE);
-        hi.setTypeface(Typeface.DEFAULT_BOLD);
-        root.addView(hi);
+        int p = Ui.dp(10);
 
-        TextView desc = new TextView(this);
-        desc.setText("收官综合卷：三阶段递进谜题，每阶段算法不同。"
-                + "A=XOR+移位，B=CRC衍生，C=SHA256组合。三值全对才解锁。");
-        desc.setTextSize(13); desc.setTextColor(0xCCFFFFFF);
-        desc.setPadding(0, Ui.dp(6), 0, Ui.dp(8));
-        root.addView(desc);
+        aBox = new EditText(this);
+        aBox.setHint("A 值（十进制整数）");
+        aBox.setTextColor(Color.WHITE);
+        aBox.setTypeface(Typeface.MONOSPACE);
+        aBox.setBackgroundColor(0x33FFFFFF);
+        aBox.setPadding(p, p, p, p);
+        root.addView(aBox, Ui.fullWidth(10));
 
-        log = new TextView(this);
-        log.setTypeface(Typeface.MONOSPACE);
-        log.setTextSize(12); log.setTextColor(Color.WHITE);
-        log.setMovementMethod(new ScrollingMovementMethod());
-        log.setBackgroundColor(0x1AFFFFFF);
-        int lp = Ui.dp(8);
-        log.setPadding(lp, lp, lp, lp);
-        root.addView(log, Ui.fullWidth(120));
+        bBox = new EditText(this);
+        bBox.setHint("B 值（十进制整数）");
+        bBox.setTextColor(Color.WHITE);
+        bBox.setTypeface(Typeface.MONOSPACE);
+        bBox.setBackgroundColor(0x33FFFFFF);
+        bBox.setPadding(p, p, p, p);
+        root.addView(bBox, Ui.fullWidth(10));
 
-        /* ── 阶段 A ── */
-        Button btnA = new Button(this);
-        btnA.setText("阶段 A · computeA()"); Ui.styleButton(btnA);
-        btnA.setOnClickListener(new View.OnClickListener() {
-            @Override public void onClick(View v) {
-                valA = Am.nativeComputeA();
-                append("[A] computeA() → " + valA + "  (0x" + Integer.toHexString(valA) + ")");
-                aBox.setText(String.valueOf(valA));
-            }
-        });
-        root.addView(btnA);
+        cBox = new EditText(this);
+        cBox.setHint("C 值（十进制整数）");
+        cBox.setTextColor(Color.WHITE);
+        cBox.setTypeface(Typeface.MONOSPACE);
+        cBox.setBackgroundColor(0x33FFFFFF);
+        cBox.setPadding(p, p, p, p);
+        root.addView(cBox, Ui.fullWidth(10));
 
-        /* ── 阶段 B ── */
-        Button btnB = new Button(this);
-        btnB.setText("阶段 B · computeB(A)"); Ui.styleButton(btnB);
-        btnB.setOnClickListener(new View.OnClickListener() {
-            @Override public void onClick(View v) {
-                if (valA == 0 && aBox.getText().toString().isEmpty()) {
-                    Toast.makeText(x52Activity.this, "请先完成阶段 A", Toast.LENGTH_SHORT).show();
-                    return;
-                }
-                /* 如果用户手动改了 A 的值，用输入框的 */
-                String aStr = aBox.getText().toString().trim();
-                if (!aStr.isEmpty()) valA = Integer.parseInt(aStr);
-                valB = Am.nativeComputeB(valA);
-                append("[B] computeB(" + valA + ") → " + valB + "  (0x" + Integer.toHexString(valB) + ")");
-                bBox.setText(String.valueOf(valB));
-            }
-        });
-        root.addView(btnB);
-
-        /* ── 阶段 C ── */
-        Button btnC = new Button(this);
-        btnC.setText("阶段 C · computeC(A, B)"); Ui.styleButton(btnC);
-        btnC.setOnClickListener(new View.OnClickListener() {
-            @Override public void onClick(View v) {
-                String aStr = aBox.getText().toString().trim();
-                String bStr = bBox.getText().toString().trim();
-                if (aStr.isEmpty() || bStr.isEmpty()) {
-                    Toast.makeText(x52Activity.this, "请先完成 A 和 B", Toast.LENGTH_SHORT).show();
-                    return;
-                }
-                valA = Integer.parseInt(aStr);
-                valB = Integer.parseInt(bStr);
-                valC = Am.nativeComputeC(valA, valB);
-                append("[C] computeC(" + valA + ", " + valB + ") → " + valC + "  (0x" + Integer.toHexString(valC) + ")");
-                cBox.setText(String.valueOf(valC));
-            }
-        });
-        root.addView(btnC);
-
-        /* ── 输入区 ── */
-        LinearLayout row = new LinearLayout(this);
-        row.setOrientation(LinearLayout.HORIZONTAL);
-        int p = Ui.dp(6);
-
-        aBox = new EditText(this); aBox.setHint("A"); aBox.setTextSize(12);
-        aBox.setTextColor(Color.WHITE); aBox.setTypeface(Typeface.MONOSPACE);
-        aBox.setBackgroundColor(0x33FFFFFF); aBox.setPadding(p, p, p, p);
-        row.addView(aBox, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
-
-        bBox = new EditText(this); bBox.setHint("B"); bBox.setTextSize(12);
-        bBox.setTextColor(Color.WHITE); bBox.setTypeface(Typeface.MONOSPACE);
-        bBox.setBackgroundColor(0x33FFFFFF); bBox.setPadding(p, p, p, p);
-        row.addView(bBox, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
-
-        cBox = new EditText(this); cBox.setHint("C"); cBox.setTextSize(12);
-        cBox.setTextColor(Color.WHITE); cBox.setTypeface(Typeface.MONOSPACE);
-        cBox.setBackgroundColor(0x33FFFFFF); cBox.setPadding(p, p, p, p);
-        row.addView(cBox, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
-
-        root.addView(row);
-
-        /* ── 提交 ── */
         Button submit = new Button(this);
-        submit.setText("验证三值 verify(A, B, C)"); Ui.styleButton(submit);
+        submit.setText("验证三值 verify(A, B, C)");
+        Ui.styleButton(submit);
         submit.setOnClickListener(new View.OnClickListener() {
             @Override public void onClick(View v) {
                 String sa = aBox.getText().toString().trim();
@@ -146,31 +82,52 @@ public class x52Activity extends Activity {
                     Toast.makeText(x52Activity.this, "请填入 A、B、C 三值", Toast.LENGTH_SHORT).show();
                     return;
                 }
-                int a = Integer.parseInt(sa);
-                int b = Integer.parseInt(sb);
-                int c = Integer.parseInt(sc);
-                int r = Am.nativeVerify(a, b, c);
-                append("[verify] verify(" + a + ", " + b + ", " + c + ") → " + r);
-                if (r == 1) {
-                    append("\n✔ 三值全部匹配！");
+                int a, b, c;
+                try {
+                    a = Integer.parseInt(sa);
+                    b = Integer.parseInt(sb);
+                    c = Integer.parseInt(sc);
+                } catch (NumberFormatException e) {
+                    Toast.makeText(x52Activity.this, "请输入十进制整数", Toast.LENGTH_SHORT).show();
+                    return;
+                }
+                if (Am.nativeVerify(a, b, c) == 1) {
                     Celebration.show(x52Activity.this, "FLAG_18_KL15{all_methods_converge}");
                     PassLog.mark(x52Activity.this, "KL15");
                 } else {
-                    append("\n✘ 至少一个值不对");
-                    Toast.makeText(x52Activity.this, "验证失败", Toast.LENGTH_SHORT).show();
+                    Toast.makeText(x52Activity.this, "验证失败，三值至少一个不对。", Toast.LENGTH_SHORT).show();
                 }
             }
         });
-        root.addView(submit);
+        root.addView(submit, Ui.wrap(10));
 
-        /* 返回 */
+        Button hint = new Button(this);
+        hint.setText("提示");
+        Ui.styleButton(hint);
+        hint.setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View v) {
+                new AlertDialog.Builder(x52Activity.this)
+                        .setTitle("提示")
+                        .setMessage("四个独立入口：computeA → computeB(a) → computeC(a,b) → verify(a,b,c)。\n"
+                                + "正解方向：IDA/Ghidra 还原每一阶段算法，按依赖顺序算出 A、B、C；也可 Frida hook 三个 compute 出口观察返回值对拍。\n"
+                                + "三值全对 verify 才返回 1。")
+                        .setPositiveButton("好的", null)
+                        .show();
+            }
+        });
+        root.addView(hint, Ui.wrap(8));
+
         Button back = new Button(this);
-        back.setText("返回"); Ui.styleButton(back);
+        back.setText("返回");
+        Ui.styleButton(back);
         back.setOnClickListener(new View.OnClickListener() {
             @Override public void onClick(View v) { finish(); }
         });
-        root.addView(back);
+        root.addView(back, Ui.wrap(8));
+
+        root.addView(Ui.banner(this, R.drawable.level_kl15, 140));
 
         setContentView(Ui.wrapScroll(root));
+        ThemeKit.apply(this);
     }
 }
