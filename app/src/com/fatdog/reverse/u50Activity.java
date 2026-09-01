@@ -13,7 +13,7 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 // 幽冥海 KL13 · 声东击西：反 patch 对抗——CRC 自校验。
-// libm12.so 的 guard() 内嵌 CRC 校验：每次调用 check() 时重新算 CRC 比对。
+// libmantis.so 的 guard() 内嵌 CRC 校验：每次调用 check() 时重新算 CRC 比对。
 // patch 任何指令都会改变 CRC → 校验失败 → 静默返回 0。
 // 解法：① Frida hook check 强制返回 1（跳过 CRC）；
 //       ② patch CRC 基线值（找到常量改为 patched 代码的 CRC）；
@@ -31,7 +31,7 @@ public class u50Activity extends Activity {
 
         TextView tv = new TextView(this);
         tv.setText("幽冥海 KL13 · 声东击西\n\n"
-                + "libm12.so 内嵌 CRC 自校验——\n"
+                + "libmantis.so 内嵌 CRC 自校验——\n"
                 + "guard() 每次调用都会重新校验代码完整性。\n"
                 + "patch 任何指令都会改变 CRC → 校验失败 → 返回 0。\n\n"
                 + "三解全开：\n"
@@ -110,7 +110,7 @@ public class u50Activity extends Activity {
                         .setTitle("提示")
                         .setMessage("Frida 跳过 CRC 最简单：\n"
                                 + "Java.perform(function(){\n"
-                                + "  var chk = Module.findExportByName('libm12.so','check');\n"
+                                + "  var chk = Module.findExportByName('libmantis.so','check');\n"
                                 + "  Interceptor.attach(chk, {\n"
                                 + "    onLeave: function(r){ r.replace(ptr(1)); }\n"
                                 + "  });\n"

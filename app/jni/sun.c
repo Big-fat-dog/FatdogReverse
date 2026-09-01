@@ -6,7 +6,7 @@
  *
  *   ① maps hex pattern：解析 /proc/self/maps，搜索 r-xp 段中的 frida 特征字节
  *   ② DT_DEBUG 检查：读 ELF 头的 PT_DYNAMIC 段，Frida 注入会修改 DT_DEBUG
- *   ③ auxv 校验：读 /proc/self/auxv 检查 AT_PHDR 等入口是否被篡改
+ *   ③ auxv 校验：读 /proc/self/auxv，按 ELF class 解析并与磁盘 ELF 头交叉校验
  *
  * 标记（真）：Fatdog_gleam — UTF-16 码元。
  * 诱饵（假）：Fatdog_glint — 一字之差。
@@ -250,9 +250,65 @@ static int detect_dt_debug(void) {
 }
 
 /* ============================================================
- * 检测③：辅助向量校验（读 /proc/self/auxv）
+ * 读取 /proc/self/exe 的 ELF 头信息（类 + phoff/phentsize/phnum）
+ * ============================================================ */
+static int read_elf_info(int *is_64, uint64_t *phoff,
+                         uint16_t *phentsize, uint16_t *phnum) {
+    int fd = open("/proc/self/exe", O_RDONLY);
+    if (fd < 0) return 0;
+
+    uint8_t h[64];
+    ssize_t got = read(fd, h, 16);
+    if (got != 16 || h[0] != 0x7f || h[1] != 'E' || h[2] != 'L' || h[3] != 'F') {
+        close(fd);
+        return 0;
+    }
+    int is64 = (h[4] == 2);
+    lseek(fd, 0, SEEK_SET);
+    got = read(fd, h, is64 ? 64 : 52);
+    if (got != (is64 ? 64 : 52)) { close(fd); return 0; }
+
+    if (is64) {
+        *is_64 = 1;
+        *phoff = (uint64_t)h[32] | ((uint64_t)h[33] << 8) |
+                 ((uint64_t)h[34] << 16) | ((uint64_t)h[35] << 24) |
+                 ((uint64_t)h[36] << 32) | ((uint64_t)h[37] << 40) |
+                 ((uint64_t)h[38] << 48) | ((uint64_t)h[39] << 56);
+        *phentsize = (uint16_t)(h[54] | (h[55] << 8));
+        *phnum = (uint16_t)(h[56] | (h[57] << 8));
+    } else {
+        *is_64 = 0;
+        *phoff = (uint64_t)(h[28] | (h[29] << 8) | (h[30] << 16) | (h[31] << 24));
+        *phentsize = (uint16_t)(h[42] | (h[43] << 8));
+        *phnum = (uint16_t)(h[44] | (h[45] << 8));
+    }
+    close(fd);
+    return 1;
+}
+
+static uint64_t rd_le64(const uint8_t *p) {
+    uint64_t v = 0;
+    for (int i = 0; i < 8; i++) v |= (uint64_t)p[i] << (8 * i);
+    return v;
+}
+
+static uint32_t rd_le32(const uint8_t *p) {
+    return (uint32_t)p[0] | ((uint32_t)p[1] << 8) |
+           ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24);
+}
+
+/* ============================================================
+ * 检测③：辅助向量校验（读 /proc/self/auxv，与磁盘 ELF 头交叉比对）
+ * 64 位设备上 auxv 条目是 16 字节（Elf64_auxv_t：type+value 各 8 字节），
+ * 32 位是 8 字节。旧实现按 32 位解析会把 AT_PHDR 的值读到 type 的高 32 位
+ * （恒为 0）造成 64 位设备误报，这里按 ELF class 取正确宽度。
  * ============================================================ */
 static int detect_auxv(void) {
+    int is_64 = 0;
+    uint64_t elf_phoff = 0;
+    uint16_t elf_phentsize = 0, elf_phnum = 0;
+    if (!read_elf_info(&is_64, &elf_phoff, &elf_phentsize, &elf_phnum)) return 0;
+
     int fd = open("/proc/self/auxv", O_RDONLY);
     if (fd < 0) return 0;
 
@@ -261,24 +317,34 @@ static int detect_auxv(void) {
     close(fd);
     if (n <= 0) return 0;
 
-    /* auxv 是 {uint_type, uint_value} 对，以 AT_NULL (0,0) 结尾 */
-    int found = 0;
+    size_t ent = is_64 ? 16 : 8;
+    uint64_t at_phdr = 0, at_phent = 0, at_phnum = 0;
+    int has_phdr = 0, has_phent = 0, has_phnum = 0;
     size_t i = 0;
-    while (i + 8 <= (size_t)n) {
-        uint32_t a_type = buf[i] | (buf[i+1] << 8) | (buf[i+2] << 16) | (buf[i+3] << 24);
-        uint32_t a_val  = buf[i+4] | (buf[i+5] << 8) | (buf[i+6] << 16) | (buf[i+7] << 24);
-        if (a_type == 0) break; /* AT_NULL */
-
-        /* AT_PHDR = 3, AT_PHENT = 4, AT_PHNUM = 5 */
-        if (a_type == 3) { /* AT_PHDR */
-            /* 正常 AT_PHDR 应在合理地址范围内 */
-            if (a_val == 0 || a_val > 0x7FFFFFFFUL) {
-                found = 1;
-            }
+    while (i + ent <= (size_t)n) {
+        uint64_t a_type, a_val;
+        if (is_64) {
+            a_type = rd_le64(buf + i);
+            a_val = rd_le64(buf + i + 8);
+        } else {
+            a_type = rd_le32(buf + i);
+            a_val = rd_le32(buf + i + 4);
         }
-        i += 8;
+        if (a_type == 0) break; /* AT_NULL */
+        if (a_type == 3) { at_phdr = a_val; has_phdr = 1; }       /* AT_PHDR */
+        else if (a_type == 4) { at_phent = a_val; has_phent = 1; } /* AT_PHENT */
+        else if (a_type == 5) { at_phnum = a_val; has_phnum = 1; } /* AT_PHNUM */
+        i += ent;
     }
-    return found;
+
+    /* AT_PHDR 低 12 位应等于 e_phoff 低 12 位（load_bias 页对齐），
+     * PHENT/PHNUM 必须与磁盘 ELF 头一致；任一缺失或异常即视为被篡改。 */
+    if (!has_phdr || !has_phent || !has_phnum) return 1;
+    if (at_phdr == 0) return 1;
+    if (at_phent != elf_phentsize) return 1;
+    if (at_phnum != elf_phnum) return 1;
+    if ((at_phdr & 0xFFFULL) != (elf_phoff & 0xFFFULL)) return 1;
+    return 0;
 }
 
 /* ============================================================
@@ -351,7 +417,7 @@ Java_com_fatdog_reverse_Ok_nativeStatus(JNIEnv *env, jclass clazz) {
     snprintf(buf, sizeof(buf),
         "maps_hex = %d (frida bytes in r-xp)\n"
         "dt_debug = %d (ELF DT_DEBUG)\n"
-        "auxv     = %d (AT_PHDR anomaly)\n"
+        "auxv     = %d (auxv vs ELF header)\n"
         "combined = %d (3-way AND)",
         g_hex_result, g_dt_result, g_auxv_result,
         (g_hex_result && g_dt_result && g_auxv_result) ? 1 : 0);

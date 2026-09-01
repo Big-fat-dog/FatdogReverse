@@ -1,6 +1,6 @@
 /**
  * mist.c — 扶桑树 KL25 暮雾锁听
- * 三重检测：/proc/self/maps frida 特征 + open(/proc/self/maps) 父进程检查 + getauxval(AT_PHDR)
+ * 三重检测：/proc/self/maps frida 特征 + 线程指纹（gum-js-loop/gmain 等）+ getauxval(AT_PHDR)
  * 判定逻辑：NAND（全部触发才判定）
  * SEED = 20280719
  * Flag: FLAG_18_KL25{mist_locks_the_ears}
@@ -14,6 +14,7 @@
 #include <fcntl.h>
 #include <sys/auxv.h>
 #include <elf.h>
+#include <dirent.h>
 
 /* ============================================================
  * 诱饵标记：Fatdog_gloom（真）/ Fatdog_gloom（假·少 o）
@@ -53,28 +54,37 @@ static int detect_maps_frida(void) {
 }
 
 /* ============================================================
- * 检测②：/proc/self/maps 打开检查（检测 open hook）
+ * 检测②：线程指纹——扫描 /proc/self/task 下各线程的 comm 文件
+ * Frida agent 注入后会拉起 gum-js-loop / gmain / gdbus / pool-frida 线程，
+ * 顺序 open 两次 maps 的 fd2==fd1 在正常 Linux 上永不成立，这里改为真实可
+ * 触发的线程名指纹（普通 App 无这些线程）。
  * ============================================================ */
-static int detect_open_hook(void) {
-    /* 尝试打开 maps 两次，比较描述符号 */
-    int fd1 = open("/proc/self/maps", O_RDONLY);
-    int fd2 = open("/proc/self/maps", O_RDONLY);
+static int detect_frida_threads(void) {
+    DIR *d = opendir("/proc/self/task");
+    if (!d) return 0;
 
-    int suspicious = 0;
-    if (fd1 >= 0 && fd2 >= 0) {
-        /* 正常情况下 fd 应该不同且递增 */
-        if (fd2 == fd1) {
-            suspicious = 1;  /* fd 被 hook 了，返回相同值 */
+    struct dirent *de;
+    int found = 0;
+    while ((de = readdir(d)) != NULL && !found) {
+        if (de->d_name[0] < '0' || de->d_name[0] > '9') continue;
+        char path[64];
+        snprintf(path, sizeof(path), "/proc/self/task/%s/comm", de->d_name);
+        int fd = open(path, O_RDONLY);
+        if (fd < 0) continue;
+        char name[64];
+        int n = (int)read(fd, name, sizeof(name) - 1);
+        close(fd);
+        if (n <= 0) continue;
+        name[n] = '\0';
+        while (n > 0 && (name[n-1] == '\n' || name[n-1] == '\r')) name[--n] = '\0';
+        if (strstr(name, "gum-js-loop") || strstr(name, "gmain") ||
+            strstr(name, "gdbus") || strstr(name, "frida") ||
+            strstr(name, "pool-frida")) {
+            found = 1;
         }
-        /* 检查 fd 是否异常大（可能被 hook 层拦截） */
-        if (fd1 > 100 || fd2 > 100) {
-            suspicious = 1;
-        }
-        close(fd1);
-        close(fd2);
     }
-
-    return suspicious;
+    closedir(d);
+    return found;
 }
 
 /* ============================================================
@@ -103,7 +113,7 @@ static int detect_auxv_hook(void) {
  * ============================================================ */
 static int detect_frida(void) {
     int maps = detect_maps_frida();
-    int hook = detect_open_hook();
+    int hook = detect_frida_threads();
     int auxv = detect_auxv_hook();
 
     /* NAND：只有三路都触发才判定 Frida 存在 */
@@ -138,13 +148,13 @@ static const char* compute_answer(void) {
 static const char* compute_status(void) {
     static char buf[512];
     int maps = detect_maps_frida();
-    int hook = detect_open_hook();
+    int hook = detect_frida_threads();
     int auxv = detect_auxv_hook();
 
     snprintf(buf, sizeof(buf),
         "=== 暮雾锁听 ===\n"
         "maps特征:     %s\n"
-        "open hook:    %s\n"
+        "线程指纹:     %s\n"
         "auxv hook:    %s\n"
         "综合判定(NAND): %s\n\n"
         "标记A: %s\n标记B: %s",
@@ -164,8 +174,8 @@ JNIEXPORT jint JNICALL Java_com_fatdog_reverse_Rk_nativeMapsFrida(JNIEnv *e, jcl
     return detect_maps_frida();
 }
 
-JNIEXPORT jint JNICALL Java_com_fatdog_reverse_Rk_nativeOpenHook(JNIEnv *e, jclass c) {
-    return detect_open_hook();
+JNIEXPORT jint JNICALL Java_com_fatdog_reverse_Rk_nativeThreadFinger(JNIEnv *e, jclass c) {
+    return detect_frida_threads();
 }
 
 JNIEXPORT jint JNICALL Java_com_fatdog_reverse_Rk_nativeAuxvHook(JNIEnv *e, jclass c) {

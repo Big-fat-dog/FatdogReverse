@@ -50,7 +50,7 @@ public class e60Activity extends Activity {
                 + "三路 AND 判定（任一通过=安全）：\n"
                 + "  ① maps hex：r-xp 段搜索 frida 特征字节\n"
                 + "  ② DT_DEBUG：ELF 头 PT_DYNAMIC 段检查\n"
-                + "  ③ auxv：/proc/self/auxv AT_PHDR 篡改检测\n\n"
+                + "  ③ auxv：/proc/self/auxv 与 ELF 头交叉校验\n\n"
                 + "标记：两个标记一真一假，需仔细辨别");
         tv.setGravity(Gravity.CENTER);
         root.addView(tv, Ui.wrap(6));
@@ -110,7 +110,7 @@ public class e60Activity extends Activity {
                         .setMessage("三重内存指纹 + AND 判定：\n\n"
                                 + "① maps hex：在 r-xp 可执行段中搜索 frida 特征字节\n"
                                 + "② DT_DEBUG：解析 ELF PT_DYNAMIC 段，检查 DT_DEBUG 值\n"
-                                + "③ auxv：读 /proc/self/auxv，检查 AT_PHDR 是否异常\n\n"
+                                + "③ auxv：读 /proc/self/auxv，与磁盘 ELF 头交叉校验\n\n"
                                 + "AND 判定：三路全部检出才判定 Frida 存在\n"
                                 + "（与 KL21/22 的 OR 判定相反——任一通过即安全）\n\n"
                                 + "绕过路线：\n"

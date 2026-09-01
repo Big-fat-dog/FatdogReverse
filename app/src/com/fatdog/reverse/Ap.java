@@ -1,6 +1,6 @@
 package com.fatdog.reverse;
 
-// 幽冥海 KL13 JNI 桥：libm12.so CRC 自校验反 patch 靶场。
+// 幽冥海 KL13 JNI 桥：libmantis.so CRC 自校验反 patch 靶场。
 // guard(input)：CRC 校验 + 比较双保险；check()：独立校验入口。
 // patch 任何指令都会改变 CRC → 校验失败 → 静默返回 0。
 public class Ap {

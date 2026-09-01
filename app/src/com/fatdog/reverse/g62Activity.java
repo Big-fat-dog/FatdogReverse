@@ -18,7 +18,7 @@ import android.widget.Toast;
  * 扶桑树 KL25 暮雾锁听：三重检测 NAND 判定。
  * libmist.so 导出六个函数：
  *   int    nativeMapsFrida()    — maps 特征搜索
- *   int    nativeOpenHook()     — open hook 检测
+ *   int    nativeThreadFinger() — 线程指纹检测
  *   int    nativeAuxvHook()     — auxv hook 检测
  *   int    nativeFridaDetect()  — 综合检测（NAND）
  *   String nativeAnswer()       — 最终答案
@@ -40,14 +40,14 @@ public class g62Activity extends Activity {
         tv.setText("KL25 · 暮雾锁听（★★★ NAND 判定）\n\n"
                 + "libmist.so 导出六个函数：\n"
                 + "  int    nativeMapsFrida()\n"
-                + "  int    nativeOpenHook()\n"
+                + "  int    nativeThreadFinger()\n"
                 + "  int    nativeAuxvHook()\n"
                 + "  int    nativeFridaDetect()\n"
                 + "  String nativeAnswer()\n"
                 + "  String nativeStatus()\n\n"
                 + "NAND 判定（只有三路全部触发才判定）：\n"
                 + "  ① maps frida 特征\n"
-                + "  ② open hook 检测\n"
+                + "  ② 线程指纹检测\n"
                 + "  ③ auxv hook 检测\n\n"
                 + "标记：两个标记一真一假，需仔细辨别");
         tv.setGravity(Gravity.CENTER);
@@ -109,7 +109,7 @@ public class g62Activity extends Activity {
                                 + "只有三路全部触发才判定 Frida 存在\n"
                                 + "（与 OR/AND 不同——需要全部检测点同时命中）\n\n"
                                 + "① maps frida 特征搜索\n"
-                                + "② open hook 检测（fd 异常）\n"
+                                + "② 线程指纹检测（gum-js-loop/gmain）\n"
                                 + "③ auxv hook 检测（AT_PHDR 篡改）\n\n"
                                 + "绕过路线：\n"
                                 + "  • 只需让任一路不触发即可\n"

@@ -165,7 +165,7 @@ include $(BUILD_SHARED_LIBRARY)
 # KL13
 include $(CLEAR_VARS)
 LOCAL_MODULE := mantis
-LOCAL_SRC_FILES := mantis.c
+LOCAL_SRC_FILES := mantis.c kl13_baseline.c
 LOCAL_LDLIBS := -llog
 include $(BUILD_SHARED_LIBRARY)
 

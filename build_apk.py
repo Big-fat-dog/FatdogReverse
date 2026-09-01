@@ -194,7 +194,20 @@ def main():
     if ndk:
         ndk_build = os.path.join(ndk, 'ndk-build.cmd')
         if os.path.isfile(ndk_build):
+            # KL29 TLV 基准帧：纯数据头，先烘焙再编译 so
+            run([sys.executable, os.path.join(HERE, 'tools', 'gen_tlv_reference.py')])
             run([ndk_build, '-C', APP])
+            # KL13 真实代码段 CRC：烘焙基线 → 重编 → 校验（循环直到稳定）
+            gen_baseline = os.path.join(HERE, 'tools', 'gen_code_crc_baselines.py')
+            for attempt in range(3):
+                run([sys.executable, gen_baseline])
+                run([ndk_build, '-C', APP])
+                try:
+                    run([sys.executable, gen_baseline, '--verify'])
+                    break
+                except subprocess.CalledProcessError:
+                    if attempt == 2:
+                        raise
             for abi in ('arm64-v8a', 'armeabi-v7a'):
                 for so in sorted(glob.glob(os.path.join(APP, 'libs', abi, '*.so'))):
                     libs.setdefault(abi, []).append(so)

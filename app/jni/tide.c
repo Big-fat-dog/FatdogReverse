@@ -13,6 +13,10 @@
 #include <unistd.h>
 #include <signal.h>
 #include <sys/ptrace.h>
+#include "kl29_tlv_reference.h"
+
+/* 编译期烘焙的“好帧”基准：独立于构建逻辑，patch 帧构建代码即可检出 */
+static const unsigned char kTlvReferenceFrame[KL29_TLV_REFERENCE_LEN] = KL29_TLV_REFERENCE_BYTES;
 
 /* ============================================================
  * 诱饵标记：Fatdog_surge（真）/ Fatdog_swell（假）
@@ -59,18 +63,19 @@ static int build_tlv_frame(unsigned char *out, int *out_len,
 }
 
 /* ============================================================
- * 检测①：TLV magic 校验（检测是否被篡改）
+ * 检测①：TLV 帧与编译期烘焙基准比对（检测是否被篡改）
+ * 基准帧 kTlvReferenceFrame 由 tools/gen_tlv_reference.py 独立生成，
+ * 运行时重新构建的帧与它逐字节比对：patch build_tlv_frame 的常量或
+ * 指令后帧内容变化即可检出（不再是自己构造自己校验）。
  * ============================================================ */
 static int detect_tlv_magic(void) {
     unsigned char frame[32];
     int len;
     build_tlv_frame(frame, &len, 1, 20280723);
 
-    /* 检查 magic 是否正确 */
-    uint32_t magic;
-    memcpy(&magic, frame, 4);
-    if (magic != TLV_MAGIC) {
-        return 1;  /* 被篡改 */
+    if (len != KL29_TLV_REFERENCE_LEN) return 1;
+    if (memcmp(frame, kTlvReferenceFrame, KL29_TLV_REFERENCE_LEN) != 0) {
+        return 1;  /* 帧被篡改 */
     }
     return 0;
 }
@@ -126,7 +131,7 @@ static const char* compute_status(void) {
 
     snprintf(buf, sizeof(buf),
         "=== 暗流涌动 ===\n"
-        "TLV magic:    %s\n"
+        "TLV帧基准:    %s\n"
         "ptrace检测:   %s\n"
         "综合判定(OR): %s\n\n"
         "标记A: %s\n标记B: %s",

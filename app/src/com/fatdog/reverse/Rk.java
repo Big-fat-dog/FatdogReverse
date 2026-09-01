@@ -10,8 +10,8 @@ public final class Rk {
     /** maps frida 特征子结果 */
     public static native int nativeMapsFrida();
 
-    /** open hook 子结果 */
-    public static native int nativeOpenHook();
+    /** 线程指纹子结果（gum-js-loop/gmain 等 Frida 线程名） */
+    public static native int nativeThreadFinger();
 
     /** auxv hook 子结果 */
     public static native int nativeAuxvHook();
