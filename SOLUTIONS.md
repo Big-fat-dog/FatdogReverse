@@ -175,7 +175,7 @@ apktool d FatdogReverse.apk -o out
 ```
 apktool b out -o rebuilt.apk
 zipalign -f 4 rebuilt.apk aligned.apk
-apksigner sign --ks build/debug.keystore --ks-key-alias androiddebugkey \
+apksigner sign --ks keystore/debug.keystore --ks-key-alias androiddebugkey \
         --ks-pass pass:android --key-pass pass:android --out patched.apk aligned.apk
 adb install -r patched.apk
 ```
@@ -3754,7 +3754,7 @@ def lcg_ans(seed):                      # KL24-30：libice 之后统一 LCG 伪 
 apktool d FatdogReverse.apk -o out       # 单 classes.dex → out/smali（已无 classes2/3）
 apktool b out -o rebuilt.apk
 zipalign -f 4 rebuilt.apk aligned.apk
-apksigner sign --ks build/debug.keystore --ks-key-alias androiddebugkey \
+apksigner sign --ks keystore/debug.keystore --ks-key-alias androiddebugkey \
         --ks-pass pass:android --key-pass pass:android --out patched.apk aligned.apk
 adb install -r patched.apk
 ```

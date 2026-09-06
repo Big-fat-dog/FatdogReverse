@@ -21,6 +21,8 @@ import zipfile
 HERE = os.path.dirname(os.path.abspath(__file__))
 APP = os.path.join(HERE, 'app')
 BUILD = os.path.join(HERE, 'build')
+# 签名 keystore 固定放项目根 keystore/（build/ 每次会被清空，绝不能放进去）。
+KEYSTORE = os.path.join(HERE, 'keystore', 'debug.keystore')
 
 # 关卡 15+ 的 OkHttp 依赖：只打这份白名单，避免把大 jar 全塞进 dex。
 # 这些 jar 会被 R8 编进 classes.dex；classes2 里的类引用它们时用 --lib 解析即可。
@@ -133,6 +135,13 @@ def main():
         if not os.path.isfile(j):
             sys.exit('缺少依赖 jar（libs/ 下应有一份）: ' + j)
     lib_cp = os.pathsep.join(lib_jars)
+
+    # 0) 兼容历史布局：旧 key 曾在 build/ 下且会被下面的 rmtree 删除，先迁到 keystore/。
+    legacy_ks = os.path.join(BUILD, 'debug.keystore')
+    if not os.path.isfile(KEYSTORE) and os.path.isfile(legacy_ks):
+        os.makedirs(os.path.dirname(KEYSTORE), exist_ok=True)
+        shutil.copy2(legacy_ks, KEYSTORE)
+        print('签名 keystore 迁移到:', KEYSTORE)
 
     shutil.rmtree(BUILD, ignore_errors=True)
     os.makedirs(os.path.join(BUILD, 'classes'))
@@ -255,9 +264,10 @@ def main():
     aligned = os.path.join(BUILD, 'aligned.apk')
     run([zipalign, '-f', '4', unsigned, aligned])
 
-    # 7) 生成调试 keystore（只生成一次）
-    ks = os.path.join(BUILD, 'debug.keystore')
+    # 7) 签名 keystore：固定放项目根 keystore/（构建清理不删除，仅缺失时生成一次）
+    ks = KEYSTORE
     if not os.path.isfile(ks):
+        os.makedirs(os.path.dirname(ks), exist_ok=True)
         run([keytool, '-genkeypair', '-keystore', ks, '-alias', 'androiddebugkey',
              '-storepass', 'android', '-keypass', 'android',
              '-keyalg', 'RSA', '-keysize', '2048', '-validity', '10000',

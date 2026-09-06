@@ -110,8 +110,9 @@ apktool d FatdogReverse.apk -o out          # 单 classes.dex → out/smali/com/
 # 编辑对应 .smali
 apktool b out -o rebuilt.apk
 zipalign -f 4 rebuilt.apk aligned.apk
-apksigner sign --ks build/debug.keystore --ks-key-alias androiddebugkey \
+apksigner sign --ks keystore/debug.keystore --ks-key-alias androiddebugkey \
         --ks-pass pass:android --key-pass pass:android --out FatdogReverse-patched.apk aligned.apk
+
 adb install -r FatdogReverse-patched.apk
 ```
 
