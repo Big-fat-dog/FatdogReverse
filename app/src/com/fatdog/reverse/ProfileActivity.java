@@ -31,7 +31,7 @@ import android.widget.TextView;
 import java.io.File;
 import java.util.ArrayList;
 
-// 个人主页：顶部"传送带"式分类条（基本情况 / 太古禁地 / 神念自察），可横向滑动；
+// 个人主页：顶部"传送带"式分类条（基本情况 / 太古禁地 / 神念自察 / 昔日枷锁），可横向滑动；
 // 下方内容随分类切换。基本情况 = 头像 + 境界 + 修仙进度；右上角昼夜切换；背景图。
 public class ProfileActivity extends Activity {
     private static final int TOTAL_LEVELS = 71;   // 关卡 1-47（含 L20，L21-27 属 SSL/抓包系列，L28-37 起 native 第三季，KL1-10 天地秘境，L38-42 Xposed 第四季，L43-47 签名校验对抗，KL11-20 幽冥海+太玄之初，KL21-27 扶桑树）
@@ -76,7 +76,7 @@ public class ProfileActivity extends Activity {
             "✦ 一念无量，光寿无涯",
             "✦ 万古长夜，我为天明",
     };
-    private static final String[] CAT_NAMES = {"基本情况", "太古禁地", "神念自察", "天地秘境"};
+    private static final String[] CAT_NAMES = {"基本情况", "太古禁地", "神念自察", "昔日枷锁"};
     private static final int[] CAT_ICONS = {R.drawable.ic_tab_profile, R.drawable.ic_forbidden, R.drawable.ic_eye, R.drawable.ic_lock};
     private static final int[] CAT_COLORS = {0xFFFB7299, 0xFFFB7299, 0xFF409EFF, 0xFF00BFA5};
 
@@ -158,7 +158,7 @@ public class ProfileActivity extends Activity {
             chip.setOnClickListener(new View.OnClickListener() {
                 @Override
                 public void onClick(View v) {
-                    // 太古禁地 / 天地秘境默认开放，无需通关数门禁
+                    // 太古禁地 / 昔日枷锁默认开放，无需通关数门禁
                     selectPage(ctx, idx, chips, pages);
                     if (themeBtn[0] != null) {
                         themeBtn[0].setVisibility(idx == 0 ? View.VISIBLE : View.GONE);
@@ -361,14 +361,14 @@ public class ProfileActivity extends Activity {
     }
 
 
-    /* 天地秘境：四个区域，通关后点击进入小说阅读器 */
+    /* 昔日枷锁：已通关的秘境关卡留档于此，点击进入小说阅读器 */
     private static View buildKunlunPlaceholder(final Context ctx) {
         ScrollView scroll = new ScrollView(ctx);
         LinearLayout col = new LinearLayout(ctx);
         col.setOrientation(LinearLayout.VERTICAL);
         col.setPadding(dp(ctx,20), dp(ctx,16), dp(ctx,20), dp(ctx,24));
         TextView tip = new TextView(ctx);
-        tip.setText("此方天地尚未完全开辟……\n通关秘境关卡后，此处将浮现属于你的故事。");
+        tip.setText("昔日枷锁，皆已可回首。\n通关天地秘境关卡后，此处将浮现属于你的故事。");
         tip.setTextSize(13); tip.setTextColor(ThemeKit.muted(ThemeKit.isDark(ctx)));
         tip.setGravity(Gravity.CENTER); tip.setPadding(0, dp(ctx,30), 0, dp(ctx,20));
         col.addView(tip);
@@ -378,6 +378,7 @@ public class ProfileActivity extends Activity {
             {"—— 流沙河 ——", "KL6", "冰封之钥", "KL7", "裂魂之匣", "KL8", "幽泉之眼", "KL9", "天罡北斗", "KL10", "万象归一"},
             {"—— 幽冥海 ——", "KL11", "偷梁换柱", "KL12", "移花接木", "KL13", "声东击西", "KL14", "偷天换日", "KL15", "万法归宗"},
             {"—— 太玄之初 ——", "KL16", "破壳新生", "KL17", "金蝉脱壳", "KL18", "乾坤迷阵", "KL19", "虚空造化", "KL20", "破壁飞升"},
+            {"—— 太玄之初 · 壳 ——", "KKL1", "玄冥渊", "KKL2", "万剑冢", "KKL3", "断魂谷", "KKL4", "锁妖塔", "KKL5", "诛仙台"},
             {"—— 扶桑树 ——", "KL21", "枯叶听风", "KL22", "落影寻痕", "KL23", "照妖显形", "KL24", "冰鉴悬镜", "KL25", "暮雾锁听", "KL26", "暮霭沉沉", "KL27", "轻纱覆影", "KL28", "雪落无痕"},
             {"—— 天机阁 ——", "KL29", "暗流涌动", "KL30", "天机织锦"}
         };

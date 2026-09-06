@@ -11,8 +11,8 @@ import android.widget.ScrollView;
 import android.widget.TextView;
 
 /**
- * 天地秘境章节页：小说阅读器样式。
- * 每关一个故事，从 ProfileActivity 天地秘境点击进入。
+ * 昔日枷锁章节页：小说阅读器样式。
+ * 每关一个故事，从个人主页「昔日枷锁」点击进入。
  * 接收 extras: level（关卡 ID）、title（关卡名）。
  */
 public class DivineStoryActivity extends Activity {
@@ -41,7 +41,7 @@ public class DivineStoryActivity extends Activity {
         scroll.addView(page);
 
         TextView titleTv = new TextView(this);
-        titleTv.setText("天地秘境 · " + title);
+        titleTv.setText("昔日枷锁 · " + title);
         titleTv.setTextSize(22);
         titleTv.setTypeface(Typeface.DEFAULT_BOLD);
         titleTv.setTextColor(0xFFFB7299);
@@ -60,9 +60,9 @@ public class DivineStoryActivity extends Activity {
         body.setTypeface(Typeface.SERIF);
         body.setLineSpacing(dp(8), 1.0f);
         body.setTextColor(0xFF3A3A42);
-        body.setText("\u3000\u3000你踏入天地秘境之" + title + "。四周灵气翻涌，天地法则在此交织，化作一道道看不见的锁链。"
-                + "据说这片秘境藏着上古大能留下的传承，唯有洞悉天地玄机者方能参悟。"
-                + "\n\n\u3000\u3000你深吸一口气，灵台清明，逆向心法运转，眼前的世界开始变得透明……"
+        body.setText("\u3000\u3000你回望昔日枷锁中的" + title + "。天地法则曾在此交织，化作一道道看不见的锁链，如今已被你逐一解开。"
+                + "据说每一段旧锁背后都藏着上古大能留下的传承，唯有真正洞悉天地玄机者方能读懂。"
+                + "\n\n\u3000\u3000你轻点书页，灵台清明，逆向心法随之流转，旧日的谜题再次浮现在眼前……"
                 + "\n\n\u3000\u3000本章内容敬请期待。");
         page.addView(body, Ui.wrap(8));
 
