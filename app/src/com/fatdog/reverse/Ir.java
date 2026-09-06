@@ -1,6 +1,6 @@
 package com.fatdog.reverse;
 
-// 关卡 35 的 JNI 桥：libl35.so 里手写了两套密码（3DES + SM4），文件前半是
+// 关卡 35 的 JNI 桥：libumbra.so 里手写了两套密码（3DES + SM4），文件前半是
 // 一堆无用变换函数，真身经函数指针表派发。密钥不异或——由 UTF-16 标记
 // Fatdog_sneak 运行时派生。认算法靠魔数：DES 的 S1 盒、SM4 的 d6 90 e9 fe。
 public class Ir {

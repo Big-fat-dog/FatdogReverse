@@ -15,7 +15,7 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 // 太玄之初 KL17 · 金蝉脱壳：二代壳 DEX 热加载 + 反调试。
-// libk17.so 导出：nativeAntiDebug/nativeDecrypt/nativeSeed/nativeAnswer/nativeStatus
+// libviola.so 导出：nativeAntiDebug/nativeDecrypt/nativeSeed/nativeAnswer/nativeStatus
 // 反调试三重检测 + 反hook，全部通过才能拿到正确答案。
 // 玩家需：① 绕过反调试 → ② 分析解密逻辑 → ③ 算出答案提交。
 public class z54Activity extends Activity {
@@ -30,7 +30,7 @@ public class z54Activity extends Activity {
 
         TextView tv = new TextView(this);
         tv.setText("KL17 · 金蝉脱壳（★★）\n\n"
-                + "libk17.so 导出五个函数：\n"
+                + "libviola.so 导出五个函数：\n"
                 + "  int    nativeAntiDebug()\n"
                 + "  String nativeDecrypt()\n"
                 + "  int    nativeSeed()\n"
@@ -82,7 +82,7 @@ public class z54Activity extends Activity {
                 new AlertDialog.Builder(z54Activity.this)
                         .setTitle("提示")
                         .setMessage("二代壳分析路线：\n\n"
-                                + "① IDA 分析 libk17.so → 找 JNI_OnLoad 里的反调试调用；\n"
+                                + "① IDA 分析 libviola.so → 找 JNI_OnLoad 里的反调试调用；\n"
                                 + "② 反调试三重：ptrace 占坑 + TracerPid 检测 + Frida 端口 27042；\n"
                                 + "③ 反hook：mmap 映射函数头 + 定时比对。\n\n"
                                 + "绕过路线：\n"

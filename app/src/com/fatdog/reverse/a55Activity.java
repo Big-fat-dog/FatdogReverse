@@ -15,7 +15,7 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 // 太玄之初 KL18 · 乾坤迷阵：OLLVM 控制流平坦化。
-// libk18.so 导出：nativeDecrypt/nativeSeed/nativeAnswer/nativeOllvm/nativeCore
+// libblaze.so 导出：nativeDecrypt/nativeSeed/nativeAnswer/nativeOllvm/nativeCore
 // 状态机 16 case（12 真实 + 4 虚假），指令替换 + 字符串加密。
 // 玩家需：① 识别状态机结构 → ② 标记真实/虚假 case → ③ 还原算法 → ④ 算出答案。
 public class a55Activity extends Activity {
@@ -30,7 +30,7 @@ public class a55Activity extends Activity {
 
         TextView tv = new TextView(this);
         tv.setText("KL18 · 乾坤迷阵（★★★）\n\n"
-                + "libk18.so 导出五个函数：\n"
+                + "libblaze.so 导出五个函数：\n"
                 + "  String nativeDecrypt()\n"
                 + "  int    nativeSeed()\n"
                 + "  String nativeAnswer()\n"
@@ -77,7 +77,7 @@ public class a55Activity extends Activity {
                 new AlertDialog.Builder(a55Activity.this)
                         .setTitle("提示")
                         .setMessage("OLLVM 分析路线：\n\n"
-                                + "① IDA 加载 libk18.so → 找 JNI 函数 → 顺藤摸到状态机；\n"
+                                + "① IDA 加载 libblaze.so → 找 JNI 函数 → 顺藤摸到状态机；\n"
                                 + "② switch dispatcher 里 16 个 case，标记真实/虚假路径；\n"
                                 + "③ 虚假路径特征：提前 return 0、跳到死循环、无意义运算；\n"
                                 + "④ 真实路径：XOR → ROL → OLLVM_ADD → XOR → 比较。\n\n"

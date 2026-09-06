@@ -21,7 +21,7 @@ import org.json.JSONObject;
 import java.io.InputStream;
 import java.security.MessageDigest;
 
-// 网络关卡 35（native 第三季）：libl35.so 手写 3DES + SM4，文件前半全是无用变换；
+// 网络关卡 35（native 第三季）：libumbra.so 手写 3DES + SM4，文件前半全是无用变换；
 // 密钥由 UTF-16 标记 Fatdog_sneak 派生，请求带双密文参数，且每页三连包辨真假。
 public class k35Activity extends Activity {
     static final String SUM_HASH = "d1561d5d92892a51830bbaaba19385c1bed9d53b53a82a3fca646dc790d70a6c";

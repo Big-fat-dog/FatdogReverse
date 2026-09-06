@@ -165,7 +165,7 @@ public class f30Activity extends Activity {
             public void onClick(View v) {
                 new AlertDialog.Builder(f30Activity.this)
                         .setTitle("提示")
-                        .setMessage("服务端 HTTPS:8443 的 /api/l30，签名由 Vn.nativeSign 在 libl30.so 里算 HMAC-SHA256。"
+                        .setMessage("服务端 HTTPS:8443 的 /api/l30，签名由 Vn.nativeSign 在 libmica.so 里算 HMAC-SHA256。"
                                 + "so 导出表只有一个入口，内部经函数指针表派发到四个同形函数：gloomy(真)/pale/sour/mute，"
                                 + "密钥以 UTF-16LE 码元存放——strings 默认不显示，strings -el 或 IDA 数据窗看字节数组即现形。\n"
                                 + "正路一（静态）：IDA 定位派发表四个槽位与对应码元数组，还原 Fatdog_gloomy 后 Python 复刻；\n"

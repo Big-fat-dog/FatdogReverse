@@ -23,7 +23,7 @@ import okhttp3.Response;
 import okhttp3.ResponseBody;
 
 // 关卡 28 的 TLS 客户端：信任链复用内置 CA（Tm.caDer()），
-// 请求签名由 Zk.nativeSign 在 libl28.so 里算——密钥被异或藏进 .rodata，Java 层无密钥。
+// 请求签名由 Zk.nativeSign 在 libaxol.so 里算——密钥被异或藏进 .rodata，Java 层无密钥。
 public class Ct {
     static final String BASE = NetHost.httpsBase();   // 主机自动选择：模拟器 10.0.2.2 / 真机 127.0.0.1
 

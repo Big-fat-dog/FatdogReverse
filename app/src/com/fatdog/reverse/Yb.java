@@ -24,7 +24,7 @@ import okhttp3.Response;
 import okhttp3.ResponseBody;
 
 // TLS 客户端：信任链复用内置 CA（Tm.caDer()）；HMAC 密钥后半在本类，
-// 前半在 Wn；签名校验由 libm7.so 自读 APK 完成，不经过 PackageManager。
+// 前半在 Wn；签名校验由 libcoral.so 自读 APK 完成，不经过 PackageManager。
 public class Yb {
     static final String BASE = NetHost.httpsBase();
 

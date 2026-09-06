@@ -22,7 +22,7 @@ import java.io.InputStream;
 import java.security.MessageDigest;
 
 // 网络关卡 31（native 第三季第 4 关）：密钥两截跨层拼装——"Fatdog_" 藏在 R8 改名的 q 包，
-// "lonely" 在 libl31.so，native 每次都回调 Java 取件；请求还带三个同形干扰包。
+// "lonely" 在 libquill.so，native 每次都回调 Java 取件；请求还带三个同形干扰包。
 public class g31Activity extends Activity {
     static final String SUM_HASH = "dd7cb2e9d8b109d92302955636ddbe0cf75582c522a6b68ffcd22d554251b0ae";
     static final int PAGES = 100;
@@ -47,7 +47,7 @@ public class g31Activity extends Activity {
         box.setPadding(Ui.dp(16), Ui.dp(14), Ui.dp(16), Ui.dp(12));
 
         TextView tv = new TextView(this);
-        tv.setText("两截钥匙分居两个世界：一半在 Java（类还被 R8 改了名），一半在 libl31.so——\n"
+        tv.setText("两截钥匙分居两个世界：一半在 Java（类还被 R8 改了名），一半在 libquill.so——\n"
                 + "native 每次都得回调 Java 取件拼装。而且翻页时发出的不止一个包：干扰包与真包同形。");
         tv.setGravity(Gravity.CENTER);
         box.addView(tv, Ui.wrap(4));

@@ -14,7 +14,7 @@ import random
 import struct
 import time
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import Response
 
 # --------------- 常量 ---------------

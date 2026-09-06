@@ -26,7 +26,7 @@ public class kn3Activity extends Activity {
 
         TextView tv = new TextView(this);
         tv.setText("昆仑第三关 · 渡鸦桥\n\n"
-                + "libkunlun3.so 导出函数：\n"
+                + "libmaple.so 导出函数：\n"
                 + "String nativeKey()\n\n"
                 + "这个函数会回调 Java 层的 halfA() 方法取前半密钥，"
                 + "与 so 内的后半拼成完整密钥后返回。\n"

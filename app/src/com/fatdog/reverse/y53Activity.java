@@ -15,7 +15,7 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 // 太玄之初 KL16 · 破壳新生：一代壳 DEX 静态加密——XOR+旋转解密还原。
-// libk16.so 导出三个函数：
+// libtaupe.so 导出三个函数：
 //   String nativeDecrypt()  → 解密后 DEX 的 hex
 //   int    nativeSeed()     → 提取的种子值
 //   String nativeAnswer()   → SHA-256(seed) 最终答案
@@ -32,7 +32,7 @@ public class y53Activity extends Activity {
 
         TextView tv = new TextView(this);
         tv.setText("KL16 · 破壳新生（★）\n\n"
-                + "libk16.so 导出三个函数：\n"
+                + "libtaupe.so 导出三个函数：\n"
                 + "  String nativeDecrypt()\n"
                 + "  int    nativeSeed()\n"
                 + "  String nativeAnswer()\n\n"
@@ -77,7 +77,7 @@ public class y53Activity extends Activity {
                         .setTitle("提示")
                         .setMessage("一代壳分析路线：\n\n"
                                 + "① jadx 找壳的 Application → attachBaseContext 调 native 解密；\n"
-                                + "② IDA 分析 libk16.so → 找 XOR_KEY（.rodata 段全局数组）；\n"
+                                + "② IDA 分析 libtaupe.so → 找 XOR_KEY（.rodata 段全局数组）；\n"
                                 + "③ Python 复刻三轮解密：XOR → 循环左移3位 → 组内 XOR 累积。\n\n"
                                 + "Frida 路线：直接调 Dk.nativeAnswer() 拿答案。\n"
                                 + "注意诱饵 Fatdog_packer（多 er），真标记 Fatdog_pack。")

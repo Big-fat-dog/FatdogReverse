@@ -18,6 +18,7 @@ import android.widget.Toast;
 
 import java.io.ByteArrayInputStream;
 import java.security.KeyStore;
+import java.security.MessageDigest;
 import java.security.SecureRandom;
 import java.security.cert.CertificateFactory;
 import java.security.cert.X509Certificate;
@@ -43,7 +44,7 @@ import okhttp3.Response;
  *   byte[] nativeBuildRequest(int page, long ts)  — 编码 PageRequest
  *   boolean nativeVerifyResponse(byte[] data)     — 验证响应
  *   int[]    nativeParseNums(byte[] data)          — 提取 nums
- *   String   nativeAnswer()                        — 最终答案
+ *   byte[]   nativeSign(byte[] data)               — 提取 HMAC 签名
  *
  * 破解路线：抓包 hex → protoc --decode_raw → 重建 .proto → Python 复刻
  * Flag: FLAG_18_KL30{heavenly_loom}
@@ -51,13 +52,14 @@ import okhttp3.Response;
 public class loomActivity extends Activity {
 
     private static final int PAGES = 100;
+    private static final int PER_PAGE = 10;
+    private static final String SUM_HASH = "9ef3ded17471203ce3052638ee6038419f661c2afea1d55791afbc9218ab7737";
     private static final MediaType PROTO = MediaType.parse("application/protobuf");
 
     private OkHttpClient client;
     private String base;
     private boolean loading;
     private int currentPage = 1;
-    private int loadedMax = 0;
 
     private TextView status;
     private final TextView[] cells = new TextView[10];
@@ -81,7 +83,7 @@ public class loomActivity extends Activity {
                 + "  byte[] nativeBuildRequest(page, ts)\n"
                 + "  boolean nativeVerifyResponse(data)\n"
                 + "  int[]   nativeParseNums(data)\n"
-                + "  String  nativeAnswer()\n"
+                + "  byte[]  nativeSign(data)\n"
                 + "请求/响应均为 Protobuf 编码");
         tv.setGravity(Gravity.CENTER);
         box.addView(tv, Ui.wrap(4));
@@ -180,7 +182,7 @@ public class loomActivity extends Activity {
         box.addView(jumpRow, Ui.fullWidth(10));
 
         ansInput = new EditText(this);
-        ansInput.setHint("输入答案（32位 hex）");
+        ansInput.setHint("输入 1000 个数字的总和");
         ansInput.setLayoutParams(Ui.fullWidth(22));
         box.addView(ansInput);
 
@@ -216,12 +218,11 @@ public class loomActivity extends Activity {
             @Override public void onClick(View v) {
                 String ans = ansInput.getText().toString().trim();
                 if (ans.isEmpty()) { Toast.makeText(loomActivity.this, "请输入答案", Toast.LENGTH_SHORT).show(); return; }
-                String expected = Ck.nativeAnswer();
-                if (ans.equals(expected)) {
+                if (sha256Hex(ans).equals(SUM_HASH)) {
                     Celebration.show(loomActivity.this, "FLAG_18_KL30{heavenly_loom}");
                     PassLog.mark(loomActivity.this, "KL30");
                 } else {
-                    Toast.makeText(loomActivity.this, "答案不对，再想想。", Toast.LENGTH_SHORT).show();
+                    Toast.makeText(loomActivity.this, "加和不对，再取数算一遍。", Toast.LENGTH_SHORT).show();
                 }
             }
         });
@@ -329,13 +330,12 @@ public class loomActivity extends Activity {
                         return;
                     }
                     byte[] rspBytes = rsp.body().bytes();
-                    final boolean ok = Ck.nativeVerifyResponse(rspBytes);
+                    final boolean ok = Ck.nativeVerifyResponse(rspBytes) && Ck.verifySignature(rspBytes);
                     final int[] nums = Ck.nativeParseNums(rspBytes);
                     loading = false;
                     runOnUiThread(new Runnable() {
                         @Override public void run() {
                             currentPage = page;
-                            if (page > loadedMax) loadedMax = page;
                             if (ok && nums.length > 0) {
                                 render(nums);
                                 status.setText("已加载第 " + page + " / " + PAGES + " 页，本页 " + nums.length + " 个数字");
@@ -353,5 +353,17 @@ public class loomActivity extends Activity {
                 }
             }
         });
+    }
+
+    static String sha256Hex(String s) {
+        try {
+            MessageDigest md = MessageDigest.getInstance("SHA-256");
+            byte[] d = md.digest(s.getBytes("UTF-8"));
+            StringBuilder sb = new StringBuilder();
+            for (byte b : d) sb.append(String.format("%02x", b & 0xff));
+            return sb.toString();
+        } catch (Exception e) {
+            return "";
+        }
     }
 }

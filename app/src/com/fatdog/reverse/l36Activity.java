@@ -21,7 +21,7 @@ import org.json.JSONObject;
 import java.io.InputStream;
 import java.security.MessageDigest;
 
-// 网络关卡 36（native 第三季）：libl36.so 手写 AES-128 沉底派发，
+// 网络关卡 36（native 第三季）：libvigor.so 手写 AES-128 沉底派发，
 // 钥匙藏在 .rodata 的一个 Base64 串里——Base64 不是加密，解开就是真钥匙。
 public class l36Activity extends Activity {
     static final String SUM_HASH = "f13984c09b7e1be91122083721a200d57fc1e211980760643c5f5992e19d8312";
@@ -167,7 +167,7 @@ public class l36Activity extends Activity {
                 new AlertDialog.Builder(l36Activity.this)
                         .setTitle("提示")
                         .setMessage("服务端 HTTPS:8443 的 GET /api/l36：enc=hex(AES-128-ECB(key,\"page=N&ts=T\" 零填充))、sign=HMAC-SHA256(mac,enc)。\n"
-                                + "钥匙两步走：① strings libl36.so 找到 24 字符、以 == 结尾的 Base64 串；② base64 解码即得 16 字节 AES 钥匙。mac 由 Fatdog_break+\"|mac\" 运行时派生。\n"
+                                + "钥匙两步走：① strings libvigor.so 找到 24 字符、以 == 结尾的 Base64 串；② base64 解码即得 16 字节 AES 钥匙。mac 由 Fatdog_break+\"|mac\" 运行时派生。\n"
                                 + "正路一（静态）：Python 复刻 AES-ECB+HMAC 取数；正路二（动态）：偏移 Hook k36_ecb 观察明文入参。\n"
                                 + "注意 Oo.FAKE_KEY=Fatdog_bluff 近亲陷阱（命中即 403）；前半文件 k36_fake_* 是无人调用的诱饵。加和 49495。")
                         .setPositiveButton("好的", null)

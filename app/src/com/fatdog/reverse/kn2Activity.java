@@ -27,7 +27,7 @@ public class kn2Activity extends Activity {
 
         TextView tv = new TextView(this);
         tv.setText("昆仑第二关 · 引雷桩\n\n"
-                + "libkunlun2.so 导出函数：\n"
+                + "liblotus.so 导出函数：\n"
                 + "int nativeForge(int seed)\n\n"
                 + "请计算 nativeForge(0x20260202) 的返回值（十进制）并提交。\n"
                 + "注意：so 里有两个同名/近名的导出函数——只有一个能给出正确答案。");

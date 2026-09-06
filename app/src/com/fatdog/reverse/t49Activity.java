@@ -13,7 +13,7 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 // 幽冥海 KL12 · 移花接木：动态 patch（Frida hook）入门。
-// libm11.so 导出 seal() 和 check(val)：
+// libkraken.so 导出 seal() 和 check(val)：
 //   seal() 返回内嵌常量 0x1337CAFE；
 //   check(val) 校验 val == 0x1337CAFE 才返回 1。
 // 本关教 Frida：hook seal 强制返回正确值，check 自然通过。
@@ -31,7 +31,7 @@ public class t49Activity extends Activity {
 
         TextView tv = new TextView(this);
         tv.setText("幽冥海 KL12 · 移花接木\n\n"
-                + "libm11.so 导出两个函数：\n"
+                + "libkraken.so 导出两个函数：\n"
                 + "  int seal()      — 返回内嵌常量\n"
                 + "  int check(val)  — 校验 val == 内嵌常量\n\n"
                 + "seal() 里藏着一把钥匙——找到它，hook 它。\n"
@@ -116,7 +116,7 @@ public class t49Activity extends Activity {
                         .setTitle("提示")
                         .setMessage("Frida 动态 patch 三行搞定：\n"
                                 + "Java.perform(function(){\n"
-                                + "  var seal = Module.findExportByName('libm11.so','seal');\n"
+                                + "  var seal = Module.findExportByName('libkraken.so','seal');\n"
                                 + "  Interceptor.attach(seal, {\n"
                                 + "    onLeave: function(r){ r.replace(ptr(0x1337CAFE)); }\n"
                                 + "  });\n"

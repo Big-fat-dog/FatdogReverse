@@ -21,7 +21,7 @@ import org.json.JSONObject;
 import java.io.InputStream;
 import java.security.MessageDigest;
 
-// 天地秘境·流沙河（KL6）：libm1.so 手写 AES-128——S 盒标准、Rcon 三处换血。
+// 天地秘境·流沙河（KL6）：libember.so 手写 AES-128——S 盒标准、Rcon 三处换血。
 // 标准 AES 库解不开密文；认出骨架后，被动手脚的是轮常量。
 public class u45Activity extends Activity {
     static final String SUM_HASH = "e11c46a96b892713b0209df83f42907753634f0953a4c6d87b1c9dca137fa335";
@@ -47,7 +47,7 @@ public class u45Activity extends Activity {
         box.setPadding(Ui.dp(16), Ui.dp(14), Ui.dp(16), Ui.dp(12));
 
         TextView tv = new TextView(this);
-        tv.setText("这一关连 PackageManager 都不问了：libm7.so 自己打开 base.apk，\n"
+        tv.setText("这一关连 PackageManager 都不问了：libcoral.so 自己打开 base.apk，\n"
                 + "翻 zip 目录找到签名块、手剥 ASN.1 取出证书再比对。Hook 系统查询？没用的。");
         tv.setGravity(Gravity.CENTER);
         box.addView(tv, Ui.wrap(4));
@@ -166,7 +166,7 @@ public class u45Activity extends Activity {
                 new AlertDialog.Builder(u45Activity.this)
                         .setTitle("提示")
                         .setMessage("服务端 HTTPS:8443 的 GET /api/l45：sign=HMAC-SHA256(Fatdog_lurk,\"page=N&ts=T\")，密钥两半异或分藏在 Wn/Yb。\n"
-                                + "门禁原理：libm7.so 拿到 sourceDir 后自己 open 文件→扫 EOCD→遍历中央目录找 META-INF/*.RSA→zlib 解压→ASN.1 剥证书→SHA-256 比对。PackageManager 的 Hook 一概无效。\n"
+                                + "门禁原理：libcoral.so 拿到 sourceDir 后自己 open 文件→扫 EOCD→遍历中央目录找 META-INF/*.RSA→zlib 解压→ASN.1 剥证书→SHA-256 比对。PackageManager 的 Hook 一概无效。\n"
                                 + "三条路：①IO 重定向——hook libc open 把 base.apk 指向原始包副本；②IDA 定位 memcmp 比较点偏移 Hook；③Memory 改解出的基准数组。\n"
                                 + "注意整体替换 passApkPath 会 ticks 踏步（-2）；Xv.FAKE_KEY=Fatdog_lark 一字之差陷阱（命中即 403）。")
                                 .setPositiveButton("好的", null)

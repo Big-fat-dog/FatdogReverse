@@ -20,10 +20,10 @@
       "type": "class",
       "tabPath": "com.fatdog.reverse.ActivationRoomActivity",
       "subPath": "0",
-      "caret": 2996,
+      "caret": 0,
       "view": {
         "x": 0,
-        "y": 888
+        "y": 0
       },
       "active": false,
       "pinned": false,
@@ -38,7 +38,7 @@
       "caret": 0,
       "view": {
         "x": 0,
-        "y": 162
+        "y": 0
       },
       "active": false,
       "pinned": false,
@@ -50,22 +50,7 @@
       "type": "class",
       "tabPath": "com.fatdog.reverse.ProWorkshopActivity",
       "subPath": "0",
-      "caret": 2664,
-      "view": {
-        "x": 0,
-        "y": 726
-      },
-      "active": true,
-      "pinned": false,
-      "bookmarked": false,
-      "hidden": false,
-      "previewTab": false
-    },
-    {
-      "type": "class",
-      "tabPath": "com.fatdog.reverse.kn3Activity",
-      "subPath": "0",
-      "caret": 411,
+      "caret": 0,
       "view": {
         "x": 0,
         "y": 0
@@ -75,11 +60,58 @@
       "bookmarked": false,
       "hidden": false,
       "previewTab": false
+    },
+    {
+      "type": "class",
+      "tabPath": "com.fatdog.reverse.kn3Activity",
+      "subPath": "0",
+      "caret": 0,
+      "view": {
+        "x": 0,
+        "y": 0
+      },
+      "active": false,
+      "pinned": false,
+      "bookmarked": false,
+      "hidden": false,
+      "previewTab": false
+    },
+    {
+      "type": "class",
+      "tabPath": "com.fatdog.reverse.MainActivity",
+      "subPath": "0",
+      "caret": 832,
+      "view": {
+        "x": 0,
+        "y": 4152
+      },
+      "active": false,
+      "pinned": false,
+      "bookmarked": false,
+      "hidden": false,
+      "previewTab": false
+    },
+    {
+      "type": "class",
+      "tabPath": "com.fatdog.reverse.MsgAuthActivity",
+      "subPath": "0",
+      "caret": 3420,
+      "view": {
+        "x": 0,
+        "y": 1032
+      },
+      "active": true,
+      "pinned": false,
+      "bookmarked": false,
+      "hidden": false,
+      "previewTab": false
     }
   ],
   "cacheDir": "C:\\Users\\21494\\AppData\\Local\\skylot\\jadx\\cache\\projects\\FatdogReverse-ce35f02865270a31c4926b12c040a22d",
   "enableLiveReload": false,
   "searchHistory": [
+    "输入正确的口令",
+    "Main",
     "pro 工坊",
     "激活码"
   ],

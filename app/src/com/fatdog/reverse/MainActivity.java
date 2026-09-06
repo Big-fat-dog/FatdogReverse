@@ -581,6 +581,36 @@ public class MainActivity extends Activity {
                     });
                 }
             }
+            /* KKL1-5（追加于太玄之初，编号独立） */
+            String[] kklNames = {"玄冥渊", "万剑冢", "断魂谷", "锁妖塔", "诛仙台"};
+            Class<?>[] kklTargets = {kkl1Activity.class, kkl2Activity.class, null, null, null};
+            for (int i = 0; i < kklNames.length; i++) {
+                final String kklKey = "KKL" + (i + 1);
+                boolean open = PassLog.isDone(this, kklKey);
+                Button b = new Button(this);
+                b.setText(kklKey + " · " + kklNames[i] + (open ? " ✔" : ""));
+                b.setEnabled(true);
+                b.setAlpha(b.isEnabled() ? 1f : 0.55f);
+                Ui.styleButton(b);
+                LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+                lp.topMargin = Ui.dp(12);
+                list.addView(b, lp);
+                final Class<?> t = kklTargets[i];
+                if (t != null) {
+                    b.setOnClickListener(new View.OnClickListener() {
+                        @Override public void onClick(View v) {
+                            startActivity(new Intent(MainActivity.this, t));
+                        }
+                    });
+                } else {
+                    b.setOnClickListener(new View.OnClickListener() {
+                        @Override public void onClick(View v) {
+                            Toast.makeText(MainActivity.this, "尚未开启", Toast.LENGTH_SHORT).show();
+                        }
+                    });
+                }
+            }
         } else if (kunlunCat == 4) {
             /* 扶桑树：KL21 起，Frida 检测对抗 */
             String[] names = {"枯叶听风", "落影寻痕", "照妖显形", "冰鉴悬镜", "暮雾锁听", "暮霭沉沉", "轻纱覆影", "雪落无痕"};

@@ -26,7 +26,7 @@ public class kn4Activity extends Activity {
 
         TextView tv = new TextView(this);
         tv.setText("昆仑第四关 · 冰裂缝\n\n"
-                + "libkunlun4.so 导出函数：\n"
+                + "librivet.so 导出函数：\n"
                 + "String nativeProbe()\n\n"
                 + "这个函数会检查运行环境：扫内存映射、查调试器。\n"
                 + "环境干净返回冰面通行令牌；检测到模拟则冰面碎裂。\n"

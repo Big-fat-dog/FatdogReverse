@@ -21,7 +21,7 @@ import org.json.JSONObject;
 import java.io.InputStream;
 import java.security.MessageDigest;
 
-// 天地秘境·流沙河（KL6）：libm1.so 手写 AES-128——S 盒标准、Rcon 三处换血。
+// 天地秘境·流沙河（KL6）：libember.so 手写 AES-128——S 盒标准、Rcon 三处换血。
 // 标准 AES 库解不开密文；认出骨架后，被动手脚的是轮常量。
 public class t44Activity extends Activity {
     static final String SUM_HASH = "926f7d79b1391a7efc32cd830d0493e694019ef21154aecd571b26d514a51474";
@@ -47,7 +47,7 @@ public class t44Activity extends Activity {
         box.setPadding(Ui.dp(16), Ui.dp(14), Ui.dp(16), Ui.dp(12));
 
         TextView tv = new TextView(this);
-        tv.setText("这一关的签名校验藏进了 libm6.so：Java 只递证书字节，\n"
+        tv.setText("这一关的签名校验藏进了 libpearl.so：Java 只递证书字节，\n"
                 + "算哈希、比基准、记账全在 so 里。挂 Hook 摘要？它压根不走 Java。");
         tv.setGravity(Gravity.CENTER);
         box.addView(tv, Ui.wrap(4));
@@ -166,7 +166,7 @@ public class t44Activity extends Activity {
                 new AlertDialog.Builder(t44Activity.this)
                         .setTitle("提示")
                         .setMessage("服务端 HTTPS:8443 的 GET /api/l44：sign=HMAC-SHA256(Fatdog_forge,\"page=N&ts=T\")，密钥两半异或分藏在 Wk/Xh。\n"
-                                + "真正的考点是门禁：passCert 把证书 DER 递进 libm6.so，算哈希、比基准、记 ticks 全在 so 里。\n"
+                                + "真正的考点是门禁：passCert 把证书 DER 递进 libpearl.so，算哈希、比基准、记 ticks 全在 so 里。\n"
                                 + "重打包后 verdict 恒假且 assertGuard 拦截所有请求。三条路：①内存换票——hook 取签名的出口把 DER 换成原包的；②IDA 定位 nativеVerify 比较点偏移 Hook；③Memory 找解出的基准数组改成当前指纹。\n"
                                 + "注意整体替换 passCert 会 ticks 踏步（-2）；Yk.FAKE_KEY=Fatdog_forgo 一字之差陷阱（命中即 403）。")
                                 .setPositiveButton("好的", null)

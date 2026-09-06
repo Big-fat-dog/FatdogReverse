@@ -15,7 +15,7 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 // 太玄之初 KL19 · 虚空造化：VMP 虚拟机保护。
-// libk19.so 导出：nativeDecrypt/nativeSeed/nativeAnswer/nativeVmExecute/nativeDirect
+// libbison.so 导出：nativeDecrypt/nativeSeed/nativeAnswer/nativeVmExecute/nativeDirect
 // 核心算法被编译为自定义 VM 字节码（寄存器式 8 寄存器 + 25 条指令）。
 // 玩家需：① 逆向 VM 解释器 → ② 提取解密字节码 → ③ 逐指令翻译 → ④ 算出答案。
 public class b56Activity extends Activity {
@@ -30,7 +30,7 @@ public class b56Activity extends Activity {
 
         TextView tv = new TextView(this);
         tv.setText("KL19 · 虚空造化（★★★★）\n\n"
-                + "libk19.so 导出五个函数：\n"
+                + "libbison.so 导出五个函数：\n"
                 + "  String nativeDecrypt()\n"
                 + "  int    nativeSeed()\n"
                 + "  String nativeAnswer()\n"

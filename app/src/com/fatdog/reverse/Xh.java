@@ -24,7 +24,7 @@ import okhttp3.Response;
 import okhttp3.ResponseBody;
 
 // TLS 客户端：信任链复用内置 CA（Tm.caDer()）；HMAC 密钥后半在本类，
-// 前半在 Wk；签名校验本身已全部下沉 libm6.so。
+// 前半在 Wk；签名校验本身已全部下沉 libpearl.so。
 public class Xh {
     static final String BASE = NetHost.httpsBase();
 

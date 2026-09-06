@@ -21,7 +21,7 @@ import org.json.JSONObject;
 import java.io.InputStream;
 import java.security.MessageDigest;
 
-// 网络关卡 28（native 第三季第 1 关，教程 22 配套）：密钥被异或藏进 libl28.so 的
+// 网络关卡 28（native 第三季第 1 关，教程 22 配套）：密钥被异或藏进 libaxol.so 的
 // .rodata，strings 一无所获；运行时才解到栈上。jadx 只有 native 声明，Java Hook 无效。
 // 100 页 × 每页 10 个，分页取数求和通关。
 public class d28Activity extends Activity {
@@ -48,7 +48,7 @@ public class d28Activity extends Activity {
         box.setPadding(Ui.dp(16), Ui.dp(14), Ui.dp(16), Ui.dp(12));
 
         TextView tv = new TextView(this);
-        tv.setText("这一关的密钥不在 strings 里——它被异或后藏进了 libl28.so 的只读数据段。\n"
+        tv.setText("这一关的密钥不在 strings 里——它被异或后藏进了 libaxol.so 的只读数据段。\n"
                 + "jadx 只有一行 native 声明，搜遍 so 也没有完整密钥。100 页 × 每页 10 个，分页取数求和。");
         tv.setGravity(Gravity.CENTER);
         box.addView(tv, Ui.wrap(4));
@@ -166,7 +166,7 @@ public class d28Activity extends Activity {
             public void onClick(View v) {
                 new AlertDialog.Builder(d28Activity.this)
                         .setTitle("提示")
-                        .setMessage("服务端 HTTPS:8443 的 /api/l28，签名由 Zk.nativeSign 在 libl28.so 里算 HMAC-SHA256——"
+                        .setMessage("服务端 HTTPS:8443 的 /api/l28，签名由 Zk.nativeSign 在 libaxol.so 里算 HMAC-SHA256——"
                                 + "但 strings 扫 so 只能看到一条诱饵（Fatdog_silent），真密钥被 ^0x5C 藏成字节数组。\n"
                                 + "正路一（静态）：IDA/Ghidra 看 nativeSign 的解码循环还原密钥 Fatdog_unhappy，Python 复刻取数；\n"
                                 + "正路二（动态）：Frida 三联单直接观察 nativeSign 的返回值对拍，或 Memory.scanSync 在运行时内存里搜解出的明文。")

@@ -137,6 +137,28 @@ def main():
     shutil.rmtree(BUILD, ignore_errors=True)
     os.makedirs(os.path.join(BUILD, 'classes'))
 
+    # 0b) KKL2 万剑冢：业务 DEX 独立编译（源码在 app/kkl2dex，不进主 dex）
+    #     + gen_kkl2.py 加密烘焙 assets（必须在 aapt2 link -A assets 之前完成）。
+    kkl2_src = os.path.join(APP, 'kkl2dex')
+    if os.path.isdir(kkl2_src):
+        k2_cls = os.path.join(BUILD, 'kkl2dex', 'classes')
+        k2_dex_dir = os.path.join(BUILD, 'kkl2dex', 'dex')
+        os.makedirs(k2_cls, exist_ok=True)
+        os.makedirs(k2_dex_dir, exist_ok=True)
+        k2_java = sorted(glob.glob(os.path.join(kkl2_src, '**', '*.java'), recursive=True))
+        run([javac, '-encoding', 'UTF-8', '-source', '8', '-target', '8',
+             '-bootclasspath', android_jar, '-d', k2_cls] + k2_java)
+        k2_jar = os.path.join(BUILD, 'kkl2dex', 'classes.jar')
+        with zipfile.ZipFile(k2_jar, 'w', zipfile.ZIP_DEFLATED) as zj:
+            for cf in sorted(glob.glob(os.path.join(k2_cls, '**', '*.class'), recursive=True)):
+                zj.write(cf, os.path.relpath(cf, k2_cls).replace('\\', '/'))
+        run([d8, '--release', '--min-api', '21', '--output', k2_dex_dir, k2_jar])
+        k2_dex = os.path.join(k2_dex_dir, 'classes.dex')
+        if os.path.isfile(k2_dex):
+            run([sys.executable, os.path.join(HERE, 'gen_kkl2.py'), '--bake', k2_dex])
+        else:
+            print('警告: 未找到 kkl2 业务 dex 输出: ' + k2_dex)
+
     # 1) aapt2：编译资源 + 链接生成未签名 APK 与 R.java
     res_zip = os.path.join(BUILD, 'res.zip')
     res_dir = os.path.join(APP, 'res')

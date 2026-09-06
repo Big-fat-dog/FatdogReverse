@@ -13,7 +13,7 @@ import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 
-// 昆仑 KL1：山门。解包 APK 取出 libkunlun1.so，用 unidbg 调用
+// 昆仑 KL1：山门。解包 APK 取出 libcedar.so，用 unidbg 调用
 // kl_gate(0x20260101)，把返回的十进制值提交回来。
 public class kn1Activity extends Activity {
     private static final int SEED = 0x20260101;
@@ -31,7 +31,7 @@ public class kn1Activity extends Activity {
 
         TextView tv = new TextView(this);
         tv.setText("天地秘境 KL1 · 山门（天地秘境）\n\n"
-                + "libkunlun1.so 导出函数：\n"
+                + "libcedar.so 导出函数：\n"
                 + "int kl_gate(int seed)\n\n"
                 + "请计算 kl_gate(0x20260101) 的返回值（十进制）并提交。\n"
                 + "工具不限——但这一关，就是为你手里的 unidbg 准备的。");
@@ -67,7 +67,7 @@ public class kn1Activity extends Activity {
                 new AlertDialog.Builder(kn1Activity.this)
                         .setTitle("提示")
                         .setMessage("unidbg 十行骨架即可：AndroidEmulatorBuilder.for64Bit().build()"
-                                + " → createDalvikVM → loadLibrary(\"libkl1.so\") → 直接调用导出符号 kl_gate。\n"
+                                + " → createDalvikVM → loadLibrary(\"libcedar.so\") → 直接调用导出符号 kl_gate。\n"
                                 + "本关函数体是 xorshift32 七轮，IDA 里一眼可见——但手算七轮位运算不如让引擎跑一遍。")
                         .setPositiveButton("知道了", null)
                         .show();

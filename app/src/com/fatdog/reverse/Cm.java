@@ -23,7 +23,7 @@ import okhttp3.Response;
 import okhttp3.ResponseBody;
 
 // 关卡 32 的 TLS 客户端：信任链复用内置 CA（Tm.caDer()），
-// 请求签名由 Bt.nativeSign 在 libl32.so 里算——若哨兵已投毒则全部错签。
+// 请求签名由 Bt.nativeSign 在 libraven.so 里算——若哨兵已投毒则全部错签。
 public class Cm {
     static final String BASE = NetHost.httpsBase();   // 主机自动选择：模拟器 10.0.2.2 / 真机 127.0.0.1
 

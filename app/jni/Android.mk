@@ -289,3 +289,18 @@ include $(CLEAR_VARS)
 LOCAL_MODULE := loom
 LOCAL_SRC_FILES := loom.c
 include $(BUILD_SHARED_LIBRARY)
+# KKL1
+include $(CLEAR_VARS)
+LOCAL_MODULE := kkl1
+LOCAL_SRC_FILES := kkl1.cpp
+LOCAL_CPPFLAGS := -std=c++17 -fexceptions -frtti
+LOCAL_LDLIBS := -llog
+include $(BUILD_SHARED_LIBRARY)
+
+# KKL2
+include $(CLEAR_VARS)
+LOCAL_MODULE := kkl2
+LOCAL_SRC_FILES := kkl2.cpp
+LOCAL_CPPFLAGS := -std=c++17 -fexceptions -frtti
+LOCAL_LDLIBS := -llog
+include $(BUILD_SHARED_LIBRARY)

@@ -16,7 +16,7 @@ import android.widget.Toast;
 
 /**
  * KL20 破壁飞升：三代壳综合——三层保护叠加。
- * libk20.so 导出：nativeAntiDebug/nativeDecrypt/nativeSeed/nativeAnswer/nativeOllvm/nativeVmExecute/nativeStatus
+ * libdelta.so 导出：nativeAntiDebug/nativeDecrypt/nativeSeed/nativeAnswer/nativeOllvm/nativeVmExecute/nativeStatus
  * 外层：XOR+Base64 加密；中层：OLLVM 混淆；内层：VMP 字节码。
  * 玩家需：① 绕过反调试 → ② 脱外层壳 → ③ 分析 OLLVM → ④ 逆向 VMP → ⑤ 算出答案。
  */
@@ -32,7 +32,7 @@ public class c57Activity extends Activity {
 
         TextView tv = new TextView(this);
         tv.setText("KL20 · 破壁飞升（★★★★★ 收官卷）\n\n"
-                + "libk20.so 导出七个函数：\n"
+                + "libdelta.so 导出七个函数：\n"
                 + "  int    nativeAntiDebug()\n"
                 + "  String nativeDecrypt()\n"
                 + "  int    nativeSeed()\n"

@@ -170,7 +170,7 @@ public class j34Activity extends Activity {
                                 + "守卫全家桶：动态注册（导出表两个诱饵）+ 四路反检测哨兵 + 可执行段 CRC 自校验 + assertGuard 记账；任一失守即静默投毒一字节并弹警告窗。\n"
                                 + "路线一（纯 Frida）：spawn 下 hook JNI_OnLoad 的 onEnter 抢先装钩子 → libart RegisterNatives 抓映射 → 偏移观察三联单 → 复刻 Feistel+HMAC+RC4；\n"
                                 + "路线二（patch so）：IDA 定位扫描函数与 CRC 检查改字节废守卫，重打包；\n"
-                                + "路线三（unidbg）：把 libl34.so 拖进模拟器当离线签名机（无 Java 回调依赖，补环境最省）。静态复刻党还原 Fatdog_grumpy 后三件套自算即可。")
+                                + "路线三（unidbg）：把 libtalon.so 拖进模拟器当离线签名机（无 Java 回调依赖，补环境最省）。静态复刻党还原 Fatdog_grumpy 后三件套自算即可。")
                         .setPositiveButton("好的", null)
                         .show();
             }

@@ -1,6 +1,6 @@
 package com.fatdog.reverse;
 
-// 天地秘境·流沙河的 JNI 桥：手写 AES-128 藏在 libm1.so 里。
+// 天地秘境·流沙河的 JNI 桥：手写 AES-128 藏在 libember.so 里。
 // S 盒是标准的——认骨架足够；但轮常量 Rcon 被换过三处血，
 // 标准 AES 库解不开它自己加密的密文。钥匙由标记运行时派生。
 public class Tj {

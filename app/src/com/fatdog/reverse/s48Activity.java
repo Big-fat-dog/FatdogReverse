@@ -13,7 +13,7 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 // 幽冥海 KL11 · 偷梁换柱：SO patch 入门——nop 掉 guard 里的比较指令。
-// libm10.so 导出 guard(input) 和 answer()：
+// libhelix.so 导出 guard(input) 和 answer()：
 //   guard(0) 默认返回 0（未 patch）；patch 后恒返回 1。
 //   answer() 返回 MAGIC ^ XOR_KEY（十进制）。
 // 玩家需要：① IDA 定位 guard 函数；② nop 掉 CMP+BEQ；③ 重打包；④ 调用 answer() 拿答案。
@@ -30,7 +30,7 @@ public class s48Activity extends Activity {
 
         TextView tv = new TextView(this);
         tv.setText("幽冥海 KL11 · 偷梁换柱\n\n"
-                + "libm10.so 导出两个函数：\n"
+                + "libhelix.so 导出两个函数：\n"
                 + "  int guard(int input)\n"
                 + "  int answer()\n\n"
                 + "guard(0) 当前返回 0——你需要 patch so 让它返回 1。\n"
@@ -106,7 +106,7 @@ public class s48Activity extends Activity {
                 new AlertDialog.Builder(s48Activity.this)
                         .setTitle("提示")
                         .setMessage("patch 入门三步：\n"
-                                + "① IDA/Ghidra 打开 libm10.so，搜索导出符号 guard；\n"
+                                + "① IDA/Ghidra 打开 libhelix.so，搜索导出符号 guard；\n"
                                 + "② 找到 CMP W0, #0x46415444 和 B.EQ 跳转指令；\n"
                                 + "③ 将 B.EQ 改为 NOP（ARM64: 0x1F2003D5），重打包。\n\n"
                                 + "Frida 也能过（hook guard 强制返回 1），但本关教的是静态 patch。\n"

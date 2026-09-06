@@ -16,8 +16,8 @@ import android.widget.Toast;
 /**
  * KL14 偷天换日（★★★★ 多 so 交叉验证）。
  *
- * 三 so 交叉验证：libm13a 算 digest_A，libm13b 算 digest_B，
- * libm13c 拼装 A‖B 再 hash 得最终答案。patch 任一 so 即全链失效。
+ * 三 so 交叉验证：libnebula 算 digest_A，libopera 算 digest_B，
+ * libplume 拼装 A‖B 再 hash 得最终答案。patch 任一 so 即全链失效。
  * 答案只能靠逆向还原，UI 不暴露任何中间值/期望值。
  */
 public class v51Activity extends Activity {
@@ -32,8 +32,8 @@ public class v51Activity extends Activity {
 
         TextView tv = new TextView(this);
         tv.setText("KL14 · 偷天换日（★★★★）\n\n"
-                + "libm13a 算 digest_A，libm13b 算 digest_B，\n"
-                + "libm13c 拼装 A‖B 再 hash 得最终答案。\n\n"
+                + "libnebula 算 digest_A，libopera 算 digest_B，\n"
+                + "libplume 拼装 A‖B 再 hash 得最终答案。\n\n"
                 + "三个 so 交叉验证，patch 任一即全链失效。\n"
                 + "本关不暴露任何中间值或期望值，答案只能靠逆向还原。");
         tv.setGravity(Gravity.CENTER);
@@ -74,7 +74,7 @@ public class v51Activity extends Activity {
             @Override public void onClick(View v) {
                 new AlertDialog.Builder(v51Activity.this)
                         .setTitle("提示")
-                        .setMessage("三 so 通过 dlsym 交叉调用：libm13a/b/c 谁算 A、谁算 B、谁拼装 hash？\n"
+                        .setMessage("三 so 通过 dlsym 交叉调用：libnebula/opera/plume 谁算 A、谁算 B、谁拼装 hash？\n"
                                 + "正解方向：IDA/Ghidra 顺 dlsym 调用链还原三段算法与拼接顺序，或 Frida hook 三个导出函数拿返回值对拍。\n"
                                 + "patch 任一 so 即全链失效——这不是简单替换一个函数能过的。")
                         .setPositiveButton("好的", null)

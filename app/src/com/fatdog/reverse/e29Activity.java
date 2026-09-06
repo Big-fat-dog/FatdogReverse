@@ -47,7 +47,7 @@ public class e29Activity extends Activity {
         box.setPadding(Ui.dp(16), Ui.dp(14), Ui.dp(16), Ui.dp(12));
 
         TextView tv = new TextView(this);
-        tv.setText("这一关连函数都隐了名——libl29.so 用 JNI_OnLoad 动态注册绑定签名真身。\n"
+        tv.setText("这一关连函数都隐了名——libfern.so 用 JNI_OnLoad 动态注册绑定签名真身。\n"
                 + "导出表里那两个带名字的 nativeSign 全是诱饵：Hook 它们要么不触发、要么拿到错值。");
         tv.setGravity(Gravity.CENTER);
         box.addView(tv, Ui.wrap(4));
@@ -165,7 +165,7 @@ public class e29Activity extends Activity {
             public void onClick(View v) {
                 new AlertDialog.Builder(e29Activity.this)
                         .setTitle("提示")
-                        .setMessage("服务端 HTTPS:8443 的 /api/l29，签名由 Wq.nativeSign 在 libl29.so 里算 HMAC-SHA256。"
+                        .setMessage("服务端 HTTPS:8443 的 /api/l29，签名由 Wq.nativeSign 在 libfern.so 里算 HMAC-SHA256。"
                                 + "so 里 Java_com_fatdog_reverse_Wq_nativeSign 是静态注册同名诱饵（假密钥 Fatdog_lazy，被动态注册覆盖永不被调），"
                                 + "Java_com_fatdog_reverse_Wq_sign 是废值诱饵；真身是动态注册的无名 static 函数，密钥 Fatdog_angry 异或藏在 .data。\n"
                                 + "正路一（动态）：spawn 注入 + hook libart 的 RegisterNatives 抓映射 → 拿到地址偏移 Hook 观察三联单；\n"

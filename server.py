@@ -18,7 +18,7 @@ import threading
 import time
 
 from fastapi import FastAPI, HTTPException, Query, Form, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, Response
 import uvicorn
 
 try:
@@ -132,6 +132,65 @@ KEY30_HMAC = b"Fatdog_gloomy"
 PAGES30, PER_PAGE30, SEED30 = 100, 10, 20270520
 _rng30 = random.Random(SEED30)
 NUMS30 = [_rng30.randint(1, 100) for _ in range(PAGES30 * PER_PAGE30)]
+
+# ---------------- KL30：天机织锦（手写 Protobuf 二进制协议，独立于 L30） ----------------
+# 天机阁 KL30 与 L30 同名但主题不同：此节对应 app/jni/loom.c 的 PageRequest/PageResponse。
+KL30_SEED = 20280724
+KL30_PAGES = 100
+KL30_PER_PAGE = 10
+KL30_HMAC_KEY = b"Fatdog_weave"
+_kl30_rng = random.Random(KL30_SEED)
+KL30_NUMS = [_kl30_rng.randint(1, 100) for _ in range(KL30_PAGES * KL30_PER_PAGE)]
+
+def _pb_varint(value: int) -> bytes:
+    out = []
+    while value > 0x7F:
+        out.append((value & 0x7F) | 0x80)
+        value >>= 7
+    out.append(value & 0x7F)
+    return bytes(out)
+
+def _pb_field_varint(field: int, value: int) -> bytes:
+    return _pb_varint((field << 3) | 0) + _pb_varint(value)
+
+def _pb_field_bytes(field: int, data: bytes) -> bytes:
+    return _pb_varint((field << 3) | 2) + _pb_varint(len(data)) + data
+
+def _kl30_page_response(page: int) -> bytes:
+    start = (page - 1) * KL30_PER_PAGE
+    nums = KL30_NUMS[start:start + KL30_PER_PAGE]
+    body = _pb_field_varint(1, 0)  # code=0
+    for n in nums:
+        body += _pb_field_varint(2, n)  # repeated int32，逐条 varint（wire 0）
+    sign = hmac.new(KL30_HMAC_KEY, body, hashlib.sha256).digest()
+    return body + _pb_field_bytes(3, sign)
+
+def _decode_kl30_request(data: bytes) -> tuple:
+    page = 0
+    ts = 0
+    off = 0
+    n = len(data)
+    while off < n:
+        tag = 0
+        shift = 0
+        while off < n:
+            b = data[off]; off += 1
+            tag |= (b & 0x7F) << shift
+            if b < 0x80: break
+            shift += 7
+        field = tag >> 3
+        wire = tag & 7
+        if wire != 0: break
+        value = 0
+        shift = 0
+        while off < n:
+            b = data[off]; off += 1
+            value |= (b & 0x7F) << shift
+            if b < 0x80: break
+            shift += 7
+        if field == 1: page = value
+        elif field == 2: ts = value
+    return page, ts
 
 # ---------------- 关卡 31：两界穿针（跨层密钥 + 干扰包，POST 表单） ----------------
 KEY31_HMAC = b"Fatdog_lonely"
@@ -1567,6 +1626,27 @@ def api_l30(page: int = Query(...), ts: int = Query(...), sign: str = Query(...)
     idx = (page - 1) * PER_PAGE30
     return {"page": page, "nums": NUMS30[idx:idx + PER_PAGE30]}
 
+
+# ---------------- KL30：天机织锦（POST/GET Protobuf，binary + HMAC-SHA256 响应） ----------------
+@app.post("/api/kl30")
+async def api_kl30_post(request: Request):
+    body = await request.body()
+    page, ts = _decode_kl30_request(body)
+    if page < 1 or page > KL30_PAGES:
+        raise HTTPException(status_code=400, detail="page out of range")
+    if abs(int(time.time()) - ts) > TS_WINDOW:
+        raise HTTPException(status_code=403, detail="timestamp expired")
+    return Response(content=_kl30_page_response(page), media_type="application/octet-stream")
+
+
+@app.get("/api/kl30")
+def api_kl30_get(page: int = Query(1), ts: int = Query(0)):
+    if page < 1 or page > KL30_PAGES:
+        raise HTTPException(status_code=400, detail="page out of range")
+    if abs(int(time.time()) - ts) > TS_WINDOW:
+        raise HTTPException(status_code=403, detail="timestamp expired")
+    return Response(content=_kl30_page_response(page), media_type="application/octet-stream")
+
 def _l31_try(k, page, ts, enc, sign):
     """用候选密钥 k 完整验证一包：HMAC 对 + RC4 解密出的载荷与表单一致"""
     if not hmac.compare_digest(sign, hmac.new(k, enc.encode(), hashlib.sha256).hexdigest()):
@@ -1679,6 +1759,25 @@ def api_l27(page: int = Form(...), ts: int = Form(...), enc: str = Form(...), si
     body = f"page={page}|nums={','.join(str(n) for n in NUMS27[idx:idx + PER_PAGE27])}"
     return {"d": aes_enc(KEY27_AES_RSP, body.encode()).hex()}
 
+
+# ---------------- 关卡 KKL2：万剑冢（真 DEX 内存加载 · 服务端只验 HMAC） ----------------
+# HMAC 密钥 = SHA-256("Fatdog_tense" + "|kkl2_swordfield")，与 libkkl2.so nativeDeriveKey()
+# 派生一致；真标记在 so 里藏 UTF-16（strings 哑火），明文诱饵 Fatdog_timid 验签 403。
+KEY_KKL2 = hashlib.sha256(b"Fatdog_tense|kkl2_swordfield").digest()
+PAGES_KKL2, PER_PAGE_KKL2, SEED_KKL2 = 100, 10, 20260909
+_rng_kkl2 = random.Random(SEED_KKL2)
+NUMS_KKL2 = [_rng_kkl2.randint(1, 100) for _ in range(PAGES_KKL2 * PER_PAGE_KKL2)]
+
+
+@app.get("/api/kkl2")
+def api_kkl2(page: int = Query(...), ts: int = Query(...), sign: str = Query(...)):
+    _check_page(page, PAGES_KKL2)
+    _check_ts(ts)
+    if not hmac.compare_digest(sign, hmac.new(KEY_KKL2, f"page={page}&ts={ts}".encode(), hashlib.sha256).hexdigest()):
+        raise HTTPException(status_code=403, detail="sign invalid")
+    idx = (page - 1) * PER_PAGE_KKL2
+    return {"page": page, "nums": NUMS_KKL2[idx:idx + PER_PAGE_KKL2]}
+
 if __name__ == "__main__":
     cert_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "certs")
     print(f"FatdogReverse 服务端（FastAPI）：http://{HOST}:{PORT_HTTP}（15-20） https://{HOST}:{PORT_HTTPS}（21-27）")
@@ -1688,6 +1787,7 @@ if __name__ == "__main__":
           f"L21={sum(NUMS21)} L22={sum(NUMS22)} L24={sum(NUMS24)} L25={sum(NUMS25)} L26={sum(NUMS26)} L27={sum(NUMS27)} "
           f"L28={sum(NUMS28)} L29={sum(NUMS29)} L30={sum(NUMS30)} L31={sum(NUMS31)} L32={sum(NUMS32)} L33={sum(NUMS33)} L34={sum(NUMS34)} L35={sum(NUMS35)} L36={sum(NUMS36)} L37={sum(NUMS37)} "
           f"KL6={sum(NUMS_KL6)} KL7={sum(NUMS_KL7)} KL8={sum(NUMS_KL8)} KL9={sum(NUMS_KL9)} KL10={sum(NUMS_KL10)} "
+          f"KKL2={sum(NUMS_KKL2)} "
           f"L43={sum(NUMS43)} L44={sum(NUMS44)} L45={sum(NUMS45)} L46={sum(NUMS46)} L47={sum(NUMS47)}")
     http_cfg = uvicorn.Config(app, host=HOST, port=PORT_HTTP, log_level="info")
     threading.Thread(target=uvicorn.Server(http_cfg).run, daemon=True).start()

@@ -21,7 +21,7 @@ import org.json.JSONObject;
 import java.io.InputStream;
 import java.security.MessageDigest;
 
-// 天地秘境·流沙河（KL6）：libm1.so 手写 AES-128——S 盒标准、Rcon 三处换血。
+// 天地秘境·流沙河（KL6）：libember.so 手写 AES-128——S 盒标准、Rcon 三处换血。
 // 标准 AES 库解不开密文；认出骨架后，被动手脚的是轮常量。
 public class r47Activity extends Activity {
     static final String SUM_HASH = "6f18896aa93c4f02dfdf5d4109d29841e4c381a4383a23830b9e997c453fb4cf";

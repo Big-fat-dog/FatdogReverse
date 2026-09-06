@@ -23,7 +23,7 @@ import okhttp3.Response;
 import okhttp3.ResponseBody;
 
 // 关卡 29 的 TLS 客户端：信任链复用内置 CA（Tm.caDer()），
-// 请求签名由 Wq.nativeSign 在 libl29.so 里算（动态注册的无名真身）。
+// 请求签名由 Wq.nativeSign 在 libfern.so 里算（动态注册的无名真身）。
 public class Xs {
     static final String BASE = NetHost.httpsBase();   // 主机自动选择：模拟器 10.0.2.2 / 真机 127.0.0.1
 

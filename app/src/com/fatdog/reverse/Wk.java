@@ -1,7 +1,7 @@
 package com.fatdog.reverse;
 
 // 签名校验对抗第二课：摘要计算与记账全部下沉 native。
-// Java 只递证书 DER 字节；SHA-256、基准比对、verdict、ticks 全在 libm6.so 内部——
+// Java 只递证书 DER 字节；SHA-256、基准比对、verdict、ticks 全在 libpearl.so 内部——
 // hook Java 层 MessageDigest 出口彻底失效；
 // 整体替换 passCert/assertGuard 会因 ticks 踏步被 assertGuard 当场抓包。
 // HMAC 密钥前半仍按惯例异或藏匿，后半在 Xh。

@@ -21,7 +21,7 @@ import org.json.JSONObject;
 import java.io.InputStream;
 import java.security.MessageDigest;
 
-// 天地秘境·流沙河（KL7）：libm2.so 手写 DES——骨架可认，
+// 天地秘境·流沙河（KL7）：libfrost.so 手写 DES——骨架可认，
 // 但 IP 排列表首尾互换、FP 同步重算、S3 盒两值换位。标准 DES 库解不开密文。
 public class o44Activity extends Activity {
     static final String SUM_HASH = "32fbd5d237d7d8083e99bd9417190188f89555980fc416e1399118c68a4ccebc";

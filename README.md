@@ -50,7 +50,7 @@ APK 结构刻意做得和真实 App 一致：图标（5 种密度）、XML 布�
 | 25 | 灵台证真 | HTTPS + JNI native 校验（verifyServer 门禁 + nativeSign 签名都在 libnative.so），Java Hook 无效 | 22 篇预告：native 逆向与 JNI |
 | 26 | 双符合璧 | 双向 TLS（mTLS）：服务端握手层强制验证客户端证书；APK 内置 mt_client.p12，密码拆两半藏在异或数组里 | 21 篇进阶：客户端证书提取、PKCS12、mTLS 复刻 |
 | 27 | 万法归宗 | HTTPS 双闸门 + 复合签名：AES 参数加密 + HMAC 签名 + 响应加密，加密包 R8 混淆；抓包→复刻全闭环 | 21+20 篇合卷：绕 pinning 抓密文 → 解混淆还原签名链 → 100 页取数 |
-| 28 | 缄默之钥 | 密钥 ^0x5C 藏进 libl28.so 的 .rodata，strings 只有诱饵 Fatdog_silent；IDA 读解码循环或运行时内存搜明文，HMAC 复刻取数 | 22 篇：字符串加密只骗静态，内存必有明文 |
+| 28 | 缄默之钥 | 密钥 ^0x5C 藏进 libaxol.so 的 .rodata，strings 只有诱饵 Fatdog_silent；IDA 读解码循环或运行时内存搜明文，HMAC 复刻取数 | 22 篇：字符串加密只骗静态，内存必有明文 |
 | 29 | 隐姓埋名 | 真身经 JNI_OnLoad 动态注册（无名 static 函数）；导出表两个假 nativeSign 是坑，按名 Hook 不触发或拿错值 | 22 篇：RegisterNatives 抓映射 + spawn 抢时机 |
 | 30 | 无名剑冢 | 四个同形签名函数经函数指针表派发，只有一个是真身；密钥 UTF-16 藏匿（strings 盲区），服务器当裁判验真 | 22 篇：间接调用分析 + 候选对拍验真 |
 | 31 | 两界穿针 | 密钥跨层拼装（Java 改名 q 包持 Fatdog_ + so 持 lonely，native 回调取件）；RC4 参数加密 + HMAC；每页连发 4 个同形包辨真假 | 22 篇：JNIEnv 回调分析 + 响应内容甄别 |
@@ -75,20 +75,24 @@ APK 结构刻意做得和真实 App 一致：图标（5 种密度）、XML 布�
 | KL8 | 幽泉之眼 | 流沙河第三关：手写 SM4 的 FK 与 S 盒都是标准的、轮常量 CK 最后 8 个值被换血——标准库解不开它自己的密文；真标记 UTF-16 藏匿，明文近亲 Fatdog_travel 是诱饵 | 27 篇配套：魔改算法指纹识别 |
 | KL9 | 天罡北斗 | 流沙河第四关：手写 RC4 双层魔改——KSA 初始 S 盒是查表加载的自定义置换（不是 S[i]=i）、PRGA 输出再过 16 字节循环 XOR 掩码；真标记 UTF-16 藏匿，明文近亲 Fatdog_vile 是诱饵 | 27 篇配套：魔改算法指纹识别 |
 | KL10 | 万象归一 | 流沙河收官卷：sign=魔改AES(魔改SHA256(payload)) 双层叠加——SHA256 的 K 表是标准的但初始 IV 整组换血+填充边界前移到 48；AES 的 S 盒是标准的但 MixColumns 系数 {2,3} 对调 {3,2}；认两层骨架、找两处改动点 | 27 篇配套：魔改算法指纹识别 |
+| KL29 | 暗流涌动 | 天机阁首关：libtide.so 自造 TLV 基准帧（独立烘焙基准逐字节比对）+ ptrace 反附加，patch 帧构建代码即检出；提交本地答案 | 天机阁：二进制协议逆向 |
+| KL30 | 天机织锦 | 天机阁 Protobuf 关：请求/响应均为手写 wire 编码，服务端 :8443 `/api/kl30` 返回 HMAC-SHA256(Fatdog_weave) 签名的二进制页，逆向协议后逐页取数，1000 数总和 = 50567 | 天机阁：Protobuf 抓包还原 |
 | 43 | 照妖之镜 | 签名校验对抗开卷：运行时 SigningInfo 取自身证书 DER→SHA-256 与基准比对（基准拆两半异或分藏两类）；校验通过才解锁提交框；标准 HMAC 取数 | 29 篇配套 |
-| 44 | 偷天换日 | 签名校验对抗：摘要计算与记账（ticks/verdict）全部下沉 libm6.so——hook Java 摘要出口失效，整体替换 native 函数被 ticks 踏步抓包；正解内存换票/偏移 Hook/改基准 | 29 篇配套 |
-| 45 | 移形换影 | 签名校验对抗：不经 PackageManager——libm7.so 自读 base.apk，扫 zip 中央目录找 META-INF/*.RSA、zlib 解压后手剥 ASN.1 取证书比对；PM 全链 Hook 失明 | 29 篇配套 |
+| 44 | 偷天换日 | 签名校验对抗：摘要计算与记账（ticks/verdict）全部下沉 libpearl.so——hook Java 摘要出口失效，整体替换 native 函数被 ticks 踏步抓包；正解内存换票/偏移 Hook/改基准 | 29 篇配套 |
+| 45 | 移形换影 | 签名校验对抗：不经 PackageManager——libcoral.so 自读 base.apk，扫 zip 中央目录找 META-INF/*.RSA、zlib 解压后手剥 ASN.1 取证书比对；PM 全链 Hook 失明 | 29 篇配套 |
 | 46 | 以签为钥 | 签名校验对抗主打：证书 DER 派生 HMAC 密钥（key=SHA256(certHash+marker)），没有 if 判断——重打包者证书不同→派生 key 不同→全部 403 零提示；正解 Frida 抓派生密钥或 unidbg 调 JNI 派生函数 | 29 篇配套 |
 | 47 | 幽冥合卷 | ★★★★★ | 四重防线：三点互验记账 + CRC 自校验 + certHash 密钥派生 + AES 加密响应 | L47 | POST /api/l47 |
-| KL11 | 偷梁换柱 | ★ | 字符串偏移：native_sign 偏移表被调换（20 个偏移逆序存储） | 偏移表逆序 + ASCII 回填 | pack | picker | libm10.so |
-| KL12 | 移花接木 | ★★ | 哈希魔改：魔改 SHA-256（K 表/IV/轮函数均有改动） | 识别 4 处魔改点 → 复刻哈希 | door | godfather | libm11.so |
-| KL13 | 声东击西 | ★★★ | CRC 自校验：guard→check 两阶段 CRC32 校验基线 | 绕过或还原 CRC 校验 | guard | gourd | libm12.so |
-| KL14 | 偷天换日 | ★★★★ | 三 so 交叉调用：libm13a/b/c 通过 dlsym 跨 so 调用 | dlsym 路径分析 + 全链复刻 | mesh | mash | libm13a/b/c.so |
-| KL15 | 万法归宗 | ★★★★★ | 多阶段递进谜题：computeA→B→C→verify 四个独立入口 | 三阶段答案推导 + 三输入框提交 | pact | Fatdog_packed | libm14.so |
-| KL16 | 破壳新生 | ★ | 一代壳 DEX 静态加密：XOR+旋转+组内累积三轮解密 | 追踪解密入口 → 还原算法 → 提取种子 | pack | packer | libk16.so |
-| KL17 | 金蝉脱壳 | ★★ | 二代壳 DEX 热加载+反调试：ptrace/TracerPid/Frida端口三重检测 | 绕过反调试 → 分析解密逻辑 → 算出答案 | unpack | unpacker | libk17.so |
-| KL18 | 乾坤迷阵 | ★★★ | OLLVM 控制流平坦化：16 case 状态机 + 指令替换 + 字符串加密 | 识别状态机 → 标记真实/虚假 case → 还原算法 | unfold | folder | libk18.so |
-| KL19 | 虚空造化 | ★★★★ | VMP 虚拟机保护：寄存器式 8 寄存器 + 25 条指令 + 轮转 XOR 加密 | 逆向 VM 解释器 → 提取字节码 → 逐指令翻译 | reverse | reverser | libk19.so |
+| KL11 | 偷梁换柱 | ★ | 字符串偏移：native_sign 偏移表被调换（20 个偏移逆序存储） | 偏移表逆序 + ASCII 回填 | pack | picker | libhelix.so |
+| KL12 | 移花接木 | ★★ | 哈希魔改：魔改 SHA-256（K 表/IV/轮函数均有改动） | 识别 4 处魔改点 → 复刻哈希 | door | godfather | libkraken.so |
+| KL13 | 声东击西 | ★★★ | CRC 自校验：guard→check 两阶段 CRC32 校验基线 | 绕过或还原 CRC 校验 | guard | gourd | libmantis.so |
+| KL14 | 偷天换日 | ★★★★ | 三 so 交叉调用：libnebula/opera/plume 通过 dlsym 跨 so 调用 | dlsym 路径分析 + 全链复刻 | mesh | mash | libnebula/opera/plume.so |
+| KL15 | 万法归宗 | ★★★★★ | 多阶段递进谜题：computeA→B→C→verify 四个独立入口 | 三阶段答案推导 + 三输入框提交 | pact | Fatdog_packed | libshale.so |
+| KL16 | 破壳新生 | ★ | 一代壳 DEX 静态加密：XOR+旋转+组内累积三轮解密 | 追踪解密入口 → 还原算法 → 提取种子 | pack | packer | libtaupe.so |
+| KL17 | 金蝉脱壳 | ★★ | 二代壳 DEX 热加载+反调试：ptrace/TracerPid/Frida端口三重检测 | 绕过反调试 → 分析解密逻辑 → 算出答案 | unpack | unpacker | libviola.so |
+| KL18 | 乾坤迷阵 | ★★★ | OLLVM 控制流平坦化：16 case 状态机 + 指令替换 + 字符串加密 | 识别状态机 → 标记真实/虚假 case → 还原算法 | unfold | folder | libblaze.so |
+| KL19 | 虚空造化 | ★★★★ | VMP 虚拟机保护：寄存器式 8 寄存器 + 25 条指令 + 轮转 XOR 加密 | 逆向 VM 解释器 → 提取字节码 → 逐指令翻译 | reverse | reverser | libbison.so |
+| KKL1 | 玄冥渊 | ★☆ | 壳系列开篇（C++17）：vtable 派发取抽取表 + 指令抽取回填 + 真标记 UTF-16 藏匿 | 认三张虚表找真身 → 还原抽取表 → 解密回填 → 提交 SHA-256(seed) | hallow | hollow | libkkl1.so |
+| KKL2 | 万剑冢 | ★★ | 真 DEX 加密埋 assets（假壳伴生）：JNI 动态注册解 dex + InMemoryDexClassLoader 内存加载 + HMAC 密钥 UTF-16 派生 | 还原解密链 / hook nativeUnseal → dump dex → 拿 key → HMAC 取 100 页求和 | tense | timid | libkkl2.so |
 
 每关的**解题思路分级提示**见下方折叠块；完整题解（含 Python 复刻代码与 Frida 脚本）在 `SOLUTIONS.md`（建议先自己练）。
 
@@ -132,6 +136,8 @@ adb install -r FatdogReverse-patched.apk
 
 主页底部有四个分类页签：基本情况 / 太古禁地 / 神念自察 / 天地秘境。天地秘境为分区制高阶关卡入口与故事阅读器（按通关解锁）：昆仑山五关已开放，流沙河分区已开篇（KL6 起，编号接续昆仑山）。
 
+天地秘境目前已开放六个分区：昆仑山（KL1-5）、流沙河（KL6-10）、幽冥海（KL11-15）、太玄之初（KL16-20）、扶桑树（KL21-28）、天机阁（KL29 起，编号接续扶桑树）。
+
 ---
 
 **Frida 动态 Hook（10-15 关）**：需要真机/模拟器 + frida-server（教程 20 有完整安装流程）。通用观察脚本长这样：
@@ -166,7 +172,7 @@ python server.py          # HTTP :8787（15-20） + HTTPS :8443（21-25，自签
 
 地址自动切换：`config.json` 的 `api_base_url` 默认 `"AUTO"`——模拟器自动走 `10.0.2.2`、真机自动走 `127.0.0.1`（识别不出模拟器特征时按真机处理）；也可手动填 `http://局域网IP:8787` 覆盖，手机与电脑同一网络即可免 USB。
 
-各网络关要点：L15 HMAC 明文参数；L16 请求整段加密+MD5 签名、响应加密（RC4）；L17 表单 enc/sig/dog（国密 SM4+SM3，纯 Python 实现）；L18 RSA 加密请求参数 + DES 解密响应（密钥一半服务端下发）；L19 AES 加密参数 + HMAC 签名、响应加密（加密包 R8 混淆 + 字符串加密）；L21/L22 走 HTTPS + 自签 CA（TrustManager / CertificatePinner 双闸门）；L23 走 WebView 加载 https://…:8443/h5/v23（主机自动选择；仅 HTTPS，HTTP 直接 403）：自签证书不被信任 → App 在 onReceivedSslError 里 handler.cancel() → 白屏，Hook 放行后页面出现、自动通关。L24 走 HTTPS + 内置 CA + HostnameVerifier pin 校验（pin 无明文，XOR 数组藏在 Z24Core），校验链带反 Hook 守卫——Hook 校验函数直接放行会触发"完整性校验失败"，正解是 Hook Z24Core.realPin 内存换 pin（换票）。L25 走 HTTPS + JNI：发请求前调 Nx.verifyServer（native 主机白名单），签名 Nx.nativeSign 在 libnative.so 里算 HMAC-SHA256——密钥不在 Java（strings libnative.so 可见 fatdemo_jni_2026），Hook Mac/MessageDigest 无效，正路是静态逆向 so 复刻或 Frida 原生层调用。**L26 走双向 TLS（mTLS）**：`https://…:8444/api/mtls`，服务端握手层强制验证客户端证书（只信内置 CA 签发的）；App 从 `assets/mt_client.p12` 加载客户端证书+私钥（密码 `fatdemo_mt26` 拆在 Zt/Mc 的异或数组里），没这张证书连握手都过不去——先抠证书解密码，再带 client 证书复刻取数（加和 50814）。**L27 万法归宗**走 HTTPS :8443 的 `POST /api/l27` + 复合签名：`enc=AES(page=N&ts=T)`、`sign=HMAC(enc)`、响应 `{"d"}` 再过一层 AES；加密核心在 `com.fatdog.reverse.p` 包（构建时被 R8 改名 + 算法名/路径/密钥全是异或串），三把密钥各拆两半跨类拼装。抓包得先放倒 TrustManager + CertificatePinner 两道闸——而且抓到的也只是 enc 密文：从 c27Activity 的调用链摸进混淆包还原签名链，才能复刻取数（加和 50623）。L28 走 native 字符串加密：密钥 ^0x5C 藏 libl28.so（strings 只见诱饵 Fatdog_silent），IDA 还原 Fatdog_unhappy 或 Frida 运行时搜明文，加和 49750；L29 走动态注册：导出表两个假 nativeSign 全是坑，真身无名靠 spawn+hook libart RegisterNatives 抓映射，密钥 Fatdog_angry 异或藏 .data，加和 50208。L30 走无名派发：四候选同形函数挂函数指针表、UTF-16 密钥躲过默认 strings（`strings -el` 可破），真钥 Fatdog_gloomy，加和 51127。L31 走跨层拼装：Fatdog_ 藏在 R8 改名的 q 包、lonely 是 so 里的 UTF-16 数组，native 回调 Java 取件；每页连发 1 真 + 3 干扰同形包（错位/废签/噪声），假包要么 403 要么 nums 为空，加和 50768。L32 走反检测：四路哨兵扫 maps/探端口/查线程名/盯 TracerPid，挂着 Frida 就静默投毒一字节（签名全错），App 只弹一次警告；静态复刻党全程免疫，动态党得先让哨兵闭嘴，加和 51745。L33 走自完整性校验：可执行段 CRC 基线 + 记账守卫，纯观察钩子也会被抓，三解全开（JNI_OnLoad 抢跑/hook 校验器/改基线），加和 49502。L34 万法归墟收官：Feistel8 参数加密让纯猜必死、响应再裹一层 RC4（密钥派生）、守卫全家桶伺候——Frida/patch so/unidbg 三路皆通，加和 49932。L35 手写 3DES+SM4 埋进诱饵堆里，靠 S 盒魔数认阵（strings -el 先拿 Fatdog_sneak 再派生双钥）；双密文参数 + 动态 ts + 三连包辨真假，加和 51217。L36 手写 AES-128 沉底，钥匙是 so 里那串 == 结尾的 Base64——解开就是 16 字节真钥，Python 复刻取数加和 49495。L37 收官卷：SHA-256 变体（IV 整组换血）叠 RC4，hashlib 永远对不上；strings -el 拿标记后按服务端同款逻辑复刻变体即可，加和 51242。天地秘境 KL1-KL5 已全部落地：KL1 xorshift32 直接调、KL2 动态注册+诱饵、KL3 跨层回调取钥、KL4 反模拟检测（IOResolver 喂假文件过检）——全部纯本地提交模式，入口通关 37 关或密令 Fatdog。提交答案分别为 -303563272 / -2146415444 / Fatdog_raven / Fatdog_glacier_unlocked。流沙河分区已开篇：KL6 冰封之钥走 HTTPS :8443 的 GET /api/kl6 取数求和——libm1.so 手写 AES-128、轮常量 Rcon 三处换血（标准库解不开它自己的密文），strings -el 拿真标记 Fatdog_pierce 派生钥匙复刻取数，加和 51561。
+各网络关要点：L15 HMAC 明文参数；L16 请求整段加密+MD5 签名、响应加密（RC4）；L17 表单 enc/sig/dog（国密 SM4+SM3，纯 Python 实现）；L18 RSA 加密请求参数 + DES 解密响应（密钥一半服务端下发）；L19 AES 加密参数 + HMAC 签名、响应加密（加密包 R8 混淆 + 字符串加密）；L21/L22 走 HTTPS + 自签 CA（TrustManager / CertificatePinner 双闸门）；L23 走 WebView 加载 https://…:8443/h5/v23（主机自动选择；仅 HTTPS，HTTP 直接 403）：自签证书不被信任 → App 在 onReceivedSslError 里 handler.cancel() → 白屏，Hook 放行后页面出现、自动通关。L24 走 HTTPS + 内置 CA + HostnameVerifier pin 校验（pin 无明文，XOR 数组藏在 Z24Core），校验链带反 Hook 守卫——Hook 校验函数直接放行会触发"完整性校验失败"，正解是 Hook Z24Core.realPin 内存换 pin（换票）。L25 走 HTTPS + JNI：发请求前调 Nx.verifyServer（native 主机白名单），签名 Nx.nativeSign 在 libnative.so 里算 HMAC-SHA256——密钥不在 Java（strings libnative.so 可见 fatdemo_jni_2026），Hook Mac/MessageDigest 无效，正路是静态逆向 so 复刻或 Frida 原生层调用。**L26 走双向 TLS（mTLS）**：`https://…:8444/api/mtls`，服务端握手层强制验证客户端证书（只信内置 CA 签发的）；App 从 `assets/mt_client.p12` 加载客户端证书+私钥（密码 `fatdemo_mt26` 拆在 Zt/Mc 的异或数组里），没这张证书连握手都过不去——先抠证书解密码，再带 client 证书复刻取数（加和 50814）。**L27 万法归宗**走 HTTPS :8443 的 `POST /api/l27` + 复合签名：`enc=AES(page=N&ts=T)`、`sign=HMAC(enc)`、响应 `{"d"}` 再过一层 AES；加密核心在 `com.fatdog.reverse.p` 包（构建时被 R8 改名 + 算法名/路径/密钥全是异或串），三把密钥各拆两半跨类拼装。抓包得先放倒 TrustManager + CertificatePinner 两道闸——而且抓到的也只是 enc 密文：从 c27Activity 的调用链摸进混淆包还原签名链，才能复刻取数（加和 50623）。L28 走 native 字符串加密：密钥 ^0x5C 藏 libaxol.so（strings 只见诱饵 Fatdog_silent），IDA 还原 Fatdog_unhappy 或 Frida 运行时搜明文，加和 49750；L29 走动态注册：导出表两个假 nativeSign 全是坑，真身无名靠 spawn+hook libart RegisterNatives 抓映射，密钥 Fatdog_angry 异或藏 .data，加和 50208。L30 走无名派发：四候选同形函数挂函数指针表、UTF-16 密钥躲过默认 strings（`strings -el` 可破），真钥 Fatdog_gloomy，加和 51127。L31 走跨层拼装：Fatdog_ 藏在 R8 改名的 q 包、lonely 是 so 里的 UTF-16 数组，native 回调 Java 取件；每页连发 1 真 + 3 干扰同形包（错位/废签/噪声），假包要么 403 要么 nums 为空，加和 50768。L32 走反检测：四路哨兵扫 maps/探端口/查线程名/盯 TracerPid，挂着 Frida 就静默投毒一字节（签名全错），App 只弹一次警告；静态复刻党全程免疫，动态党得先让哨兵闭嘴，加和 51745。L33 走自完整性校验：可执行段 CRC 基线 + 记账守卫，纯观察钩子也会被抓，三解全开（JNI_OnLoad 抢跑/hook 校验器/改基线），加和 49502。L34 万法归墟收官：Feistel8 参数加密让纯猜必死、响应再裹一层 RC4（密钥派生）、守卫全家桶伺候——Frida/patch so/unidbg 三路皆通，加和 49932。L35 手写 3DES+SM4 埋进诱饵堆里，靠 S 盒魔数认阵（strings -el 先拿 Fatdog_sneak 再派生双钥）；双密文参数 + 动态 ts + 三连包辨真假，加和 51217。L36 手写 AES-128 沉底，钥匙是 so 里那串 == 结尾的 Base64——解开就是 16 字节真钥，Python 复刻取数加和 49495。L37 收官卷：SHA-256 变体（IV 整组换血）叠 RC4，hashlib 永远对不上；strings -el 拿标记后按服务端同款逻辑复刻变体即可，加和 51242。天地秘境 KL1-KL5 已全部落地：KL1 xorshift32 直接调、KL2 动态注册+诱饵、KL3 跨层回调取钥、KL4 反模拟检测（IOResolver 喂假文件过检）——全部纯本地提交模式，入口通关 37 关或密令 Fatdog。提交答案分别为 -303563272 / -2146415444 / Fatdog_raven / Fatdog_glacier_unlocked。流沙河分区已开篇：KL6 冰封之钥走 HTTPS :8443 的 GET /api/kl6 取数求和——libember.so 手写 AES-128、轮常量 Rcon 三处换血（标准库解不开它自己的密文），strings -el 拿真标记 Fatdog_pierce 派生钥匙复刻取数，加和 51561。
 
 ## 环境准备
 
@@ -441,8 +447,8 @@ license 链路：`base64 → AES解密(密钥A在XBox) → AES解密(密钥B在M
 <details>
 <summary>关卡 28 · 中度提示</summary>
 
-1. jadx 只有 `Zk.nativeSign` 声明；解包 APK 取 `lib/arm64-v8a/libl28.so`。
-2. `strings libl28.so` 只见诱饵 `Fatdog_silent`——真密钥被 ^0x5C 存成字在数组 `KEY28_KX`（IDA 里读 `Zk_nativeSign` 的解码循环即还原 `Fatdog_unhappy`）。
+1. jadx 只有 `Zk.nativeSign` 声明；解包 APK 取 `lib/arm64-v8a/libaxol.so`。
+2. `strings libaxol.so` 只见诱饵 `Fatdog_silent`——真密钥被 ^0x5C 存成字在数组 `KEY28_KX`（IDA 里读 `Zk_nativeSign` 的解码循环即还原 `Fatdog_unhappy`）。
 3. 静态抄近道：Python 带 `certs/ca.crt` 复刻 HMAC 取 100 页求和 = 49750；动态：Frida 三联单看返回值对拍，或 `Memory.scanSync` 在运行时搜明文。
 
 </details>
@@ -460,7 +466,7 @@ license 链路：`base64 → AES解密(密钥A在XBox) → AES解密(密钥B在M
 <summary>关卡 30 · 中度提示</summary>
 
 1. 导出表只有一个 `Java_com_fatdog_reverse_Vn_nativeSign`，内部经函数指针表派发到四个同形函数——IDA 里跟一次间接调用，找到 `K30_TABLE` 的四个槽位。
-2. 四把密钥全是 UTF-16LE 码元数组（`unsigned short`）：`strings` 默认看不见；`strings -el libl30.so` 或在 IDA 数据窗按 16 位查看即现形。候选：gloomy(真)/pale/sour/mute，`Xk.FAKE_KEY=Fatdog_mute` 就是槽 3 假钥匙。
+2. 四把密钥全是 UTF-16LE 码元数组（`unsigned short`）：`strings` 默认看不见；`strings -el libmica.so` 或在 IDA 数据窗按 16 位查看即现形。候选：gloomy(真)/pale/sour/mute，`Xk.FAKE_KEY=Fatdog_mute` 就是槽 3 假钥匙。
 3. 静态抄近道：还原 `Fatdog_gloomy` 后 Python 复刻 HMAC 取数求和 = 51127；动态路线：按偏移 Hook 四候选逐个喂服务器验真（错的一律 403）。
 
 </details>
@@ -487,7 +493,7 @@ license 链路：`base64 → AES解密(密钥A在XBox) → AES解密(密钥B在M
 <details>
 <summary>关卡 36 · 中度提示</summary>
 
-1. strings libl36.so 找到 24 字符、以 == 结尾的 Base64 串（tE5zEyf1b+fe49uJN4cY7w==）——它就是藏宝图：base64 解码即得 16 字节 AES-128 钥匙。
+1. strings libvigor.so 找到 24 字符、以 == 结尾的 Base64 串（tE5zEyf1b+fe49uJN4cY7w==）——它就是藏宝图：base64 解码即得 16 字节 AES-128 钥匙。
 2. IDA 认算法看 S 盒开头 63 7c 77 7b；真身 k36_ecb 经指针表派发在文件底部，前面 k36_fake_* 全是无人调用的诱饵。
 3. 协议：enc=hex(AES-ECB(key,"page=N&ts=T" 零填充))、sign=HMAC-SHA256(mac,enc)，mac 由 Fatdog_break+"|mac" 运行时派生。Oo.FAKE_KEY=Fatdog_bluff 是一字之差陷阱。
 4. 静态抄近道：Python 用 pycryptodome AES-ECB 复刻取数求和 = 49495。
@@ -497,7 +503,7 @@ license 链路：`base64 → AES解密(密钥A在XBox) → AES解密(密钥B在M
 <details>
 <summary>关卡 35 · 中度提示</summary>
 
-1. strings -el libl35.so 先拿到标记 Fatdog_sneak（UTF-16 存放）；两把钥匙都由它派生：SHA256("Fatdog_sneak|sm4")[:16] 与 SHA256("Fatdog_sneak|3des")[:24]。Kq.FAKE_KEY=Fatdog_skulk 是一字之差陷阱（命中即 403）。
+1. strings -el libumbra.so 先拿到标记 Fatdog_sneak（UTF-16 存放）；两把钥匙都由它派生：SHA256("Fatdog_sneak|sm4")[:16] 与 SHA256("Fatdog_sneak|3des")[:24]。Kq.FAKE_KEY=Fatdog_skulk 是一字之差陷阱（命中即 403）。
 2. IDA 认算法看魔数：DES 的 S1 盒开头 14,04,0d,01 与 PC1/PC2 表；SM4 的 S 盒开头 d6,90,e9,fe 与 FK a3b1bac6。真身 k35_sm4_ecb/k35_des3_ecb 经函数指针表派发，前面一堆 fake_*/junk_* 全是无人调用的诱饵（它们反而被导出了，正好当噪音）。
 3. 协议：e1=hex(SM4(key,"page=N&ts=T" 零填充))、e2=hex(3DES(key,大端 ts))、sign=HMAC(Fatdog_sneak, e1+"|"+e2)。每页三连包只有响应 nums 非空的是真包。
 4. 静态抄近道：Python 复刻双算法取数求和 = 51217（服务端 sm4_decrypt 与 pycryptodome DES3 可直接对照）。
@@ -519,7 +525,7 @@ license 链路：`base64 → AES解密(密钥A在XBox) → AES解密(密钥B在M
 <summary>关卡 33 · 中度提示</summary>
 
 1. 症状：任何 Frida 钩子一挂（哪怕只 attach 观察不出手），签名立刻全错、App 报"完整性校验失败"——so 在给自己做 CRC 体检。
-2. 线索：libl33.so 导出表里有两个空函数 `K33_ZONE_START/K33_ZONE_END`——它们之间的区间被排除在 CRC 外（校验器 k33_check 就住里面，这就是能安全 hook 它的原因）。
+2. 线索：libsable.so 导出表里有两个空函数 `K33_ZONE_START/K33_ZONE_END`——它们之间的区间被排除在 CRC 外（校验器 k33_check 就住里面，这就是能安全 hook 它的原因）。
 3. 三条正解任选其一：① spawn 下 hook JNI_OnLoad 的 onEnter 先装完所有钩子再放行（基线带钩建立，永远一致，最优雅）；② 偏移 hook k33_check 恒返回 1；③ Memory.scanSync 找 g_baseline 四字节写当前实值。整体替换 nativeSign 会被 assertGuard 记账抓包（ticks 踏步）。
 4. 静态抄近道：strings -el 拿 Fatdog_jealous 直接 Python 复刻取数求和 = 49502。
 
@@ -539,7 +545,7 @@ license 链路：`base64 → AES解密(密钥A在XBox) → AES解密(密钥B在M
 <summary>KL6 · 冰封之钥（流沙河）中度提示</summary>
 
 1. S 盒开头 63 7c 77 7b 认出手写 AES-128；可 pycryptodome 解不开抓来的 enc——骨架没坏，坏的是轮常量 Rcon。
-2. strings -el libm1.so 找 UTF-16 藏着的真标记 Fatdog_pierce；明文躺着的 Fatdog_piece 是一字之差诱饵（命中即 403），so 里 m1_decoy_seal 返回的也是假密文。
+2. strings -el libember.so 找 UTF-16 藏着的真标记 Fatdog_pierce；明文躺着的 Fatdog_piece 是一字之差诱饵（命中即 403），so 里 m1_decoy_seal 返回的也是假密文。
 3. aes 钥=SHA256(Fatdog_pierce+"|aes")[:16]、mac=SHA256(Fatdog_pierce+"|mac")；对比标准 Rcon {01,02,04,08,10,20,40,80,1b,36}——第 3/6/9 位被换成 9e/77/d4，Python 照抄这三处再复刻取数，加和 51561。
 
 </details>
@@ -548,7 +554,7 @@ license 链路：`base64 → AES解密(密钥A在XBox) → AES解密(密钥B在M
 <summary>KL8 · 幽泉之眼（流沙河）中度提示</summary>
 
 1. S 盒开头 d6 90 e9 fe 认出手写 SM4、FK 开头 a3b1bac6——骨架全是标准的；可标准 SM4 解不开抓来的 enc。
-2. strings -el libm3.so 找 UTF-16 藏着的真标记 Fatdog_unravel；明文躺着的 Fatdog_travel 是一字之差诱饵（命中即 403），m3_decoy_seal 返回的是假密文。
+2. strings -el libivory.so 找 UTF-16 藏着的真标记 Fatdog_unravel；明文躺着的 Fatdog_travel 是一字之差诱饵（命中即 403），m3_decoy_seal 返回的是假密文。
 3. sm4 钥=SHA256(Fatdog_unravel+"|sm4")[:16]、mac=SHA256(标记+"|mac")；对比标准 CK 表——最后 8 个值（idx24~31）被换成 sha256(标记+"|ck") 派生的 8 个字，Python 照抄再复刻取数，加和 51217。
 
 </details>
@@ -557,7 +563,7 @@ license 链路：`base64 → AES解密(密钥A在XBox) → AES解密(密钥B在M
 <summary>KL9 · 天罡北斗（流沙河）中度提示</summary>
 
 1. 认出 RC4 骨架只是开始：标准库怎么算都对不上——KSA 循环前的初始 S 盒不是清零递增，而是查表加载的自定义置换。
-2. strings -el libm4.so 找 UTF-16 藏着的真标记 Fatdog_veil；明文的 Fatdog_vile 是一字之差诱饵（命中即 403），m4_decoy_seal 是假密文。
+2. strings -el libjade.so 找 UTF-16 藏着的真标记 Fatdog_veil；明文的 Fatdog_vile 是一字之差诱饵（命中即 403），m4_decoy_seal 是假密文。
 3. 两层都要还原：rc4 钥=SHA256(标记+"|rc4")[:16]、KSA 初排由 sha256(标记+"|ksa") 确定性 Fisher-Yates 派生、PRGA 输出后再 XOR 掩码 sha256(标记+"|mask")[:16]。照 gen_kl9.py 抄即可，加和 49319。
 
 </details>
@@ -566,7 +572,7 @@ license 链路：`base64 → AES解密(密钥A在XBox) → AES解密(密钥B在M
 <summary>KL10 · 万象归一（流沙河收官）重度提示</summary>
 
 1. 双层叠加签名：sign = hex(魔改AES(aes_key, 魔改SHA256("page=N&ts=T")))。K 表开头 428a2f98 认出 SHA256、S 盒开头 637c777b 认出 AES——两层骨架都标准，改动点各自藏在别处。
-2. strings -el libm5.so 找 UTF-16 藏着的真标记 Fatdog_eclipse；明文的 Fatdog_ellipse 是一字之差诱饵（命中即 403），m5_decoy_seal 是假密文。
+2. strings -el libonyx.so 找 UTF-16 藏着的真标记 Fatdog_eclipse；明文的 Fatdog_ellipse 是一字之差诱饵（命中即 403），m5_decoy_seal 是假密文。
 3. 第一层改动：IV = SHA256(Fatdog_eclipse+"|iv") 整组换血 + 填充边界从 56 前移到 48；第二层改动：MixColumns 系数 {2,3} 对调为 {3,2}。aes_key = SHA256(标记+"|key")[:16]。照 gen_kl10.py 抄即可，POST /api/kl10 提交 page/ts/sign，加和 51136。
 
 </details>
@@ -583,7 +589,7 @@ license 链路：`base64 → AES解密(密钥A在XBox) → AES解密(密钥B在M
 <details>
 <summary>关卡 44 · 偷天换日（签名校验对抗）中度提示</summary>
 
-1. 本关门禁在 libm6.so 里：passCert 把证书 DER 递进 so，SHA-256、基准比对、ticks/verdict 记账全在 native——hook Java 摘要出口彻底失效。
+1. 本关门禁在 libpearl.so 里：passCert 把证书 DER 递进 so，SHA-256、基准比对、ticks/verdict 记账全在 native——hook Java 摘要出口彻底失效。
 2. 发包前 assertGuard(1) 三连核账：整体替换 passCert 会让 ticks 踏步返回 -2；重打包则 verdict=-3。HMAC 标记 Fatdog_forge 两半异或分藏 Wk/Xh。
 3. 三条正解：①内存换票——hook 取签名出口把 DER 换成原包字节；②IDA 定位比较点偏移 Hook；③Memory 找 ^0x66 解出的基准数组改成当前指纹。Yk.FAKE_KEY=Fatdog_forgo 一字之差陷阱。加和 49328。
 
@@ -592,7 +598,7 @@ license 链路：`base64 → AES解密(密钥A在XBox) → AES解密(密钥B在M
 <details>
 <summary>关卡 45 · 移形换影（签名校验对抗）中度提示</summary>
 
-1. 本关门禁在 libm7.so：拿到 sourceDir 后自己 open 文件→扫 EOCD→遍历中央目录找 META-INF/*.RSA→zlib 解压→ASN.1 剥出 X.509 证书→SHA-256 比对。PackageManager 的任何 Hook 一概无效。
+1. 本关门禁在 libcoral.so：拿到 sourceDir 后自己 open 文件→扫 EOCD→遍历中央目录找 META-INF/*.RSA→zlib 解压→ASN.1 剥出 X.509 证书→SHA-256 比对。PackageManager 的任何 Hook 一概无效。
 2. HMAC 标记 Fatdog_lurk 两半异或分藏 Wn/Yb；发包前 assertGuard(1) 三连核账（同 L44）。
 3. 三条正解：①IO 重定向——hook libc open 把 base.apk 指向攻击者留存的原始包副本；②IDA 定位 memcmp 比较点偏移 Hook；③Memory 改解出的基准数组。Xv.FAKE_KEY=Fatdog_lark 一字之差陷阱。加和 49906。
 
@@ -634,7 +640,7 @@ license 链路：`base64 → AES解密(密钥A在XBox) → AES解密(密钥B在M
 <summary>KL7 · 裂魂之匣（流沙河）中度提示</summary>
 
 1. S1 盒开头 14 04 0d 01 认出手写 DES；可 pycryptodome 解不开抓来的 enc——骨架没坏，坏的是表。
-2. strings -el libm2.so 找 UTF-16 藏着的真标记 Fatdog_shatter；明文躺着的 Fatdog_scatter 是一字之差诱饵（命中即 403），so 里 m2_decoy_seal 返回的也是假密文。
+2. strings -el libfrost.so 找 UTF-16 藏着的真标记 Fatdog_shatter；明文躺着的 Fatdog_scatter 是一字之差诱饵（命中即 403），so 里 m2_decoy_seal 返回的也是假密文。
 3. des 钥=SHA256(Fatdog_shatter+"|des")[:24]（3DES-EDE）、mac=SHA256(Fatdog_shatter+"|mac")；对比标准 DES 逐表排查——IP 首尾互换（58<->57）、FP 同步重算、S3 第 18/19 位两值互换（9<->0），Python 照抄这三处再取数，加和 48865。
 
 </details>
@@ -648,3 +654,7 @@ license 链路：`base64 → AES解密(密钥A在XBox) → AES解密(密钥B在M
 - **标记变更（自 L28 起）**：密钥/口令等标记弃用 `fatdemo_` 前缀，改用 `Fatdog_<情绪词>`（情绪词用尽换动词，如 `Fatdog_unhappy` / `Fatdog_sneak`）；L1-27 保持不变，完整规范见 `SKILL.md` §四
 - 天地秘境·幽冥海分区：KL11-KL15 五关已落地（SO patch 对抗五连关，入口在天地秘境「幽冥海」页签；后续太玄之初规划见 PLANNED.md）
 - 天地秘境·太玄之初分区：KL16-KL20 已落地（一代壳+二代壳+OLLVM+VMP+三代壳综合收官卷，入口在天地秘境「太玄之初」页签）
+- 天地秘境·太玄之初分区（C++ 壳系列）：KKL1 玄冥渊已落地（vtable 派发 + 指令抽取回填，`libkkl1.so` + `libc++_shared.so`；KKL2-5 万剑冢/断魂谷/锁妖塔/诛仙台规划见 PLANNED.md）
+- 天地秘境·太玄之初分区（C++ 壳系列）：KKL2 万剑冢已落地（真 DEX 加密埋 assets → `libkkl2.so` 动态注册解 dex → `InMemoryDexClassLoader` 内存加载 → `/api/kkl2` 验 HMAC 取数，100 页求和 49755）
+
+- 天地秘境·天机阁分区：KL29 暗流涌动、KL30 天机织锦已落地（二进制协议逆向两连关，入口在天地秘境「天机阁」页签；KL31-35 规划见 PLANNED.md）

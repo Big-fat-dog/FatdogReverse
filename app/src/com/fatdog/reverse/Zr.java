@@ -1,7 +1,7 @@
 package com.fatdog.reverse;
 
 // 关卡 31 的 JNI 桥：两截钥匙跨层拼装——前半 "Fatdog_" 在 Java（q.Ke，已被 R8 改名），
-// 后半 "lonely" 在 libl31.so。Java 启动时把 Ke.class 递给 native 缓存成全局引用，
+// 后半 "lonely" 在 libquill.so。Java 启动时把 Ke.class 递给 native 缓存成全局引用，
 // 之后每次签名/加密 native 都回调 Ke.partA 取件：单看任何一侧都拿不到完整密钥。
 public class Zr {
     static {

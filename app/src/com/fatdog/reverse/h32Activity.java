@@ -166,7 +166,7 @@ public class h32Activity extends Activity {
             public void onClick(View v) {
                 new AlertDialog.Builder(h32Activity.this)
                         .setTitle("提示")
-                        .setMessage("服务端 HTTPS:8443 的 GET /api/l32，签名由 Bt.nativeSign 在 libl32.so 里算 HMAC-SHA256（Fatdog_anxious）。"
+                        .setMessage("服务端 HTTPS:8443 的 GET /api/l32，签名由 Bt.nativeSign 在 libraven.so 里算 HMAC-SHA256（Fatdog_anxious）。"
                                 + "哨兵四路：① /proc/self/maps 搜 frida/gadget；② 试连 127.0.0.1:27042/27043；③ 枚举线程名找 gum-js-loop/gmain/gdbus；④ TracerPid 非 0 报警。另有 ptrace 占坑——但它只挡 gdb，挡不了 Frida。\n"
                                 + "中招表现：弹一次\"环境异常\"警告后照常运行，但所有签名都是错的（服务器 403）。\n"
                                 + "拆法三层：改名换端口 frida-server + strongR-frida 洗指纹；IDA 定位扫描函数偏移 hook 成空操作；hook fopen/fgets 给 maps 与 status 洗地。静态复刻党全程免疫——Python 直接算 Fatdog_anxious 的 HMAC 取数即可。")

@@ -27,7 +27,7 @@ public class kn5Activity extends Activity {
 
         TextView tv = new TextView(this);
         tv.setText("昆仑最终关 · 登顶\n\n"
-                + "libkunlun5.so 导出函数：\n"
+                + "libtulip.so 导出函数：\n"
                 + "String nativeClimb(int seed)\n\n"
                 + "回调 Java 层 summitKey() 取前半密钥，与 so 内后半拼合解密。\n"
                 + "请提交解密后的明文。");
