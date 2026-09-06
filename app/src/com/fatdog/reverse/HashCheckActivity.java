@@ -14,10 +14,11 @@ import android.widget.Toast;
 import java.security.MessageDigest;
 
 // Frida 关卡 1（对应教程 20）：SHA-256 哈希校验。
-// 输入口令，App 计算 SHA-256 后与内置哈希比对。
-// 解法：静态——找到内置哈希与算法，Python 复刻 / 在线查表 / 猜口令；
-//       动态——Frida Hook java.security.MessageDigest 的 update/digest，
-//             或直接 Hook 本类的 verify() 强制返回 true。
+// 正确口令（种子）被 HashSeed 拆成多段异或藏匿；SHA-256 只做最终完整性校验，
+// 不再要求玩家对不可逆摘要做外部知识/查表反推。
+// 解法：静态——沿组装链还原 HashSeed.seed()；
+//       动态——Frida Hook MessageDigest.update 观察摘要输入，
+//             或 Hook verify() 观察入参与返回值（本关不靠强制恒真通关）。
 public class HashCheckActivity extends Activity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -29,11 +30,11 @@ public class HashCheckActivity extends Activity {
         box.setPadding(48, 24, 48, 48);
 
         TextView tv = new TextView(this);
-        tv.setText("输入正确的口令，通过验证后获得 flag。");
+        tv.setText("输入正确口令，通过验证后获得 flag。");
         box.addView(tv, Ui.wrap(8));
 
         final EditText input = new EditText(this);
-        input.setHint("password");
+        input.setHint("seed");
         input.setLayoutParams(Ui.fullWidth(22));
         box.addView(input);
 
@@ -62,7 +63,9 @@ public class HashCheckActivity extends Activity {
             public void onClick(View v) {
                 new AlertDialog.Builder(HashCheckActivity.this)
                         .setTitle("提示")
-                        .setMessage("口令是全小写字母。想一想这个系列教程第 20 篇的主角是谁；也可以 Hook SHA-256 观察它的输入输出，或直接让 verify 恒返回 true。")
+                        .setMessage("口令不是外部知识，而是藏在代码里的种子。"
+                                + "SHA-256 不可逆，别对着摘要猜；沿 HashSeed 的组装链把所有异或分片还原。"
+                                + "动态路线：Hook MessageDigest.update，直接观察 App 喂给摘要的字节。")
                         .setPositiveButton("好的", null)
                         .show();
             }
@@ -75,8 +78,9 @@ public class HashCheckActivity extends Activity {
         ThemeKit.apply(this);
     }
 
-    boolean verify(String password) {
-        return sha256Hex(password).equals("db77ca6bb991f807190b0c8cb00c09b74094f089a2efb2a0e629d00540973846");
+    boolean verify(String seed) {
+        // 这里只保留种子分片还原结果的摘要指纹；输入必须来自 HashSeed.seed()。
+        return sha256Hex(seed).equals(HashSeed.sha256Fingerprint());
     }
 
     static String sha256Hex(String s) {

@@ -32,11 +32,11 @@ APK 结构刻意做得和真实 App 一致：图标（5 种密度）、XML 布�
 | 7 | VIP 检测（smali） | 修改 smali 去掉 isVip 检测 | 19 篇：smali 寄存器/指令/跳转 |
 | 8 | 激活码（smali） | smali 里的 fill-array-data 密文，改 checkKey 或还原激活码 | 19 篇：smali 字节数组与 fill-array-data |
 | 9 | 多重资格（smali） | 多重检查 + 诱饵 flag，需完整理解 smali 逻辑 | 19 篇：smali 短路与逻辑链 |
-| 10 | SHA-256 验门（Frida） | 输入口令，SHA-256 比对内置哈希 | 20 篇：Hook MessageDigest / 篡改 verify |
-| 11 | HMAC 验签（Frida） | 输入口令，HMAC-SHA256 比对 | 20 篇：Hook Mac.doFinal |
+| 10 | SHA-256 验门（Frida） | 口令种子分片异或藏在 HashSeed，还原后 SHA-256 校验 | 20 篇：Hook MessageDigest / 还原分片 |
+| 11 | HMAC 验签（Frida） | 密钥与明文分片异或藏在 HmacParts，还原后 HMAC 校验 | 20 篇：Hook Mac.init/doFinal / 还原分片 |
 | 12 | AES 密码库（Frida） | 输入密码，AES-CBC 解密密文比对（密钥/IV/密文分散在工具类） | 20 篇：Hook Cipher.doFinal + 类分散 |
-| 13 | 双重校验（Frida） | 账号 MD5 + 令牌 AES，双参数，逻辑跨两个工具类 | 20 篇：同时 Hook 多算法 |
-| 14 | 三层链路（Frida） | license 过三层变换（2×AES + 异或）+ deviceId MD5，密钥分散+大量诱饵 | 20 篇：链式 Hook + 识别诱饵 |
+| 13 | 双重校验（Frida） | 账号分片异或藏 SignUtil、MD5 只做指纹；令牌为 KBox 的 AES 密文 | 20 篇：同时 Hook 多算法 / 还原分片 |
+| 14 | 三层链路（Frida） | license 过三层变换（2×AES + 异或）；deviceId 分片藏 PivotParts、MD5 只做指纹 | 20 篇：链式 Hook + 识别诱饵 |
 | 15 | 千数求和 | 1000 个数=100 页×10 个，请求带 HMAC 签名，数字只在本地服务端 | 20/07 篇：请求签名复刻 + 发包取数 |
 | 16 | 流密码暗河 | 请求参数整段加密（RC4）+ MD5 签名，响应体加密，60 页×8 个 | 20/13 篇：RC4 复刻 + 双向加解密取数 |
 | 17 | 玄门遁甲 | POST 表单 enc/sig/dog/ts 校验，请求参数加密（国密 SM4）+ 摘要（SM3），100 页×10 个 | 20+国密：SM4/SM3 复刻 + 表单取数 |
@@ -93,6 +93,7 @@ APK 结构刻意做得和真实 App 一致：图标（5 种密度）、XML 布�
 | KL19 | 虚空造化 | ★★★★ | VMP 虚拟机保护：寄存器式 8 寄存器 + 25 条指令 + 轮转 XOR 加密 | 逆向 VM 解释器 → 提取字节码 → 逐指令翻译 | reverse | reverser | libbison.so |
 | KKL1 | 玄冥渊 | ★☆ | 壳系列开篇（C++17）：vtable 派发取抽取表 + 指令抽取回填 + 真标记 UTF-16 藏匿 | 认三张虚表找真身 → 还原抽取表 → 解密回填 → 提交 SHA-256(seed) | hallow | hollow | libkkl1.so |
 | KKL2 | 万剑冢 | ★★ | 真 DEX 加密埋 assets（假壳伴生）：JNI 动态注册解 dex + InMemoryDexClassLoader 内存加载 + HMAC 密钥 UTF-16 派生 | 还原解密链 / hook nativeUnseal → dump dex → 拿 key → HMAC 取 100 页求和 | tense | timid | libkkl2.so |
+| KKL3 | 断魂谷 | ★★★ | 四路哨兵（TracerPid/maps/端口/线程名）守取数签名：命中即 HMAC 密钥翻转 1 bit，服务端静默 403 | 绕哨兵取数 / 静态还原 UTF-16 真标记派生密钥 | quell | quiet | libkkl3.so |
 
 每关的**解题思路分级提示**见下方折叠块；完整题解（含 Python 复刻代码与 Frida 脚本）在 `SOLUTIONS.md`（建议先自己练）。
 
@@ -135,7 +136,7 @@ adb install -r FatdogReverse-patched.apk
 
 主页还显示当前境界的描述、进度条（█/░）和"再通 X 关迈入下一境界"的提示。**化神起境界徽章带柔和呼吸光晕**（低透明度慢节奏脉动，不刺眼）；终点"独断万古"独占深空鎏金渐变徽章与金色光晕。
 
-主页底部有四个分类页签：基本情况 / 太古禁地 / 神念自察 / 昔日枷锁。昔日枷锁是天地秘境通关故事的阅读器（按通关解锁）；进入关卡仍走底部「天地秘境」页签，昆仑山五关已开放，流沙河分区已开篇（KL6 起，编号接续昆仑山）。
+主页分类条共五个：基本情况 / 太古禁地 / 神念自察 / 昔日枷锁 / 前世今生。昔日枷锁是天地秘境通关故事的阅读器（按通关解锁）；前世今生是进度修复页：输入命令 Fatdog 进入后，L1-L47、KL1-KL30、KKL1-KKL3 逐关点选即可补回通关记录，再点一次可撤销。进入关卡仍走底部「天地秘境」页签，昆仑山五关已开放，流沙河分区已开篇（KL6 起，编号接续昆仑山）。
 
 天地秘境目前已开放六个分区：昆仑山（KL1-5）、流沙河（KL6-10）、幽冥海（KL11-15）、太玄之初（KL16-20）、扶桑树（KL21-28）、天机阁（KL29 起，编号接续扶桑树）。
 
@@ -239,11 +240,11 @@ FatdogReverse/
         ├── VipSalonActivity.java      # 关卡 7（smali，classes.dex）
         ├── ActivationRoomActivity.java# 关卡 8（smali，classes.dex）
         ├── ProWorkshopActivity.java   # 关卡 9（smali，classes.dex）
-        ├── HashCheckActivity.java     # 关卡 10（Frida）
-        ├── MsgAuthActivity.java       # 关卡 11（Frida）
+        ├── HashCheckActivity.java + HashSeed.java  # 关卡 10（Frida）
+        ├── MsgAuthActivity.java + HmacParts.java   # 关卡 11（Frida）
         ├── b1Activity.java + SBox.java# 关卡 12（Frida，内容分散；Md5Wrap/MiscCrypt 是诱饵）
-        ├── k4Activity.java + SignUtil.java + KBox.java  # 关卡 13（Frida；HashFactory 是诱饵）
-        ├── z9Activity.java + XBox.java + Mux.java       # 关卡 14（Frida；AesKit/Md5Tools/KeyFactory 是诱饵）
+        ├── k4Activity.java + SignUtil.java + KBox.java  # 关卡 13（Frida；账号种子异或藏 SignUtil，HashFactory 是诱饵）
+        ├── z9Activity.java + XBox.java + Mux.java + PivotParts.java  # 关卡 14（Frida；deviceId 种子异或藏 PivotParts，AesKit/Md5Tools/KeyFactory 是诱饵）
         ├── s5Activity.java + Sg.java + Kx.java          # 关卡 15（网络；TokenGen/DigestBox 诱饵）
         ├── t6Activity.java + C16.java + Rc4Core.java + Jk.java          # 关卡 16（网络；B64Kit/TokenGen/DigestBox 诱饵）
         ├── u7Activity.java + Fl.java + Kt.java + Sm4Core.java + Sm3Core.java  # 关卡 17（网络/国密；NetPacker 诱饵）
@@ -260,7 +261,8 @@ FatdogReverse/
         ├── c27Activity.java                                      # 关卡 27（万法归宗；入口保持可读，调用链通向 p 包）
         ├── p/Wire.java + Gate.java + Cpt.java + Mk.java + Tail.java   # 关卡 27 加密/网络核心（R8 改名；Gh 是包内诱饵）
         ├── EndKit.java                                           # 关卡 27 根包诱饵（假密钥假端点）
-        ├── ProfileActivity.java    # 个人主页：修仙境界（顶部传送带分类：基本情况/太古禁地/神念自察）
+        ├── ProfileActivity.java    # 个人主页：修仙境界（顶部传送带分类：基本情况/太古禁地/神念自察/昔日枷锁/前世今生）
+        ├── PastLifePage.java       # 前世今生进度修复页（密令进入，点选/撤销通关记录）
         ├── PassLog.java            # 通关进度记录（各关触发 flag 时自动打点）
         └── RewardActivity.java     # 关卡 6（大厅里没有入口）
     # APK 只有单个 classes.dex（R8 打包全部关卡，无 classes2/classes3）
@@ -338,14 +340,14 @@ apktool 解包，打开 `smali/.../VipSalonActivity.smali`，找到 `isVip()Z`�
 <details>
 <summary>关卡 10 · 中度提示</summary>
 
-代码里 `verify()` 里有一个 64 位十六进制串（SHA-256）。口令是教程 20 主角的名字，全小写。也可以用 Frida 把 `HashCheckActivity.verify` 的返回值改成 true，输入随便什么都过。
+正确口令（种子）不在外部知识里：`HashCheckActivity.verify` 只留了 SHA-256 指纹，完整种子被 `HashSeed` 切成多段异或存放。沿组装函数把所有分片还原即可；SHA-256 不可逆，别对着 64 位 hex 反推。
 
 </details>
 
 <details>
 <summary>关卡 11 · 中度提示</summary>
 
-`MsgAuthActivity` 里密钥是 `fatdemo_hmac_key`，内置的是 HMAC-SHA256 结果。口令是 FATLAB 实验室代号全小写。Python 一行 `hmac.new(key, msg, hashlib.sha256)` 就能验。
+密钥和待验口令都被 `HmacParts` 按字节分片异或藏起来了。先分别还原 `hmacKey()` 与 `passPhrase()`，再用 HMAC-SHA256 对拍 Activity 里的指纹；HMAC 是校验手段，不是靠外部知识猜口令。
 
 </details>
 
@@ -359,14 +361,14 @@ apktool 解包，打开 `smali/.../VipSalonActivity.smali`，找到 `isVip()Z`�
 <details>
 <summary>关卡 13 · 重度提示</summary>
 
-两个输入对应两段逻辑：账号走 `SignUtil`（MD5，内置哈希对应 `neon_user`），令牌走 `KBox`（AES-ECB，密钥 `NEON_TOKEN_KEY16`，解出 `neon_token_ok`）。两个都对才过。`HashFactory` 是诱饵。
+两个输入对应两段逻辑：账号种子在 `SignUtil` 的异或分片里，`accountSeed()` 还原后与 `fingerprint()`（即 `ACCOUNT_HASH`）的 MD5 指纹对得上；令牌在 `KBox` 里用 AES-ECB 解 `TOKEN_ENC`。两个都对才过。`HashFactory` 是诱饵，别对着摘要猜。
 
 </details>
 
 <details>
 <summary>关卡 14 · 重度提示</summary>
 
-license 链路：`base64 → AES解密(密钥A在XBox) → AES解密(密钥B在Mux) → 异或0x5A → "GRANTED_2026_OK!"`。要用 Python 反向把明文一层层加密回去得到 license。deviceId 的 MD5 对应 `pivot_device`。`AesKit`、`Md5Tools`、`KeyFactory` 都是诱饵——尤其是 `KeyFactory` 里的假密钥，别拿它去算。
+license 链路：`base64 → AES解密(密钥A在XBox) → AES解密(密钥B在Mux) → 异或0x5A → 目标明文`。要用 Python 反向把明文一层层加密回去得到 license。deviceId 种子在 `PivotParts` 里分片异或存放，还原后与它的 MD5 指纹对得上，别对着摘要猜。`AesKit`、`Md5Tools`、`KeyFactory` 都是诱饵——尤其是 `KeyFactory` 里的假密钥，别拿它去算。
 
 </details>
 
@@ -655,7 +657,8 @@ license 链路：`base64 → AES解密(密钥A在XBox) → AES解密(密钥B在M
 - **标记变更（自 L28 起）**：密钥/口令等标记弃用 `fatdemo_` 前缀，改用 `Fatdog_<情绪词>`（情绪词用尽换动词，如 `Fatdog_unhappy` / `Fatdog_sneak`）；L1-27 保持不变，完整规范见 `SKILL.md` §四
 - 天地秘境·幽冥海分区：KL11-KL15 五关已落地（SO patch 对抗五连关，入口在天地秘境「幽冥海」页签；后续太玄之初规划见 PLANNED.md）
 - 天地秘境·太玄之初分区：KL16-KL20 已落地（一代壳+二代壳+OLLVM+VMP+三代壳综合收官卷，入口在天地秘境「太玄之初」页签）
-- 天地秘境·太玄之初分区（C++ 壳系列）：KKL1 玄冥渊已落地（vtable 派发 + 指令抽取回填，`libkkl1.so` + `libc++_shared.so`；KKL2-5 万剑冢/断魂谷/锁妖塔/诛仙台规划见 PLANNED.md）
+- 天地秘境·太玄之初分区（C++ 壳系列）：KKL1 玄冥渊已落地（vtable 派发 + 指令抽取回填，`libkkl1.so` + `libc++_shared.so`；KKL2-5 万剑冢/断魂谷/锁妖塔/诛仙台均按 PLANNED.md 顺序推进）
 - 天地秘境·太玄之初分区（C++ 壳系列）：KKL2 万剑冢已落地（真 DEX 加密埋 assets → `libkkl2.so` 动态注册解 dex → `InMemoryDexClassLoader` 内存加载 → `/api/kkl2` 验 HMAC 取数，100 页求和 49755）
+- 天地秘境·太玄之初分区（C++ 壳系列）：KKL3 断魂谷已落地（四路哨兵守取数签名 → `libkkl3.so` 命中即静默投毒 → `/api/kkl3` 403 断数，真标记 UTF-16 藏匿，100 页求和 52219）
 
 - 天地秘境·天机阁分区：KL29 暗流涌动、KL30 天机织锦已落地（二进制协议逆向两连关，入口在天地秘境「天机阁」页签；KL31-35 规划见 PLANNED.md）

@@ -1,7 +1,7 @@
 # FatdogReverse · 完整题解（按分类组织 · 不分季）
 
 > 建议每关至少独立卡 10 分钟再看对应小节。闯关的意义是练出「先搜什么、再看什么、最后用什么工具」的肌肉记忆，而不是抄答案。
-> 本文按 App 内的关卡分类组织正文（静态分析 → Smali → Frida → 网络对抗 → SSL 抓包 → Native → Xposed → 签名校验 → 天地秘境六卷），不再区分"第几季"。编号即关卡真名：主流程 `L1-L47`，天地秘境 `KL1-KL30`，太玄之初追加卷 `KKL1-KKL2`（KKL3-5 尚未开启）。关卡 6 没有入口按钮，藏在 Manifest；关卡 20 虽是 20 号，主题属 Smali 挑战，故排在 Smali 分类。
+> 本文按 App 内的关卡分类组织正文（静态分析 → Smali → Frida → 网络对抗 → SSL 抓包 → Native → Xposed → 签名校验 → 天地秘境六卷），不再区分"第几季"。编号即关卡真名：主流程 `L1-L47`，天地秘境 `KL1-KL30`，太玄之初追加卷 `KKL1-KKL3`（KKL4-5 尚未开启）。关卡 6 没有入口按钮，藏在 Manifest；关卡 20 虽是 20 号，主题属 Smali 挑战，故排在 Smali 分类。
 
 ## 关卡总览
 
@@ -18,11 +18,11 @@
 | 天地秘境 · 昆仑山 | KL1-KL5 | `## 天地秘境 · 昆仑山（KL1-5）` |
 | 天地秘境 · 流沙河 | KL6-KL10 | `## 天地秘境 · 流沙河（KL6-10）` |
 | 天地秘境 · 幽冥海 | KL11-KL15 | `## 天地秘境 · 幽冥海（KL11-15）` |
-| 天地秘境 · 太玄之初 | KL16-KL20、KKL1-KKL2（KKL3-5 未开启） | `## 天地秘境 · 太玄之初（KL16-20、KKL1-5）` |
+| 天地秘境 · 太玄之初 | KL16-KL20、KKL1-KKL3（KKL4-5 未开启） | `## 天地秘境 · 太玄之初（KL16-20、KKL1-5）` |
 | 天地秘境 · 扶桑树 | KL21-KL28 | `## 天地秘境 · 扶桑树（KL21-28）` |
 | 天地秘境 · 天机阁 | KL29-KL30 | `## 天地秘境 · 天机阁（KL29-30）` |
 
-> 网络/服务端类关卡（L15-L47 与 KL6-KL10、KKL2）的加和答案以各节正文为准；服务端先 `python server.py` 起 HTTPS（21 起）才能取数。
+> 网络/服务端类关卡（L15-L47 与 KL6-KL10、KKL2-KKL3）的加和答案以各节正文为准；服务端先 `python server.py` 起 HTTPS（21 起）才能取数。
 
 ## 静态分析（L1-6）
 
@@ -316,100 +316,92 @@ Java.perform(function () {
 ## Frida Hook · Java 层（L10-14）
 
 
+
 ### 关卡 10：SHA-256 验门（Frida 第 1 关）
 
-**考点**：SHA-256 是 64 位 hex；Frida Hook `java.security.MessageDigest`；篡改 `verify()` 返回值。
+**考点**：SHA-256 只做完整性校验，不直接比对外部口令；种子分片异或藏匿，还原后才能通过。
 
 **静态解法**：
-1. jadx 看 `HashCheckActivity.verify()`：
-
-```java
-boolean verify(String password) {
-    return sha256Hex(password).equals("db77ca6bb991f807190b0c8cb00c09b74094f089a2efb2a0e629d00540973846");
-}
-```
-
-2. 口令是教程 20 主角的名字（全小写），Python 验证：
+1. jadx 看 `HashCheckActivity.verify()`：`sha256Hex(seed)` 与 `HashSeed.sha256Fingerprint()` 比对。
+2. 种子不在外部知识里：进 `HashSeed`，两段字节数组分别 `^0x33`、`^0x5A`，拼接还原即为正确口令。
+3. Python 复刻验证：
 
 ```python
 import hashlib
-target = 'db77ca6bb991f807190b0c8cb00c09b74094f089a2efb2a0e629d00540973846'
-for w in ('frida', 'frida2026', 'frida888'):
-    if hashlib.sha256(w.encode()).hexdigest() == target:
-        print('password =', w)     # frida
+def dec(a, k):
+    return bytes(x ^ k for x in a).decode()
+seed = dec([85,65,90,87], 0x33) + dec([59], 0x5A)
+print(seed)                              # 需要自己还原
+print(hashlib.sha256(seed.encode()).hexdigest())  # db77...73846
 ```
 
-**Frida 解法**：
-1. 观察法——看 verify 的入参和 digest 的输入/输出：
+**Frida 解法**：观察 verify 的入参与 MessageDigest 输入；也可以直接调 `HashSeed.seed()` 看它还原出的口令：
 
 ```javascript
 // hook_l10.js
 Java.perform(function () {
-    var HC = Java.use('com.fatdog.reverse.HashCheckActivity');
-    HC.verify.implementation = function (password) {
-        console.log('[verify] 入参 password =', password);
-        var ret = this.verify(password);
-        console.log('[verify] 返回值 =', ret);
-        return ret;
+    function b2h(b) { var s=''; for (var i=0;i<b.length;i++){var x=b[i]&0xff; s+=('0'+x.toString(16)).slice(-2);} return s; }
+    var MD = Java.use('java.security.MessageDigest');
+    MD.update.overload('[B').implementation = function (d) {
+        console.log('[digest] 输入 hex:', b2h(d));
+        return this.update(d);
     };
-});
-// 运行：frida -U -n 应用名 -l hook_l10.js  然后随便输几个口令观察
-```
-
-2. 篡改法——直接让 verify 永远返回 true，输入任意字符都出 flag：
-
-```javascript
-// hook_l10_force.js
-Java.perform(function () {
-    Java.use('com.fatdog.reverse.HashCheckActivity')
-        .verify.implementation = function (password) { return true; };
+    MD.digest.overload('[B').implementation = function (d) {
+        console.log('[digest] 输入 hex:', b2h(d));
+        return this.digest(d);
+    };
+    console.log('[seed] 还原结果 =', Java.use('com.fatdog.reverse.HashSeed').seed());
 });
 ```
 
-**答案**：`FLAG_18_L10{sha256_gate_cleared}`
+**答案**：`FLAG_18_L10{sha256_gate_cleared}`（口令即 `HashSeed.seed()` 的还原结果）
 
 ---
 
 
 ### 关卡 11：HMAC 验签（Frida 第 2 关）
 
-**考点**：HMAC = 带密钥的哈希；Frida Hook `javax.crypto.Mac.doFinal`。
+**考点**：HMAC = 带密钥的哈希；密钥和待验明文都按字节分片异或藏在 `HmacParts`，还原出两份材料才算过关。
 
 **静态解法**：
-1. jadx 看 `MsgAuthActivity`：密钥 `fatdemo_hmac_key`，内置值是 HMAC-SHA256 结果。
-2. Python 复刻：
+1. jadx 看 `MsgAuthActivity.verify()`：HMAC 调用 `HmacParts.hmacKey()`，指纹来自 `HmacParts.fingerprint()`。
+2. `HmacParts` 里密钥与明文都按 `KA/KB`、`MA/MB` 两组异或数组存放，先还原后拼接。
+3. Python 复刻：
 
 ```python
 import hmac, hashlib
-key = b'fatdemo_hmac_key'
-target = '042dab800cab0a8df5cce658e0bc05c68b7e8bcd3e897e887b60c1807c31b77c'
-for w in ('fatlab', 'fatlab2026'):
-    if hmac.new(key, w.encode(), hashlib.sha256).hexdigest() == target:
-        print('password =', w)     # fatlab
+def dec(a, k):
+    return bytes(x ^ k for x in a).decode()
+key = dec([90,93,72,88,89,81,83,99],0x3C) + dec([84,81,93,95,99,87,89,69],0x3C)
+msg = dec([85,82,71],0x33) + dec([54,59,56],0x5A)
+print(key, msg)
+print(hmac.new(key.encode(), msg.encode(), hashlib.sha256).hexdigest())  # 042d...77c
 ```
 
-**Frida 解法**：Hook Mac，看它算的是什么、算出什么（和静态对着看）：
+**Frida 解法**：Hook Mac.init/doFinal 观察实际密钥与输入；也可以调 `HmacParts.hmacKey()`、`passPhrase()` 直接看还原结果：
 
 ```javascript
 // hook_l11.js
 Java.perform(function () {
     function b2h(b) { var s=''; for (var i=0;i<b.length;i++){var x=b[i]&0xff; s+=('0'+x.toString(16)).slice(-2);} return s; }
+    var HP = Java.use('com.fatdog.reverse.HmacParts');
+    console.log('[key] 还原结果 =', HP.hmacKey());
+    console.log('[msg] 还原结果 =', HP.passPhrase());
     var Mac = Java.use('javax.crypto.Mac');
-    Mac.doFinal.overload('[B').implementation = function (data) {
-        console.log('[mac] 输入:', b2h(data), '->', Java.use('java.lang.String').$new(data));
-        var r = this.doFinal(data);
-        console.log('[mac] 输出:', b2h(r));
-        return r;
+    Mac.init.overload('java.security.Key').implementation = function (key) {
+        console.log('[mac] init, algorithm =', key.getAlgorithm());
+        return this.init(key);
     };
-    Java.use('com.fatdog.reverse.MsgAuthActivity')
-        .verify.implementation = function (p) { return true; };   // 或者直接篡改
+    Mac.doFinal.overload('[B').implementation = function (data) {
+        console.log('[mac] 输入 hex:', b2h(data));
+        return this.doFinal(data);
+    };
 });
 ```
 
-**答案**：`FLAG_18_L11{hmac_sign_passed}`
+**答案**：`FLAG_18_L11{hmac_sign_passed}`（口令即 `HmacParts.passPhrase()` 的还原结果）
 
 ---
-
 
 ### 关卡 12：AES 密码库（Frida 第 3 关）
 
@@ -450,11 +442,9 @@ Java.perform(function () {
     var C = Java.use('javax.crypto.Cipher');
     C.doFinal.overload('[B').implementation = function (input) {
         var r = this.doFinal(input);
-        console.log('[cipher] 输入:', b2h(input), '-> 输出:', b2h(r), '=', Java.use('java.lang.String').$new(r));
+        console.log('[cipher] 输入:', b2h(input), '-> 输出:', b2h(r));
         return r;
     };
-    Java.use('com.fatdog.reverse.b1Activity')
-        .verify.implementation = function (p) { return true; };
 });
 ```
 
@@ -469,12 +459,15 @@ Java.perform(function () {
 
 **静态解法**：
 1. jadx 看 `k4Activity.verify(account, token)`：`SignUtil.checkAccount(account) && KBox.checkToken(token)`。
-2. 账号：`SignUtil` 里 `ACCOUNT_HASH` 是 MD5，对应 `neon_user`：
+2. 账号：`SignUtil` 里账号种子按 `SEED_A/SEED_B` 两段异或存放；`accountSeed()` 还原后和 `fingerprint()`（即 `ACCOUNT_HASH`）对拍：
 
 ```python
 import hashlib
-print(hashlib.md5(b'neon_user').hexdigest())
-# c2fb08b69f270e9aae6e76438ec724a3 ← 和代码里一致，账号就是 neon_user
+def dec(a, k):
+    return bytes(x ^ k for x in a).decode()
+account = dec([82,89,83,82,99], 0x3C) + dec([73,79,89,78], 0x3C)
+print(account)  # 需要自己还原
+print(hashlib.md5(account.encode()).hexdigest())  # c2fb08b69f270e9aae6e76438ec724a3
 ```
 
 3. 令牌：`KBox` 里 `TOKEN_KEY = "NEON_TOKEN_KEY16"`、`TOKEN_ENC = "WG2qYEkmVR5yFwooXN1VSw=="`，是 AES-ECB 密文：
@@ -489,7 +482,7 @@ plain = unpad(AES.new(b'NEON_TOKEN_KEY16', AES.MODE_ECB).decrypt(data), 16)
 print(plain.decode())    # neon_token_ok
 ```
 
-4. 输入账号 `neon_user`、令牌 `neon_token_ok` → 出 flag。
+4. 输入上面还原出的账号和令牌 → 出 flag。
 
 **Frida 解法**：一个脚本同时 Hook MessageDigest 和 Cipher（注意这关会触发两次加密原语调用）：
 
@@ -502,11 +495,10 @@ Java.perform(function () {
     var C = Java.use('javax.crypto.Cipher');
     C.doFinal.overload('[B').implementation = function (d) {
         var r = this.doFinal(d);
-        console.log('[aes] 输出:', b2h(r), '=', Java.use('java.lang.String').$new(r));
+        console.log('[aes] 输出:', b2h(r));
         return r;
     };
-    Java.use('com.fatdog.reverse.k4Activity')
-        .verify.implementation = function (a, t) { console.log('account =', a, 'token =', t); return true; };
+    console.log('[account] 还原结果 =', Java.use('com.fatdog.reverse.SignUtil').accountSeed());
 });
 ```
 
@@ -526,7 +518,7 @@ Java.perform(function () {
 byte[] s1 = XBox.decryptA(license);          // 第 1 层：base64 + AES-ECB(密钥A在XBox)
 String plain = Mux.finish(s1);               // 第 2、3 层：AES-ECB(密钥B在Mux) + 逐字节异或 0x5A
 return "GRANTED_2026_OK!".equals(plain)
-        && md5Hex(deviceId).equals("a94f8d335f87849687b77fb244a1d6f4");
+        && md5Hex(deviceId).equals(PivotParts.fingerprint());
 ```
 
 2. 提取三样东西：
@@ -547,8 +539,17 @@ license = base64.b64encode(AES.new(b'PIVOT_KEY_A_0001', AES.MODE_ECB).encrypt(en
 print(license)                                # /ypiwyDoIxHtJkdhGceyRw==
 ```
 
-4. deviceId：`md5Hex(deviceId) == a94f8d335f87849687b77fb244a1d6f4` → `pivot_device`（Python `hashlib.md5(b'pivot_device').hexdigest()` 验证）。
-5. 输入 license 和 deviceId → 出 flag。
+4. deviceId：`PivotParts` 里 `DEV_A/DEV_B` 分别 `^0x3C`、`^0x5A`，还原后再用 MD5 指纹对拍：
+
+```python
+import hashlib
+def dec(a, k):
+    return bytes(x ^ k for x in a).decode()
+device = dec([76,85,74,83,72,99], 0x3C) + dec([62,63,44,51,57,63], 0x5A)
+print(device)  # 需要自己还原
+print(hashlib.md5(device.encode()).hexdigest())  # a94f8d335f87849687b77fb244a1d6f4
+```
+5. 输入还原出的 license 和 deviceId → 出 flag。
 
 **Frida 解法**：Hook `Cipher.doFinal`，点一次验证会**连触发两次**（先密钥A再密钥B），正好让你看清整条链；`MessageDigest` 管 deviceId：
 
@@ -564,8 +565,7 @@ Java.perform(function () {
     };
     var MD = Java.use('java.security.MessageDigest');
     MD.digest.overload('[B').implementation = function (d) { console.log('[md5] 输入:', b2h(d)); return this.digest(d); };
-    Java.use('com.fatdog.reverse.z9Activity')
-        .verify.implementation = function (l, d) { console.log('license =', l, 'device =', d); return true; };
+    console.log('[device] 还原结果 =', Java.use('com.fatdog.reverse.PivotParts').deviceId());
 });
 ```
 
@@ -3529,7 +3529,7 @@ console.log('直接计算:', Gk.nativeDirect(20280915));
 **flag**：`FLAG_18_KL20{all_shells_broken}`
 
 
-> 太玄之初除了"三代壳"卷（KL16-20），还追加了独立编号的 C++ 壳教学卷 KKL1-5（玄冥渊 / 万剑冢 / 断魂谷 / 锁妖塔 / 诛仙台），全部由 `app/jni/kkl*.cpp` 实现。目前开放 KKL1、KKL2，KKL3-5 在 MainActivity 里仍是"尚未开启"占位。与 KL16-20 的壳课不同，KKL 卷强调**用 C++ 造现代壳零件**：虚表派发、抽取回填、动态注册、真 DEX 内存加载。
+> 太玄之初除了"三代壳"卷（KL16-20），还追加了独立编号的 C++ 壳教学卷 KKL1-5（玄冥渊 / 万剑冢 / 断魂谷 / 锁妖塔 / 诛仙台），全部由 `app/jni/kkl*.cpp` 实现。目前开放 KKL1-KKL3，KKL4-5 在 MainActivity 里仍是"尚未开启"占位。与 KL16-20 的壳课不同，KKL 卷强调**用 C++ 造现代壳零件**：虚表派发、抽取回填、动态注册、真 DEX 内存加载。
 
 ### KKL1：玄冥渊（太玄之初 · C++ vtable 派发 + 抽取回填）
 
@@ -3592,6 +3592,32 @@ print(hashlib.sha256(str(total).encode()).hexdigest())
 **答案**：100 页加和 = `49755`，提交 `sha256("49755")` = `00ed53989532cff023fc7776f13e584d75149e80f528b1f8d079de7d9bdabb13`（64 hex，大小写不敏感）；flag `FLAG_18_KKL2{tomb_of_myriad_blades}`。
 
 **Frida 最短路线**：hook `Kkl2Native.nativeDeriveKey`（拿 key）+ hook `nativeUnseal` 出口把 dex 写回文件 → jadx 看 `sign` 逻辑照抄。**坑**：dump 时机要在 `InMemoryDexClassLoader` 构造点或 native 出口，晚了 dex 只在内存；服务端按 `seed 20260909` 生成 1000 个数（`random.Random(20260909).randint(1,100)`），本地可离线复算对拍。
+
+
+### KKL3：断魂谷（太玄之初 · 四路哨兵 + 静默投毒 + 服务端取数）
+
+**考点**：检测按钮本身永远不通关。`libkkl3.so` 的四路哨兵只在 `Kkl3Native.nativeSign(page, ts)` 每次取数签名前跑：`TracerPid`/ptrace 痕迹、maps 里的 frida/gadget/librun/gum-js/linjector、27042-27044 端口探测、`/proc/self/task/*/comm` 的 frida 线程名。任何一路命中就把 HMAC 密钥第 8 字节的 `0x40` 位永久翻转，此后签出的每一页都会被 `/api/kkl3` 静默 403——没有弹窗、没有错误码以外的提示。`nativeStatus()` 只做只读自检，点了也不会改变密钥，别把它当成过关入口。
+
+**静态路线**：strings 里能看到明文诱饵 `Fatdog_quiet`，但真标记是 UTF-16 藏匿的 `Fatdog_quell`（用 `strings -el lib/arm64-v8a/libkkl3.so` 或 IDA 的 UTF-16 视图即可看到 12 个码元）。密钥派生就是 `SHA-256("Fatdog_quell" + "|kkl3_valley")`，之后逐页取数求和：
+
+```python
+import hashlib, hmac, time, requests
+key = hashlib.sha256(b'Fatdog_quell|kkl3_valley').digest()
+total = 0
+for page in range(1, 101):
+    ts = int(time.time())
+    sign = hmac.new(key, f'page={page}&ts={ts}'.encode(), hashlib.sha256).hexdigest()
+    r = requests.get('https://127.0.0.1:8443/api/kkl3',
+                     params={'page': page, 'ts': ts, 'sign': sign},
+                     verify='certs/ca.crt', timeout=5).json()
+    total += sum(r['nums'])
+print(total)                                # 52219
+print(hashlib.sha256(str(total).encode()).hexdigest())
+```
+
+**答案**：100 页加和 = `52219`，提交 `sha256("52219")` = `5b675c4a63fbc84ebc0478f244d3c63093d57d6a1eca7df8618dbf1485c92fd7`（64 hex，大小写不敏感）；flag `FLAG_18_KKL3{valley_of_the_sentinel}`。
+
+**patch/hook 路线**：目标是让四路哨兵在签名前全部判安全，而不是改 `nativeStatus()`。常见做法：nop 掉 `run_sentinels(true)` 的调用点或让四个 `detect_*` 恒返 0；注意进程一旦已被投毒，密钥在内存里已经翻位，patch 后要重启进程。服务端 seed 是 `20260916`（`random.Random(20260916).randint(1,100)` 生成 1000 个数），本地可离线复算对拍。
 
 ## 天地秘境 · 扶桑树（KL21-28）
 
@@ -3775,11 +3801,12 @@ frida-ps -U                     # 能列进程 = 环境通
 # 跑脚本（attach 运行中的 App，用包名最稳）
 frida -U -n com.fatdog.reverse -l hook_l10.js
 
-# 更省事：直接 Hook 每个 Activity 的 verify() 强制返回 true，一关直接通
+# L10-14：明文/种子/密钥都藏在代码里，摘要只做指纹；Hook 观察或还原即可，不要只 return true 硬通
+# 其他改判型关卡按题面/解法节操作，具体入口见各关正文
 ```
 
 
-### 附 3 · flag 速查表（全量 L1-47 + KL1-30 + KKL1-2）
+### 附 3 · flag 速查表（全量 L1-47 + KL1-30 + KKL1-3）
 
 
 | 关卡 | flag |
@@ -3871,6 +3898,7 @@ frida -U -n com.fatdog.reverse -l hook_l10.js
 | KL30 | `FLAG_18_KL30{heavenly_loom}` |
 | KKL1 | `FLAG_18_KKL1{abyss_of_mystery}` |
 | KKL2 | `FLAG_18_KKL2{tomb_of_myriad_blades}` |
+| KKL3 | `FLAG_18_KKL3{valley_of_the_sentinel}` |
 
 
 > 备注：L43-L45 现版源码庆祝串均为 `FLAG_18_L48{mirror_tells_true}`（L48 为历史编号残留、三关复制未改），上表按关卡语义区分；L47 以当前 App 庆祝串 `FLAG_18_L47{guard_matrix_crc_aes}` 为准。关卡 9 有两个变体串（`single_gate_not_enough` 是只过一重门时的诱饵/半程提示）。

@@ -31,10 +31,10 @@ import android.widget.TextView;
 import java.io.File;
 import java.util.ArrayList;
 
-// 个人主页：顶部"传送带"式分类条（基本情况 / 太古禁地 / 神念自察 / 昔日枷锁），可横向滑动；
+// 个人主页：顶部"传送带"式分类条（基本情况 / 太古禁地 / 神念自察 / 昔日枷锁 / 前世今生），可横向滑动；
 // 下方内容随分类切换。基本情况 = 头像 + 境界 + 修仙进度；右上角昼夜切换；背景图。
 public class ProfileActivity extends Activity {
-    private static final int TOTAL_LEVELS = 71;   // 关卡 1-47（含 L20，L21-27 属 SSL/抓包系列，L28-37 起 native 第三季，KL1-10 天地秘境，L38-42 Xposed 第四季，L43-47 签名校验对抗，KL11-20 幽冥海+太玄之初，KL21-27 扶桑树）
+    private static final int TOTAL_LEVELS = 80;   // L1-L47 + KL1-KL30 + KKL1-KKL3
     // 炼气~元婴：每 5 关一层（1-20）；化神起：每 10 关一个大境界，第 10 层为"圆满"；
     // 高阶四境之后是终点"独断万古"——通关数再多也停在它上面。
     private static final String[] BIG_REALMS = {"炼气", "筑基", "金丹", "元婴"};
@@ -76,9 +76,11 @@ public class ProfileActivity extends Activity {
             "✦ 一念无量，光寿无涯",
             "✦ 万古长夜，我为天明",
     };
-    private static final String[] CAT_NAMES = {"基本情况", "太古禁地", "神念自察", "昔日枷锁"};
-    private static final int[] CAT_ICONS = {R.drawable.ic_tab_profile, R.drawable.ic_forbidden, R.drawable.ic_eye, R.drawable.ic_lock};
-    private static final int[] CAT_COLORS = {0xFFFB7299, 0xFFFB7299, 0xFF409EFF, 0xFF00BFA5};
+    private static final String[] CAT_NAMES = {"基本情况", "太古禁地", "神念自察", "昔日枷锁", "前世今生"};
+    private static final int[] CAT_ICONS = {R.drawable.ic_tab_profile, R.drawable.ic_forbidden, R.drawable.ic_eye, R.drawable.ic_lock, R.drawable.ic_star};
+    private static final int[] CAT_COLORS = {0xFFFB7299, 0xFFFB7299, 0xFF409EFF, 0xFF00BFA5, 0xFFE6A23C};
+
+    private static final int REBORN_INDEX = 4;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -128,11 +130,12 @@ public class ProfileActivity extends Activity {
                 LinearLayout.LayoutParams.MATCH_PARENT));
         column.addView(contentHost);
 
-        final View[] pages = new View[4];
+        final View[] pages = new View[5];
         pages[0] = buildBasicInfo(ctx, avatarClick);
         pages[1] = ForbiddenLandActivity.buildLandView((Activity) ctx);
         pages[2] = DivineReflectionActivity.buildReflectionView((Activity) ctx);
         pages[3] = buildKunlunPlaceholder(ctx);
+        pages[4] = PastLifePage.buildPage(ctx);
         for (View p : pages) {
             contentHost.addView(p, new FrameLayout.LayoutParams(
                     FrameLayout.LayoutParams.MATCH_PARENT,
@@ -159,7 +162,16 @@ public class ProfileActivity extends Activity {
                 @Override
                 public void onClick(View v) {
                     // 太古禁地 / 昔日枷锁默认开放，无需通关数门禁
-                    selectPage(ctx, idx, chips, pages);
+                    if (idx == REBORN_INDEX) {
+                        PastLifePage.enter(ctx, new Runnable() {
+                            @Override
+                            public void run() {
+                                selectPage(ctx, idx, chips, pages);
+                            }
+                        });
+                    } else {
+                        selectPage(ctx, idx, chips, pages);
+                    }
                     if (themeBtn[0] != null) {
                         themeBtn[0].setVisibility(idx == 0 ? View.VISIBLE : View.GONE);
                     }

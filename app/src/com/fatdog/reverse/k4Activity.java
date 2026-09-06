@@ -16,8 +16,8 @@ import android.widget.Toast;
 // 账号走 SignUtil 的 MD5，令牌走 KBox 的 AES 解密，两个都对才算过。
 // 一关的内容分散在多个类里：账号逻辑在 SignUtil，令牌逻辑在 KBox，
 // 旁边还有几个看起来像工具但没人调用的类。
-// 解法：静态——分别找到两个工具的算法与内置值，Python 复刻；
-//       动态——Frida 同时 Hook MessageDigest 和 Cipher，或 Hook verify() 强制通过。
+// 解法：静态——还原 SignUtil 的账号分片 + 解 KBox 的 AES 密文；
+//       动态——Frida 同时 Hook MessageDigest 和 Cipher 观察两路输入。
 public class k4Activity extends Activity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -67,7 +67,7 @@ public class k4Activity extends Activity {
             public void onClick(View v) {
                 new AlertDialog.Builder(k4Activity.this)
                         .setTitle("提示")
-                        .setMessage("账号和令牌走的算法不同，逻辑也分散在多个类。先用 jadx 的交叉引用排除没人调用的类。")
+                        .setMessage("账号种子在 SignUtil 里分片异或存放，MD5 只是指纹；令牌是 KBox 里的 AES 密文。先用 jadx 的交叉引用排除没人调用的类，别对着摘要猜。")
                         .setPositiveButton("好的", null)
                         .show();
             }

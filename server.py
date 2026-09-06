@@ -1778,6 +1778,25 @@ def api_kkl2(page: int = Query(...), ts: int = Query(...), sign: str = Query(...
     idx = (page - 1) * PER_PAGE_KKL2
     return {"page": page, "nums": NUMS_KKL2[idx:idx + PER_PAGE_KKL2]}
 
+
+# ---------------- 关卡 KKL3：断魂谷（四路哨兵命中即静默投毒 · 服务端只验 HMAC） ----------------
+# HMAC 密钥 = SHA-256("Fatdog_quell" + "|kkl3_valley")，与 libkkl3.so real_key() 派生一致；
+# 真标记在 so 里藏 UTF-16（strings 哑火），明文诱饵 Fatdog_quiet 验签 403。
+KEY_KKL3 = hashlib.sha256(b"Fatdog_quell|kkl3_valley").digest()
+PAGES_KKL3, PER_PAGE_KKL3, SEED_KKL3 = 100, 10, 20260916
+_rng_kkl3 = random.Random(SEED_KKL3)
+NUMS_KKL3 = [_rng_kkl3.randint(1, 100) for _ in range(PAGES_KKL3 * PER_PAGE_KKL3)]
+
+
+@app.get("/api/kkl3")
+def api_kkl3(page: int = Query(...), ts: int = Query(...), sign: str = Query(...)):
+    _check_page(page, PAGES_KKL3)
+    _check_ts(ts)
+    if not hmac.compare_digest(sign, hmac.new(KEY_KKL3, f"page={page}&ts={ts}".encode(), hashlib.sha256).hexdigest()):
+        raise HTTPException(status_code=403, detail="sign invalid")
+    idx = (page - 1) * PER_PAGE_KKL3
+    return {"page": page, "nums": NUMS_KKL3[idx:idx + PER_PAGE_KKL3]}
+
 if __name__ == "__main__":
     cert_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "certs")
     print(f"FatdogReverse 服务端（FastAPI）：http://{HOST}:{PORT_HTTP}（15-20） https://{HOST}:{PORT_HTTPS}（21-27）")
@@ -1787,7 +1806,7 @@ if __name__ == "__main__":
           f"L21={sum(NUMS21)} L22={sum(NUMS22)} L24={sum(NUMS24)} L25={sum(NUMS25)} L26={sum(NUMS26)} L27={sum(NUMS27)} "
           f"L28={sum(NUMS28)} L29={sum(NUMS29)} L30={sum(NUMS30)} L31={sum(NUMS31)} L32={sum(NUMS32)} L33={sum(NUMS33)} L34={sum(NUMS34)} L35={sum(NUMS35)} L36={sum(NUMS36)} L37={sum(NUMS37)} "
           f"KL6={sum(NUMS_KL6)} KL7={sum(NUMS_KL7)} KL8={sum(NUMS_KL8)} KL9={sum(NUMS_KL9)} KL10={sum(NUMS_KL10)} "
-          f"KKL2={sum(NUMS_KKL2)} "
+          f"KKL2={sum(NUMS_KKL2)} KKL3={sum(NUMS_KKL3)} "
           f"L43={sum(NUMS43)} L44={sum(NUMS44)} L45={sum(NUMS45)} L46={sum(NUMS46)} L47={sum(NUMS47)}")
     http_cfg = uvicorn.Config(app, host=HOST, port=PORT_HTTP, log_level="info")
     threading.Thread(target=uvicorn.Server(http_cfg).run, daemon=True).start()

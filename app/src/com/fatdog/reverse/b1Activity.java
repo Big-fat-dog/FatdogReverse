@@ -17,7 +17,7 @@ import android.widget.Toast;
 // 注意：本类不再用"关卡名"式命名，真正的内容（密钥、IV、密文）分散在工具类 SBox 里，
 //       旁边还有几个看起来像但没人调用的类，别被带偏。
 // 解法：静态——去 SBox 找密钥/IV/密文，用 Python 或 jadx 还原密码；
-//       动态——Frida Hook javax.crypto.Cipher 的 doFinal，或 Hook verify() 强制通过。
+//       动态——Frida Hook javax.crypto.Cipher 的 doFinal 观察密文到明文。
 public class b1Activity extends Activity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {

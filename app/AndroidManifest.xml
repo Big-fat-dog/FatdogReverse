@@ -121,6 +121,7 @@
         <!-- 太玄之初 KKL1：玄冥渊（C++ vtable 派发 + 抽取回填） -->
         <activity android:name=".kkl1Activity" android:exported="false" />
         <activity android:name=".kkl2Activity" android:exported="false" />
+        <activity android:name=".kkl3Activity" android:exported="false" />
         <activity android:name=".c58Activity" android:exported="false" />
         <activity android:name=".d59Activity" android:exported="false" />
         <activity android:name=".e60Activity" android:exported="false" />

@@ -22,6 +22,21 @@ public class PassLog {
                 .apply();
     }
 
+    // 撤销某一关的通关记录（"前世今生"恢复页误点回退用）
+    public static void unmark(Context ctx, String level) {
+        SharedPreferences sp = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+        String cur = sp.getString(KEY_DONE, "");
+        String token = ";" + level + ";";
+        if (!cur.contains(token)) {
+            return;
+        }
+        int n = Math.max(0, sp.getInt(KEY_COUNT, 0) - 1);
+        sp.edit()
+                .putString(KEY_DONE, cur.replace(token, ""))
+                .putInt(KEY_COUNT, n)
+                .apply();
+    }
+
     public static int count(Context ctx) {
         return ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
                 .getInt(KEY_COUNT, 0);

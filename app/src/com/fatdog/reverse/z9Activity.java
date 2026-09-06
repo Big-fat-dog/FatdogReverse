@@ -14,13 +14,13 @@ import android.widget.Toast;
 
 import java.security.MessageDigest;
 
-// Frida 关卡 5（对应教程 20）：三层链路 + 双输入，内容横跨三个真实类 + 三个诱饵类。
+// Frida 关卡 5（对应教程 20）：三层链路 + 双输入，内容横跨多个真实类 + 三个诱饵类。
 // license 链路：base64 解码 -> AES 解密(密钥 A，在 XBox) -> AES 解密(密钥 B，在 Mux)
 //              -> 逐字节异或 0x5A -> 得到 16 字节的 "GRANTED_2026_OK!"。
-// deviceId   ：MD5 与内置哈希比对。
+// deviceId 的正确值拆成两段异或放在 PivotParts，MD5 只做指纹校验。
 // 诱饵：AesKit / Md5Tools / KeyFactory 都有加密代码或假密钥，但没有任何调用者。
-// 解法：静态——把 XBox/Mux 的密钥和 Mux 的异或参数串起来，Python 反向计算 license；
-//       动态——Frida Hook Cipher.doFinal（会连触发两次）+ MessageDigest，或 Hook verify() 强制通过。
+// 解法：静态——还原 XBox/Mux 的密钥与 PivotParts 的分片；
+//       动态——Frida Hook Cipher.doFinal 和 MessageDigest 观察整条链。
 public class z9Activity extends Activity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -70,7 +70,7 @@ public class z9Activity extends Activity {
             public void onClick(View v) {
                 new AlertDialog.Builder(z9Activity.this)
                         .setTitle("提示")
-                        .setMessage("license 要过三层变换，两把密钥分散在两个工具类；deviceId 是 MD5。注意排除那些没人调用的类，别用里面的假密钥。")
+                        .setMessage("license 要过三层变换，两把密钥分散在 XBox/Mux；deviceId 的正确值在 PivotParts 里分片异或存放，别对着 MD5 猜。注意排除那些没人调用的类，别用里面的假密钥。")
                         .setPositiveButton("好的", null)
                         .show();
             }
@@ -88,7 +88,7 @@ public class z9Activity extends Activity {
             byte[] s1 = XBox.decryptA(license);
             String plain = Mux.finish(s1);
             return "GRANTED_2026_OK!".equals(plain)
-                    && md5Hex(deviceId).equals("a94f8d335f87849687b77fb244a1d6f4");
+                    && md5Hex(deviceId).equals(PivotParts.fingerprint());
         } catch (Exception e) {
             return false;
         }

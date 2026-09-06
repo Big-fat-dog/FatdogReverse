@@ -304,3 +304,11 @@ LOCAL_SRC_FILES := kkl2.cpp
 LOCAL_CPPFLAGS := -std=c++17 -fexceptions -frtti
 LOCAL_LDLIBS := -llog
 include $(BUILD_SHARED_LIBRARY)
+
+# KKL3
+include $(CLEAR_VARS)
+LOCAL_MODULE := kkl3
+LOCAL_SRC_FILES := kkl3.cpp
+LOCAL_CPPFLAGS := -std=c++17 -fexceptions -frtti
+LOCAL_LDLIBS := -llog
+include $(BUILD_SHARED_LIBRARY)
