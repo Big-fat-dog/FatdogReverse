@@ -448,6 +448,30 @@ Java.perform(function () {
 });
 ```
 
+**进阶 Frida 训练——构造函数 `$init` hook**：
+
+本关的 `SBox` 类把 KEY 从静态字段改成了**实例字段**，在构造函数里通过 XOR 种子数组计算。这意味着 `new SBox()` 时才产生 KEY，Frida 需要 hook `$init` 才能看到完整的密钥材料：
+
+```javascript
+// hook_l12_init.js — 构造函数 hook 训练
+Java.perform(function () {
+    var SBox = Java.use('com.fatdog.reverse.SBox');
+    // hook 构造函数，观察 KEY 的生成过程
+    SBox.$init.implementation = function () {
+        this.$init();
+        // KEY 是实例字段，构造完成后才能读
+        console.log('[SBox.$init] key = ' + this.key.value);
+    };
+    // hook decryptVault，验证实例方法也能拿到 key
+    SBox.decryptVault.implementation = function () {
+        console.log('[SBox.decryptVault] key = ' + this.key.value);
+        return this.decryptVault();
+    };
+});
+```
+
+> **训练点**：`$init` 是 Frida 对构造函数的固定名称。当密钥在构造时生成（而非静态字段），必须 hook `$init` 才能捕获。注意 `this.key.value` 是读取 Java 实例字段的语法——`value` 是 Frida 桥接 Java 字段的固定属性。
+
 **答案**：`FLAG_18_L12{aes_vault_unlocked}`
 
 ---
@@ -501,6 +525,36 @@ Java.perform(function () {
     console.log('[account] 还原结果 =', Java.use('com.fatdog.reverse.SignUtil').accountSeed());
 });
 ```
+
+**进阶 Frida 训练——`overload` 重载方法选择**：
+
+本关的 `SignUtil.checkAccount` 有两个重载：`checkAccount(String)` 和 `checkAccount(String, String)`（后者是诱饵，固定返回 false）。直接 hook `checkAccount` 会报"multiple matches"错误，必须用 `overload` 指定参数类型：
+
+```javascript
+// hook_l13_overload.js — overload 选择训练
+Java.perform(function () {
+    var SU = Java.use('com.fatdog.reverse.SignUtil');
+
+    // 错误写法（会报错）：
+    // SU.checkAccount.implementation = function (a) { ... };
+    // Error: checkAccount has more than one overload
+
+    // 正确写法：用 overload 指定参数类型
+    SU.checkAccount.overload('java.lang.String').implementation = function (account) {
+        var result = this.checkAccount(account);
+        console.log('[checkAccount] account=' + account + ' -> ' + result);
+        return result;
+    };
+
+    // 也可以 hook 诱饵重载，观察它的行为
+    SU.checkAccount.overload('java.lang.String', 'java.lang.String').implementation = function (a, b) {
+        console.log('[checkAccount decoy] a=' + a + ', b=' + b + ' -> false');
+        return false;
+    };
+});
+```
+
+> **训练点**：Java 方法重载（overload）在 Frida 里必须用 `.overload('参数类型')` 显式选择。类型是完整类名：`'java.lang.String'`、`'[B'`（byte 数组）、`'int'` 等。不指定 overload 是 Frida 新手最常见的报错之一。
 
 **答案**：`FLAG_18_L13{dual_param_dual_alg}`
 
@@ -662,6 +716,32 @@ Java.perform(function () {
 
 看到 key = `fatdemo_page_key_2026` 后，回到上面的 Python 复刻脚本取数求和即可。
 
+**进阶 Frida 训练——内部类 `$` hook**：
+
+本关的 `Sg` 类有一个静态内部类 `Sg$KeyBuilder`，密钥碎片的拼接逻辑藏在里面。Frida hook 内部类需要用 `$` 语法引用：
+
+```javascript
+// hook_l15_inner.js — 内部类 hook 训练
+Java.perform(function () {
+    // 内部类用 外部类$内部类 名引用
+    var KeyBuilder = Java.use('com.fatdog.reverse.Sg$KeyBuilder');
+    KeyBuilder.build.implementation = function () {
+        var key = this.build();
+        console.log('[Sg$KeyBuilder.build] key = ' + key);
+        return key;
+    };
+
+    // 对比：hook 外部类的 buildKey，看差异
+    Java.use('com.fatdog.reverse.Sg').buildKey.implementation = function () {
+        var k = this.buildKey();
+        console.log('[Sg.buildKey] key = ' + k);
+        return k;
+    };
+});
+```
+
+> **训练点**：Java 静态内部类在 dex 里用 `外部类$内部类` 命名。Frida 用 `Java.use('com.fatdog.reverse.Sg$KeyBuilder')` 引用。匿名内部类也一样：`Sg$1`、`Sg$2` 等。这是 hook 回调、listener、匿名实现类的基础。
+
 **答案**：加和 `49580`；flag `FLAG_18_L15{thousand_number_sum}`
 
 ---
@@ -744,8 +824,35 @@ Java.perform(function () {
     return out;
   };
 });
-// 在 App 里点“请求该页”，控制台自动打出 reqKey/rspKey 和加解密前后的数据
+// 在 App 里点"请求该页"，控制台自动打出 reqKey/rspKey 和加解密前后的数据
 ```
+
+**进阶 Frida 训练——内部类 `$` 语法（进阶）**：
+
+本关的 `Rc4Core` 有一个静态内部类 `Rc4Core$KeyMaterial`，存放密钥提示信息。与 L15 的 `Sg$KeyBuilder` 不同，这个内部类的方法返回的是 hint 而非实际密钥，训练学生区分"观察内部类"和"提取实际密钥"：
+
+```javascript
+// hook_l16_inner.js — 内部类进阶训练
+Java.perform(function () {
+    // hook 内部类，观察它提供的信息
+    var KM = Java.use('com.fatdog.reverse.Rc4Core$KeyMaterial');
+    KM.hint.implementation = function () {
+        var h = this.hint();
+        console.log('[Rc4Core$KeyMaterial.hint] ' + h);
+        return h;
+    };
+
+    // 对比：hook 外部类的 crypt 方法，观察实际加解密
+    var RC4 = Java.use('com.fatdog.reverse.Rc4Core');
+    RC4.crypt.implementation = function (data, key) {
+        var out = this.crypt(data, key);
+        console.log('[Rc4Core.crypt] key=' + key.length + ' bytes, data=' + data.length + ' -> ' + out.length + ' bytes');
+        return out;
+    };
+});
+```
+
+> **训练点**：内部类不一定是核心逻辑，可能是辅助信息。Frida 可以 hook 任何类的任何方法，但关键是要判断哪些是真钥匙、哪些是提示牌。L15 的 `Sg$KeyBuilder` 直接返回密钥，L16 的 `Rc4Core$KeyMaterial` 只返回 hint——逆向时需要根据上下文判断价值。
 
 **答案**：加和 `24074`；flag `FLAG_18_L16{rc4_stream_encrypted}`
 
@@ -1265,6 +1372,30 @@ Java.perform(function () {
 - 别 Hook `checkPin` 强制返回 true：守卫会抛"完整性校验失败"。
 - 换票前先确认第一关（信任）真的放行了，否则 `verify` 根本进不去。
 - 再往下推一层：守卫本身也能被 Hook（把 `assertGuard` 清空就行）——所以真实世界里反 Hook 永远是和攻击者的军备竞赛，检测点要尽量藏、尽量多，单一检测点拦不住有心人。
+
+**进阶 Frida 训练——内部类 `$` 提取隐藏常量**：
+
+本关的 `Z24Core` 有一个静态内部类 `Z24Core$PinVault`，存放实际的 pin 常量（XOR `^0x5A` 数组运行时还原）。Frida 可以直接调用内部类的静态方法拿到 pin，无需手工逆向 XOR 数组：
+
+```javascript
+// hook_l24_pinvault.js — 内部类常量提取训练
+Java.perform(function () {
+    // 直接调内部类的 decode 方法，拿到真实 pin
+    var PinVault = Java.use('com.fatdog.reverse.Z24Core$PinVault');
+    var pin = PinVault.decode();
+    console.log('[Z24Core$PinVault.decode] realPin = ' + pin);
+
+    // 也可以 hook realPin()，看它是否委托给 PinVault
+    var Z24 = Java.use('com.fatdog.reverse.Z24Core');
+    Z24.realPin.implementation = function () {
+        var p = this.realPin();
+        console.log('[Z24Core.realPin] ' + p);
+        return p;
+    };
+});
+```
+
+> **训练点**：`decode()` 是 static 方法，可以直接 `PinVault.decode()` 调用，不需要实例。这比 L15/L16 的内部类更进一步——展示了如何用 Frida 从内部类中**提取隐藏常量**。配合 L24 的"内存换票"场景，学生可以先用这个脚本拿到 pin，再决定是静态复刻还是内存替换。
 
 **答案**：加和 `50225`；flag `FLAG_18_L24{anti_hook_pin_swap}`
 

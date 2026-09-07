@@ -45,4 +45,11 @@ public class Rc4Core {
         }
         return out;
     }
+
+    /** Frida 训练点：内部类 hook——类名里有 $，Frida 用 'Rc4Core$KeyMaterial' 访问。 */
+    static class KeyMaterial {
+        static String hint() {
+            return "Hook me with: Java.use('com.fatdog.reverse.Rc4Core$KeyMaterial')";
+        }
+    }
 }

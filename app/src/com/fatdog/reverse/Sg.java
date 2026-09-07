@@ -19,7 +19,14 @@ public class Sg {
     }
 
     static String buildKey() {
-        return Kx.decodePartA() + decodePartB();
+        return KeyBuilder.build();
+    }
+
+    /** Frida 训练点：内部类 hook。真逻辑在 Sg$KeyBuilder.build()，直接 hook buildKey() 看不到拼装过程。 */
+    static class KeyBuilder {
+        static String build() {
+            return Kx.decodePartA() + decodePartB();
+        }
     }
 
     static String sign(int page, long ts) {

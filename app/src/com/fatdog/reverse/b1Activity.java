@@ -77,7 +77,7 @@ public class b1Activity extends Activity {
 
     boolean verify(String password) {
         try {
-            return SBox.decryptVault().equals(password);
+            return new SBox().decryptVault().equals(password);
         } catch (Exception e) {
             return false;
         }

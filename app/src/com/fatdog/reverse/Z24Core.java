@@ -21,13 +21,20 @@ public class Z24Core {
     static volatile int guardTicks = 0;
     static volatile boolean lastVerdict = false;
 
-    /** 真正的 pin：Frida 的换票点就在这里（替换返回值）。 */
+    /** 真正的 pin：委托给内部类 PinVault。Frida 训练点：内部类 hook（$ 语法）。 */
     public static String realPin() {
-        byte[] out = new byte[PINX.length];
-        for (int i = 0; i < PINX.length; i++) {
-            out[i] = (byte) (PINX[i] ^ 0x5A);
+        return PinVault.decode();
+    }
+
+    /** Frida 训练点：内部类 hook。真逻辑在 Z24Core$PinVault.decode()，直接 hook realPin 看不到还原过程。 */
+    static class PinVault {
+        static String decode() {
+            byte[] out = new byte[PINX.length];
+            for (int i = 0; i < PINX.length; i++) {
+                out[i] = (byte) (PINX[i] ^ 0x5A);
+            }
+            return new String(out);
         }
-        return new String(out);
     }
 
     /** pin 校验：先 tick 再比较。整个函数被 Hook 掉（原逻辑没执行）时 tick 不涨。 */

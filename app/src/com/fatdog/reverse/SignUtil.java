@@ -31,6 +31,11 @@ public class SignUtil {
         return md5Hex(account).equals(fingerprint());
     }
 
+    /** 诱饵重载：Frida 训练点——overload 选择。直接 hook checkAccount 会命中双参数版本。 */
+    static boolean checkAccount(String account, String salt) {
+        return false;
+    }
+
     static String md5Hex(String s) {
         try {
             MessageDigest md = MessageDigest.getInstance("MD5");
