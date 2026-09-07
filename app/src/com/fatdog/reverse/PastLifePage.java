@@ -150,7 +150,7 @@ final class PastLifePage {
         tipLp.topMargin = dp(ctx, 2);
         col.addView(tip, tipLp);
 
-        addRange(ctx, col, "主卷", 0xFF409EFF, "L", 1, 47);
+        addRange(ctx, col, "主卷", 0xFF409EFF, "L", 1, 48);
         addRange(ctx, col, "天地秘境", 0xFF00BFA5, "KL", 1, 30);
         addRange(ctx, col, "太玄之初", 0xFFB37FEB, "KKL", 1, 3);
 

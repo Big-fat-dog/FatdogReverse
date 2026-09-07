@@ -21,6 +21,9 @@ app = FastAPI(title="FatdogReverse Server")
 from server.routes import kl_loom
 kl_loom.register(app)
 
+from server.routes import l48
+l48.register(app)
+
 # -------- 启动 --------
 HOST = "0.0.0.0"
 PORT_HTTPS = 8443
@@ -31,7 +34,7 @@ if __name__ == "__main__":
     use_ssl = os.path.exists(ssl_cert) and os.path.exists(ssl_key)
     print(f"[server] HTTPS https://{HOST}:{PORT_HTTPS}")
     print(f"[server] SSL: {'ON' if use_ssl else 'OFF (certs not found)'}")
-    print(f"[server] Routes: POST/GET /api/kl30 (Protobuf)")
+    print(f"[server] Routes: POST/GET /api/kl30 (Protobuf), GET /api/l48 (operator+ overload)")
     if use_ssl:
         uvicorn.run(app, host=HOST, port=PORT_HTTPS, ssl_certfile=ssl_cert, ssl_keyfile=ssl_key)
     else:

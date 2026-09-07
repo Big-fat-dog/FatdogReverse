@@ -312,3 +312,44 @@ LOCAL_SRC_FILES := kkl3.cpp
 LOCAL_CPPFLAGS := -std=c++17 -fexceptions -frtti
 LOCAL_LDLIBS := -llog
 include $(BUILD_SHARED_LIBRARY)
+
+# L48
+include $(CLEAR_VARS)
+LOCAL_MODULE := native48
+LOCAL_SRC_FILES := native48.cpp
+LOCAL_CPPFLAGS := -std=c++17 -fexceptions -frtti
+LOCAL_LDLIBS := -llog
+include $(BUILD_SHARED_LIBRARY)
+
+# L49
+include $(CLEAR_VARS)
+LOCAL_MODULE := native49
+LOCAL_SRC_FILES := native49.cpp
+
+include $(BUILD_SHARED_LIBRARY)
+
+include $(CLEAR_VARS)
+LOCAL_MODULE := native50
+LOCAL_SRC_FILES := native50.cpp
+
+include $(BUILD_SHARED_LIBRARY)
+
+include $(CLEAR_VARS)
+LOCAL_MODULE := native51
+LOCAL_SRC_FILES := native51.cpp
+LOCAL_LDLIBS := -ldl
+
+include $(BUILD_SHARED_LIBRARY)
+
+include $(CLEAR_VARS)
+LOCAL_MODULE := native51h
+LOCAL_SRC_FILES := native51h.cpp
+
+include $(BUILD_SHARED_LIBRARY)
+
+include $(CLEAR_VARS)
+LOCAL_MODULE := native51b
+LOCAL_SRC_FILES := native51b.cpp
+LOCAL_CPPFLAGS := -std=c++17 -fexceptions -frtti
+LOCAL_LDLIBS := -llog
+include $(BUILD_SHARED_LIBRARY)

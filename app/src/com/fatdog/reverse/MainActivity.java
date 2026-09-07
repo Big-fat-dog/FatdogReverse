@@ -32,7 +32,7 @@ public class MainActivity extends Activity {
     private static final int ACTIVE_COLOR = 0xFFFB7299;   // bilibili 粉
     private static final int REQ_AVATAR = 1001;
 
-    private static final String[] CATS = {"静态分析", "Smali 挑战", "Frida Hook（Java 层）", "Xposed 实战", "网络对抗", "SSL 抓包", "Native 试炼", "签名校验对抗"};
+    private static final String[] CATS = {"静态分析", "Smali 挑战", "Frida Hook（Java 层）", "Xposed 实战", "网络对抗", "SSL 抓包", "Native 试炼", "签名校验对抗", "Native大陆"};
     private static final int[][] CAT_IDS = {
             {R.id.btn_vault, R.id.btn_note, R.id.btn_puzzle, R.id.btn_gate, R.id.btn_config},
             {R.id.btn_vip, R.id.btn_activate, R.id.btn_pro, R.id.btn_ad20},
@@ -42,6 +42,7 @@ public class MainActivity extends Activity {
             {R.id.btn_t21, R.id.btn_p22, R.id.btn_w23, R.id.btn_g24, R.id.btn_n25, R.id.btn_m26, R.id.btn_f27},
             {R.id.btn_l28, R.id.btn_l29, R.id.btn_l30, R.id.btn_l31, R.id.btn_l32, R.id.btn_l33, R.id.btn_l34, R.id.btn_l35, R.id.btn_l36, R.id.btn_l37},
             {R.id.btn_l43, R.id.btn_l44, R.id.btn_l45, R.id.btn_l46, R.id.btn_l47},
+            {R.id.btn_l48, R.id.btn_l49, R.id.btn_l50, R.id.btn_l51},
     };
 
     private FrameLayout host;
@@ -295,6 +296,10 @@ public class MainActivity extends Activity {
         bind(R.id.btn_l45, u45Activity.class);
         bind(R.id.btn_l46, v46Activity.class);
         bind(R.id.btn_l47, w52Activity.class);
+        bind(R.id.btn_l48, x48Activity.class);
+        bind(R.id.btn_l49, x49Activity.class);
+        bind(R.id.btn_l50, x50Activity.class);
+        bind(R.id.btn_l51, x51Activity.class);
     }
 
     private void bind(int id, final Class<?> target) {

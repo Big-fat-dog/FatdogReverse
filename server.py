@@ -22,7 +22,7 @@ from fastapi.responses import HTMLResponse, Response
 import uvicorn
 
 try:
-    from Crypto.Cipher import AES as _AES, DES as _DES, PKCS1_v1_5
+    from Crypto.Cipher import AES as _AES, DES as _DES, DES3 as _DES3, PKCS1_v1_5
     from Crypto.PublicKey import RSA as _RSA
     from Crypto.Util.Padding import pad, unpad
     HAVE_CRYPTO = True
@@ -1196,6 +1196,24 @@ def api_l47(page: int = Form(...), ts: int = Form(...), sign: str = Form(...), e
     return {"d": aes_enc(_L47_AES_KEY, body.encode()).hex()}
 
 
+# ---------------- 关卡 48（Native大陆）落日平原：operator+ 重载 ----------
+# HMAC 密钥 Fatdog_calm_2026，sign = HMAC-SHA256(key, "page=N&ts=T")
+KEY48_HMAC = b"Fatdog_calm_2026"
+PAGES48, PER_PAGE48, SEED48 = 100, 10, 20280501
+_rng48 = random.Random(SEED48)
+NUMS48 = [_rng48.randint(1, 100) for _ in range(PAGES48 * PER_PAGE48)]
+
+
+@app.get("/api/l48")
+def api_l48(page: int = Query(...), ts: int = Query(...), sign: str = Query(...)):
+    _check_page(page, PAGES48)
+    _check_ts(ts)
+    if not hmac.compare_digest(sign, hmac.new(KEY48_HMAC, f"page={page}&ts={ts}".encode(), hashlib.sha256).hexdigest()):
+        raise HTTPException(status_code=403, detail="sign invalid")
+    idx = (page - 1) * PER_PAGE48
+    return {"page": page, "nums": NUMS48[idx:idx + PER_PAGE48]}
+
+
 def _des3_ecb_encrypt_py(key24: bytes, data8: bytes) -> bytes:
     d1 = _DES.new(key24[0:8], _DES.MODE_ECB)
     d2 = _DES.new(key24[8:16], _DES.MODE_ECB)
@@ -1797,6 +1815,189 @@ def api_kkl3(page: int = Query(...), ts: int = Query(...), sign: str = Query(...
     idx = (page - 1) * PER_PAGE_KKL3
     return {"page": page, "nums": NUMS_KKL3[idx:idx + PER_PAGE_KKL3]}
 
+
+# ---------------- 关卡 49（Native大陆）迷雾森林：std::map 分发 · SM4-ECB + HMAC-SHA256 ----------
+# SM4 密钥: Fatdog_mist_2026（XOR 数组解码）
+# HMAC 密钥: Fatdog_forest_2026
+# 协议: POST /api/l49 (enc=SM4-ECB 密文, sign=HMAC-SHA256, algo=0)
+KEY49_SM4 = b"Fatdog_mist_2026"
+KEY49_HMAC = b"Fatdog_forest_2026"
+PAGES49, PER_PAGE49, SEED49 = 100, 10, 20280502
+_rng49 = random.Random(SEED49)
+NUMS49 = [_rng49.randint(1, 100) for _ in range(PAGES49 * PER_PAGE49)]
+
+
+@app.post("/api/l49")
+async def api_l49(enc: str = Form(...), sign: str = Form(...), algo: int = Form(0)):
+    """L49 迷雾森林：std::map 分发 · SM4-ECB + HMAC-SHA256
+
+    客户端 POST: enc=hex(SM4-ECB(key, "page=N&ts=T")), sign=HMAC-SHA256(hmac_key, enc), algo=0
+    服务端: 解密 enc → 校验 page/ts → 验 sign → 返回该页数字
+    """
+    if algo != 0:
+        raise HTTPException(status_code=400, detail="algo must be 0")
+    try:
+        plain = sm4_decrypt(bytes.fromhex(enc), KEY49_SM4)
+        # 去除 PKCS7 填充
+        pad_len = plain[-1]
+        if pad_len < 1 or pad_len > 16:
+            raise HTTPException(status_code=403, detail="bad padding")
+        plain = plain[:-pad_len]
+        m = re.fullmatch(r"page=(\d+)&ts=(\d+)", plain.decode("utf-8", "ignore"))
+        if not m:
+            raise HTTPException(status_code=403, detail="invalid payload format")
+        page, ts = int(m.group(1)), int(m.group(2))
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(status_code=403, detail="decrypt failed")
+    _check_page(page, PAGES49)
+    _check_ts(ts)
+    # 验证 HMAC 签名
+    expected = hmac.new(KEY49_HMAC, enc.encode(), hashlib.sha256).hexdigest()
+    if not hmac.compare_digest(sign, expected):
+        raise HTTPException(status_code=403, detail="sign mismatch")
+    idx = (page - 1) * PER_PAGE49
+    return {"page": page, "nums": NUMS49[idx:idx + PER_PAGE49]}
+
+
+# ---------------- 关卡 50（Native大陆）幽暗深渊：vtable 虚函数分发 · AES-128-ECB + SHA-256 + HMAC-SHA256 ----------
+# AES 密钥: Fatdog_abyss_2026（XOR 数组解码）
+# HMAC 密钥: Fatdog_depths_2026
+# 协议: GET /api/l50?enc=AES 密文&sign=SHA256 签名&ts=T
+KEY50_AES = b"Fatdog_abyss_2026"
+KEY50_HMAC = b"Fatdog_depths_2026"
+PAGES50, PER_PAGE50, SEED50 = 100, 10, 20290715
+_rng50 = random.Random(SEED50)
+NUMS50 = [_rng50.randint(1, 100) for _ in range(PAGES50 * PER_PAGE50)]
+
+
+@app.get("/api/l50")
+def api_l50(enc: str = Query(...), sign: str = Query(...), ts: int = Query(...)):
+    """L50 幽暗深渊：vtable 虚函数分发 · AES-128-ECB + SHA-256 + HMAC-SHA256
+
+    客户端: enc=hex(AES-ECB(aes_key, "page=N&ts=T")), sign=SHA-256(enc), ts=T
+    服务端: 解密 enc → 校验 page/ts → 验 sign → 返回该页数字
+    """
+    _check_ts(ts)
+    try:
+        plain = aes_dec(KEY50_AES, bytes.fromhex(enc))
+        m = re.fullmatch(r"page=(\d+)&ts=(\d+)", plain.decode("utf-8", "ignore"))
+        if not m:
+            raise HTTPException(status_code=403, detail="invalid payload format")
+        page = int(m.group(1))
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(status_code=403, detail="decrypt failed")
+    _check_page(page, PAGES50)
+    # 验证 SHA-256 签名
+    expected = hashlib.sha256(enc.encode()).hexdigest()
+    if not hmac.compare_digest(sign, expected):
+        raise HTTPException(status_code=403, detail="sign mismatch")
+    idx = (page - 1) * PER_PAGE50
+    return {"page": page, "nums": NUMS50[idx:idx + PER_PAGE50]}
+
+
+# ---------------- SM3 哈希（纯 Python，L51 专用） ----------------
+_SM3_T = [0x79cc4519 if i < 16 else 0x7a879d8a for i in range(64)]
+
+def _sm3_rotl32(x, n):
+    return ((x << n) | (x >> (32 - n))) & 0xFFFFFFFF
+
+def _sm3_ff(x, y, z, j):
+    return (x ^ y ^ z) if j < 16 else ((x & y) | (x & z) | (y & z))
+
+def _sm3_gg(x, y, z, j):
+    return (x ^ y ^ z) if j < 16 else ((x & y) | (~x & z) & 0xFFFFFFFF)
+
+def _sm3_p0(x):
+    return x ^ _sm3_rotl32(x, 9) ^ _sm3_rotl32(x, 17)
+
+def _sm3_p1(x):
+    return x ^ _sm3_rotl32(x, 15) ^ _sm3_rotl32(x, 23)
+
+def _sm3_cf(V, B):
+    W = [0]*68
+    for i in range(16):
+        W[i] = int.from_bytes(B[i*4:(i+1)*4], 'big')
+    for i in range(16, 68):
+        W[i] = (_sm3_p1(W[i-16] ^ W[i-9] ^ _sm3_rotl32(W[i-3], 15))
+                ^ _sm3_rotl32(W[i-13], 7) ^ W[i-6]) & 0xFFFFFFFF
+    W1 = [0]*64
+    for i in range(64):
+        W1[i] = (W[i] ^ W[i+4]) & 0xFFFFFFFF
+    A, B_, C, D, E, F, G, H = V
+    for j in range(64):
+        SS1 = _sm3_rotl32((_sm3_rotl32(A, 12) + E + _sm3_rotl32(_SM3_T[j], j % 32)) & 0xFFFFFFFF, 7)
+        SS2 = SS1 ^ _sm3_rotl32(A, 12)
+        TT1 = (_sm3_ff(A, B_, C, j) + D + SS2 + W1[j]) & 0xFFFFFFFF
+        TT2 = (_sm3_gg(E, F, G, j) + H + SS1 + W[j]) & 0xFFFFFFFF
+        D = C
+        C = _sm3_rotl32(B_, 9)
+        B_ = A
+        A = TT1
+        H = G
+        G = _sm3_rotl32(F, 19)
+        F = E
+        E = _sm3_p0(TT2)
+    return [(a ^ b) & 0xFFFFFFFF for a, b in zip(V, [A, B_, C, D, E, F, G, H])]
+
+def sm3_hash(msg: bytes) -> bytes:
+    msg_len = len(msg)
+    msg = msg + b'\x80'
+    msg += b'\x00' * ((55 - msg_len) % 64)
+    msg += msg_len.to_bytes(8, 'big')
+    # SM3 IV（标准值，L51 服务端用标准 IV）
+    V = [0x7380166f, 0x4914b2b9, 0x172442d7, 0xda8a0600,
+         0xa96f30bc, 0x163138aa, 0xe38dee4d, 0xb0fb0e4e]
+    for i in range(0, len(msg), 64):
+        V = _sm3_cf(V, msg[i:i+64])
+    return b''.join(v.to_bytes(4, 'big') for v in V)
+
+
+# ---------------- 关卡 51（雷霆山巅）：3DES-EDE-ECB + SM3 + HMAC-SHA256 ----------
+# 3DES 密钥: Fatdog_thunder_2026（XOR ^0x4B）
+# SM3 盐: Fatdog_peak_salt!（XOR ^0x2D）
+# HMAC 密钥: Fatdog_hmac51_key!（XOR ^0x63）
+# 协议: GET /api/l51?enc=3DES 密文&sig=SM3 摘要&ts=T
+KEY51_3DES = b"Fatdog_thunder_2026"
+KEY51_SM3_SALT = b"Fatdog_peak_salt!"
+KEY51_HMAC = b"Fatdog_hmac51_key!"
+PAGES51, PER_PAGE51, SEED51 = 100, 10, 20291008
+_rng51 = random.Random(SEED51)
+NUMS51 = [_rng51.randint(1, 100) for _ in range(PAGES51 * PER_PAGE51)]
+
+
+@app.get("/api/l51")
+def api_l51(enc: str = Query(...), sig: str = Query(...), ts: int = Query(...)):
+    """L51 雷霆山巅：3DES-EDE-ECB + SM3 + HMAC-SHA256
+
+    客户端: enc=hex(3DES-ECB(key, "page=N&ts=T")), sig=SM3(salt + enc), ts=T
+    服务端: 解密 enc → 校验 page/ts → 验 sig → 返回该页数字
+    """
+    _check_ts(ts)
+    try:
+        key24 = KEY51_3DES[:24]
+        cipher = _DES3.new(key24, _DES3.MODE_ECB)
+        plain = unpad(cipher.decrypt(bytes.fromhex(enc)), 8)
+        m = re.fullmatch(r"page=(\d+)&ts=(\d+)", plain.decode("utf-8", "ignore"))
+        if not m:
+            raise HTTPException(status_code=403, detail="invalid payload format")
+        page = int(m.group(1))
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(status_code=403, detail="decrypt failed")
+    _check_page(page, PAGES51)
+    # 验证 SM3 签名: sig = SM3(salt + enc)
+    expected_sig = sm3_hash(KEY51_SM3_SALT + enc.encode()).hex()
+    if not hmac.compare_digest(sig, expected_sig):
+        raise HTTPException(status_code=403, detail="sig mismatch")
+    idx = (page - 1) * PER_PAGE51
+    return {"page": page, "nums": NUMS51[idx:idx + PER_PAGE51]}
+
+
 if __name__ == "__main__":
     cert_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "certs")
     print(f"FatdogReverse 服务端（FastAPI）：http://{HOST}:{PORT_HTTP}（15-20） https://{HOST}:{PORT_HTTPS}（21-27）")
@@ -1807,7 +2008,8 @@ if __name__ == "__main__":
           f"L28={sum(NUMS28)} L29={sum(NUMS29)} L30={sum(NUMS30)} L31={sum(NUMS31)} L32={sum(NUMS32)} L33={sum(NUMS33)} L34={sum(NUMS34)} L35={sum(NUMS35)} L36={sum(NUMS36)} L37={sum(NUMS37)} "
           f"KL6={sum(NUMS_KL6)} KL7={sum(NUMS_KL7)} KL8={sum(NUMS_KL8)} KL9={sum(NUMS_KL9)} KL10={sum(NUMS_KL10)} "
           f"KKL2={sum(NUMS_KKL2)} KKL3={sum(NUMS_KKL3)} "
-          f"L43={sum(NUMS43)} L44={sum(NUMS44)} L45={sum(NUMS45)} L46={sum(NUMS46)} L47={sum(NUMS47)}")
+          f"L43={sum(NUMS43)} L44={sum(NUMS44)} L45={sum(NUMS45)} L46={sum(NUMS46)} L47={sum(NUMS47)} "
+          f"L48={sum(NUMS48)} L49={sum(NUMS49)} L50={sum(NUMS50)} L51={sum(NUMS51)}")
     http_cfg = uvicorn.Config(app, host=HOST, port=PORT_HTTP, log_level="info")
     threading.Thread(target=uvicorn.Server(http_cfg).run, daemon=True).start()
     https_cfg = uvicorn.Config(app, host=HOST, port=PORT_HTTPS,

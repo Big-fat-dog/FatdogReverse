@@ -1507,6 +1507,38 @@ Java.perform(function () {
 
 **答案**：加和 `52674`；flag `FLAG_18_L25{native_jni_verify}`
 
+**进阶 Frida 训练——`CpuContext` 寄存器读写**：
+
+本关的 `Interceptor.attach` 解法里，`onLeave` 用 `env.getStringUtfChars(retval)` 读返回值。另一种更底层的方式是直接读 ARM64 寄存器 `x0`——native 函数的返回值就在 x0 里：
+
+```javascript
+// hook_l25_ctx.js — CpuContext 寄存器训练
+Java.perform(function () {
+    var addr = Module.findExportByName('libnative.so', 'Java_com_fatdog_reverse_Nx_nativeSign');
+    Interceptor.attach(addr, {
+        onEnter: function (args) {
+            // args 是 JNI 指针数组：JNIEnv*, jobject, jint page, jlong ts
+            console.log('[nativeSign] page=' + args[2].toInt32() + ' ts=' + args[3].toString(10));
+        },
+        onLeave: function (retval) {
+            // 方式 A：通过 JNI env 读（现有写法）
+            var env = Java.vm.getEnv();
+            var viaEnv = env.getStringUtfChars(retval, ptr(0)).readCString();
+
+            // 方式 B：直接读 x0 寄存器（CpuContext）
+            // ARM64 调用约定：x0 存放返回值（指针类型）
+            var viaX0 = context.x0.readUtf8String();
+
+            console.log('[retval] env=' + viaEnv);
+            console.log('[x0]    x0=' + viaX0);
+            // 两者应该一致：都是 nativeSign 返回的 jstring 指针
+        }
+    });
+});
+```
+
+> **训练点**：`context` 对象暴露了 CPU 寄存器（ARM64: x0-x30, sp, pc; ARM: r0-r12, sp, lr, pc）。`onEnter` 时可读参数寄存器，`onLeave` 时可读/改返回值寄存器。`retval.replace()` 本质就是改 x0。比 `env.getStringUtfChars` 更底层，适用于 JNI env 不可用或需要读中间状态的场景。
+
 ---
 
 
@@ -1876,6 +1908,45 @@ print("总和:", total)                    # 51127
 
 **坑位提醒**：`Xk.FAKE_KEY = Fatdog_mute` 正是槽 3 的假钥匙——Java 层搜到的"密钥"十有八九是它。
 
+**进阶 Frida 训练——`NativePointer` 类型化读取（UTF-16LE 藏钥）**：
+
+本关的密钥以 UTF-16LE 码元数组藏在 `.rodata` 里，`strings` 默认看不到。Frida 可以直接从内存中读取这些字节，无需 IDA：
+
+```javascript
+// hook_l30_read.js — NativePointer 类型化读取训练
+Java.perform(function () {
+    var mod = Process.findModuleByName('libmica.so');
+
+    // UTF-16LE 码元数组在 .rodata 中的布局（IDA 里看到的偏移）
+    // 每个字符占 2 字节（小端），例如 'F'=0x0046 存为 46 00
+    // 这里用 Memory.scanSync 搜索已知的 UTF-16 特征
+
+    // 方法 A：直接按偏移读（需要 IDA 先查偏移）
+    // var keyAddr = mod.base.add(0x1234);  // 偏移需从 IDA 获取
+    // var bytes = keyAddr.readByteArray(28);  // 14 字符 × 2 字节
+    // console.log('[raw bytes]', hexdump(bytes));
+
+    // 方法 B：搜索内存中的 UTF-16 模式（无需知道偏移）
+    // "Fatdog_gloomy" 的 UTF-16LE 字节：46 00 61 00 74 00 64 00 ...
+    var pattern = '46 00 61 00 74 00 64 00 6f 00 67 00 5f 00';  // "Fatdog_" UTF-16LE
+    var ranges = mod.enumerateRanges('r--');
+    for (var i = 0; i < ranges.length; i++) {
+        var hits = Memory.scanSync(ranges[i].base, ranges[i].size, pattern);
+        for (var j = 0; j < hits.length; j++) {
+            // 从匹配位置读 28 字节（14 字符 × 2），解码 UTF-16LE
+            var raw = hits[j].address.readByteArray(28);
+            var arr = new Uint8Array(raw);
+            var s = '';
+            for (var k = 0; k < arr.length; k += 2) {
+                s += String.fromCharCode(arr[k] | (arr[k+1] << 8));
+            }
+            console.log('[UTF-16LE key] ' + s);  // Fatdog_gloomy
+        }
+    }
+});
+```
+
+> **训练点**：`readByteArray(n)` 从 NativePointer 读 n 字节返回 ArrayBuffer；`Memory.scanSync` 在内存区域中搜索字节模式。UTF-16LE 编码的字符串在内存中每字符占 2 字节（小端序），`strings` 默认按 ASCII 扫描会漏掉。这个技巧适用于所有"UTF-16 藏钥"的关卡（L30、L32、L34、L35 等）。
 
 ---
 
@@ -1970,6 +2041,38 @@ print("总和:", total)                    # 51745
 
 **坑位提醒**：`Dn.FAKE_KEY = Fatdog_tense` 是诱饵；别看到"环境异常"就去 hook isPoisoned——那只是关掉弹窗，签名照样是错的，服务器依然 403。
 
+**进阶 Frida 训练——`Interceptor.replace` 完整替换 vs `Interceptor.attach`**：
+
+本关的路线 B 提到了 `Interceptor.replace`，但没有展开。与 `Interceptor.attach`（保留原函数、前后插入逻辑）不同，`Interceptor.replace` 是**整体替换**——原函数完全不执行：
+
+```javascript
+// hook_l32_replace.js — Interceptor.replace 训练
+Java.perform(function () {
+    var mod = Process.findModuleByName('libraven.so');
+
+    // 假设 IDA 里找到 k32_scan_once 的偏移（引用了 "/proc/self/maps" 的函数）
+    // 用 Interceptor.attach 先确认偏移正确：
+    // Interceptor.attach(mod.base.add(0x1234), {
+    //     onEnter: function (a) { console.log('[scan_once] called'); }
+    // });
+
+    // 确认后，用 Interceptor.replace 整体替换为空函数：
+    var scanAddr = mod.base.add(0x1234);  // k32_scan_once 偏移
+    Interceptor.replace(scanAddr, new NativeCallback(function () {
+        // 空函数：哨兵扫描什么都不做
+        // 注意：返回类型要和原函数匹配（这里假设返回 void）
+        console.log('[scan_once] replaced → no-op');
+    }, 'void', []));
+
+    // 对比：Interceptor.attach 只是"挂钩"，原函数仍然执行
+    // Interceptor.replace 是"换体"，原函数完全不跑
+    // 场景选择：
+    //   attach = 观察/修改参数或返回值，保留原逻辑
+    //   replace = 原逻辑本身就是威胁，需要完全消除
+});
+```
+
+> **训练点**：`Interceptor.replace(addr, new NativeCallback(fn, returnType, argTypes))` 用一个 NativeCallback 完全替代原函数。原函数的指令不会被执行（但仍在内存中）。选择依据：`attach` 适合"观察+微调"，`replace` 适合"消除威胁"。注意返回类型和参数类型必须与原函数匹配，否则会 crash。
 
 ---
 
@@ -2032,6 +2135,42 @@ print("总和:", total)                    # 49502
 
 **坑位提醒**：`Hk.FAKE_KEY = Fatdog_vain` 是诱饵；解法①记得用 spawn 模式（attach 半路上车时基线早已建好，来不及了）。
 
+**进阶 Frida 训练——`Memory.patchCode` 指令级热补丁**：
+
+本关的解法②提到"偏移 hook 校验器 k33_check"，但没有展开具体的 patch 写法。`Memory.patchCode` 可以直接修改 SO 的机器指令，比 `Interceptor.replace` 更精细：
+
+```javascript
+// hook_l33_patch.js — Memory.patchCode 训练
+Java.perform(function () {
+    var mod = Process.findModuleByName('libsable.so');
+
+    // 假设 IDA 里找到 k33_check 函数（CRC 校验器）的偏移
+    // 函数原型：int k33_check(void) → 返回 1 通过，0 失败
+    // 目标：把函数体替换为 "mov w0, #1; ret"（ARM64 恒返回 1）
+
+    var checkAddr = mod.base.add(0x5678);  // k33_check 偏移
+
+    // ARM64 指令编码：
+    // mov w0, #1  → 0x52800020
+    // ret         → 0xD65F03C0
+    Memory.patchCode(checkAddr, 8, function (code) {
+        var writer = new Arm64Writer(code, { pc: checkAddr });
+        writer.putInstruction('mov w0, #1');
+        writer.putInstruction('ret');
+        writer.flush();
+    });
+
+    console.log('[k33_check] patched → always return 1');
+
+    // 对比三种替换方式：
+    // 1. Interceptor.attach   → 挂钩，原函数仍执行（会被 CRC 抓到）
+    // 2. Interceptor.replace  → 整体替换，但原指令仍在（CRC 可能仍能扫到）
+    // 3. Memory.patchCode     → 直接改指令字节，CRC 重算时看到的是新指令
+    // 本关因为 CRC 校验整个 .text 段，patchCode 改完后 CRC 基线就匹配了
+});
+```
+
+> **训练点**：`Memory.patchCode(addr, size, callback)` 在 callback 里直接写入新指令。ARM64 用 `Arm64Writer`，ARM 用 `ArmWriter`。与 `Interceptor.replace` 的区别：replace 是 Frida 框架接管调用（原指令仍在但不执行），patchCode 是直接改掉指令字节（CPU 执行的就是新指令）。本关的 CRC 校验会重算整个 .text 段，所以必须用 patchCode 才能让 CRC 匹配。
 
 ---
 
@@ -2108,6 +2247,52 @@ print("总和:", total)                    # 49932
 
 **坑位提醒**：`Ak.FAKE_KEY = Fatdog_sore` 是一字之差陷阱；两个同名/近名导出函数全是废值；别只 hook isPoisoned 关弹窗——投毒不改回来，签名照样全错。
 
+**进阶 Frida 训练——`Thread.backtrace` 调用栈回溯**：
+
+本关是综合卷，调用链最长（`dlopen → JNI_OnLoad → RegisterNatives → k34_pack`）。用 `Thread.backtrace` 可以在任意 hook 点打印完整调用栈，理解代码执行路径：
+
+```javascript
+// hook_l34_backtrace.js — Thread.backtrace 训练
+Java.perform(function () {
+    // 先 hook dlopen 看 SO 加载时机
+    ['android_dlopen_ext', 'dlopen'].forEach(function (fn) {
+        var p = Module.findExportByName(null, fn);
+        if (!p) return;
+        Interceptor.attach(p, {
+            onEnter: function (a) {
+                this.name = a[0].readCString();
+            },
+            onLeave: function () {
+                if (this.name && this.name.indexOf('libtalon.so') >= 0) {
+                    // 在 SO 加载时打印调用栈，看谁触发的
+                    console.log('[dlopen] ' + this.name);
+                    console.log(Thread.backtrace(this.context, Backtracer.ACCURATE)
+                        .map(DebugSymbol.fromAddress).join('\n  '));
+                }
+            }
+        });
+    });
+
+    // hook JNI_OnLoad，打印从 dlopen 到 JNI_OnLoad 的栈
+    function hookOnLoad() {
+        var addr = Module.findExportByName('libtalon.so', 'JNI_OnLoad');
+        if (!addr) return;
+        Interceptor.attach(addr, {
+            onEnter: function (args) {
+                console.log('[JNI_OnLoad] called');
+                console.log('  backtrace:');
+                console.log('  ' + Thread.backtrace(this.context, Backtracer.ACCURATE)
+                    .map(DebugSymbol.fromAddress).join('\n  '));
+            }
+        });
+    }
+
+    // 延迟 hook（SO 可能还没加载）
+    setTimeout(hookOnLoad, 1000);
+});
+```
+
+> **训练点**：`Thread.backtrace(context, backtracer)` 返回地址数组，`DebugSymbol.fromAddress(addr)` 把地址转成 `模块名!函数名+偏移` 的可读形式。`Backtracer.ACCURATE` 用帧指针回溯（准确但需要帧指针），`Backtracer.FUZZY` 用扫描回溯（兼容但可能不准）。综合关卡的调用链长，用 backtrace 可以看清 `dlopen → JNI_OnLoad → RegisterNatives → 业务函数` 的完整路径。
 
 ---
 
@@ -2641,6 +2826,204 @@ print(total)   # 52437
 - SEED52=20280426（用于服务端种子验证）
 
 答案：加和 `52437`；flag `FLAG_18_L47{guard_matrix_crc_aes}`
+
+
+---
+
+## Native大陆（L48-L53）
+
+
+### 关卡 48：落日平原（手写 TEA · std::map 分发 · JNI 回调 Java 取时间戳）
+
+**考点**：Native大陆首关——全程在 C++ native 层完成加密+签名，JNI 只负责传入 page 和时间戳。手写 TEA（Tiny Encryption Algorithm）对 payload 加密，HMAC-SHA256 签名，POST 协议传输。
+
+```text
+协议：POST /api/l48
+  表单字段：enc, sign, algo=0
+  enc  = hex(TEA-ECB(tea_key, "page=N&ts=T"))
+  sign = HMAC-SHA256(hmac_key, enc)
+  algo = 0
+
+密钥（XOR 数组解码）：
+  tea_key  = Fatdog_sunset_2026（XOR ^0x29）
+  hmac_key = Fatdog_plains_2026（XOR ^0x41）
+```
+
+**静态路线（Python 全复刻，先 python server.py）**
+
+```python
+import hashlib, hmac, time, requests, struct
+
+TEA_KEY = b"Fatdog_sunset_2026"
+HMAC_KEY = b"Fatdog_plains_2026"
+
+def tea_encrypt(key, v0, v1):
+    mask = 0xFFFFFFFF
+    k = struct.unpack('<4I', key.ljust(16, b'\0'))
+    delta = 0x9E3779B9
+    s = 0
+    for _ in range(32):
+        s = (s + delta) & mask
+        v0 = (v0 + (((v1 << 4) + k[0]) ^ (v1 + s) ^ ((v1 >> 5) + k[1]))) & mask
+        v1 = (v1 + (((v0 << 4) + k[2]) ^ (v0 + s) ^ ((v0 >> 5) + k[3]))) & mask
+    return v0, v1
+
+def pkcs7_pad(data):
+    pad_len = 16 - (len(data) % 16)
+    return data + bytes([pad_len] * pad_len)
+
+total = 0
+for page in range(1, 101):
+    ts = int(time.time())
+    payload = f"page={page}&ts={ts}".encode()
+    padded = pkcs7_pad(payload)
+    # TEA-ECB: 加密每 8 字节块
+    enc_bytes = b''
+    for i in range(0, len(padded), 8):
+        v0, v1 = struct.unpack('<2Q', padded[i:i+8])
+        v0, v1 = tea_encrypt(TEA_KEY, v0, v1)
+        enc_bytes += struct.pack('<2Q', v0, v1)
+    enc = enc_bytes.hex()
+    sign = hmac.new(HMAC_KEY, enc.encode(), hashlib.sha256).hexdigest()
+    r = requests.post("https://127.0.0.1:8443/api/l48",
+                      data={"enc": enc, "sign": sign, "algo": 0},
+                      verify="certs/ca.crt", timeout=5).json()
+    assert len(r["nums"]) == 10, r
+    total += sum(r["nums"])
+print(total)
+```
+
+**动态路线**：IDA 定位 `nativeEnc` → 追踪 TEA 密钥调度（delta 异或展开 32 轮）→ 还原 XOR 数组 → 静态复刻。本关无反调试、无记账守卫，纯算法识别。
+
+**坑位提醒**：TEA 的 delta `0x9E3779B9` 是黄金比例常量，IDA 里搜这个魔数可以直接定位加密函数。别和 XTEA（delta `0x61C88647`）搞混。
+
+答案：加和 `51680`；flag `FLAG_18_L48{sunset_plains}`
+
+
+### 关卡 49：迷雾森林（std::map 分发 · SM4-ECB + HMAC-SHA256 · RAII）
+
+**考点**：L48 的升级版——用 std::map 做算法分发（CryptoBox 类），RAII 管理内存（ManagedBuffer），密钥通过 C++ 静态对象延迟初始化。加密换成国密 SM4-ECB，签名仍是 HMAC-SHA256，协议改为 POST。
+
+```text
+协议：POST /api/l49
+  表单字段：enc, sign, algo=0
+  enc  = hex(SM4-ECB(sm4_key, "page=N&ts=T"))
+  sign = HMAC-SHA256(hmac_key, enc)
+  algo = 0
+
+密钥（XOR 数组解码，分散在 KeyProvider 类中）：
+  sm4_key  = Fatdog_mist_2026（XOR ^0x3C）
+  hmac_key = Fatdog_forest_2026（XOR ^0x5A）
+```
+
+**静态路线（Python 全复刻，先 python server.py）**
+
+```python
+import hashlib, hmac, time, requests
+
+SM4_KEY  = b"Fatdog_mist_2026"
+HMAC_KEY = b"Fatdog_forest_2026"
+
+# 需要 pycryptodome 的 SM4 或自己实现 SM4-ECB
+from Crypto.Cipher import SM4
+
+def sm4_ecb_encrypt(key, data):
+    cipher = SM4.new(key, SM4.MODE_ECB)
+    pad_len = 16 - (len(data) % 16)
+    padded = data + bytes([pad_len] * pad_len)
+    return cipher.encrypt(padded)
+
+total = 0
+for page in range(1, 101):
+    ts = int(time.time())
+    payload = f"page={page}&ts={ts}".encode()
+    enc = sm4_ecb_encrypt(SM4_KEY, payload).hex()
+    sign = hmac.new(HMAC_KEY, enc.encode(), hashlib.sha256).hexdigest()
+    r = requests.post("https://127.0.0.1:8443/api/l49",
+                      data={"enc": enc, "sign": sign, "algo": 0},
+                      verify="certs/ca.crt", timeout=5).json()
+    assert len(r["nums"]) == 10, r
+    total += sum(r["nums"])
+print(total)
+```
+
+**动态路线**：
+1. IDA 定位 `CryptoBox::process` → 理解 `std::map<int, function>` 分发逻辑
+2. Frida hook `nativeEnc`/`nativeSign` 观察返回值
+3. `Memory.scanSync` 搜索 std::map 内部红黑树节点（SGI STL 红黑树头节点特征：`__rb_tree_node_base` 布局）
+4. 静态复刻：还原 SM4 密钥 + HMAC 密钥
+
+**坑位提醒**：
+- 标记 `Fatdog_mist`（真）与 `Fatdog_misty`（诱饵 UTF-16）只差一个 `y`——strings 默认搜不到 UTF-16，用 `strings -el` 可破
+- SM4 的 S 盒开头 `d6 90 7c b3` 是国密特征，IDA 里搜这 4 个字节直接定位
+- RAII 的 `ManagedBuffer` 析构函数里清零内存——动态分析时及时 dump
+
+答案：加和 `50621`；flag `FLAG_18_L49{misty_forest}`
+
+
+### 关卡 50：幽暗深渊（vtable 虚函数表分发 · AES-128-ECB + SHA-256 + 海量业务代码）
+
+**考点**：vtable 虚函数表分发——真正调用的只有 `AesEngine::encrypt` 和 `Sha256Signer::sign`，但 SO 里有 20+ 个业务类（UserSessionManager、OrderService、PaymentProcessor 等 ~750 行干扰代码），需要从 vtable 指针中识别真正被调用的虚函数。
+
+```text
+协议：GET /api/l50?enc=...&sign=...&ts=...
+  enc  = hex(AES-128-ECB(aes_key, "page=N&ts=T"))
+  sign = SHA-256(enc)          ← 注意：不是 HMAC，是裸 SHA-256
+  ts   = Unix 时间戳
+
+密钥（XOR 数组解码，分散在 KeyProvider 类中）：
+  aes_key  = Fatdog_abyss_2026（XOR ^0x2A）
+  hmac_key = Fatdog_depths_2026（XOR ^0x3D）← 用于服务端签名验证
+```
+
+**静态路线（Python 全复刻，先 python server.py）**
+
+```python
+import hashlib, time, requests
+from Crypto.Cipher import AES
+from Crypto.Util.Padding import pad
+
+AES_KEY = b"Fatdog_abyss_2026"
+
+total = 0
+for page in range(1, 101):
+    ts = int(time.time())
+    payload = f"page={page}&ts={ts}".encode()
+    enc = AES.new(AES_KEY, AES.MODE_ECB).encrypt(pad(payload, 16)).hex()
+    sign = hashlib.sha256(enc.encode()).hexdigest()   # 裸 SHA-256，不是 HMAC
+    r = requests.get("https://127.0.0.1:8443/api/l50",
+                     params={"enc": enc, "sign": sign, "ts": ts},
+                     verify="certs/ca.crt", timeout=5).json()
+    assert len(r["nums"]) == 10, r
+    total += sum(r["nums"])
+print(total)
+```
+
+**动态路线（Frida vtable 枚举）**：
+
+```javascript
+// 枚举 vtable：读取对象头部指针 → 按 sizeof(void*) 步进列出所有虚函数地址
+var aesEnginePtr = ptr("0x..."); // 从构造函数或 new 行为定位
+var vtablePtr = aesEnginePtr.readPointer();
+console.log("vtable @", vtablePtr);
+for (var i = 0; i < 10; i++) {
+    var fn = vtablePtr.add(i * Process.pointerSize).readPointer();
+    console.log("  vtable[" + i + "] =", fn);
+}
+// 只 hook vtable[0]（encrypt），忽略其他业务类
+Interceptor.attach(fn, {
+    onEnter: function(args) { this.data = args[1]; },
+    onLeave: function(retval) { console.log("enc =", this.data.readUtf8String()); }
+});
+```
+
+**坑位提醒**：
+- 签名是裸 `SHA-256(enc)`，不是 HMAC——这和 L48/L49 不同，别套 HMAC 公式
+- 20+ 业务类的虚函数占满 vtable 前面位置，真正的 `encrypt` 可能在 vtable 偏移靠后的位置
+- `Fatdog_pearl`（真标记）和 `Fatdog_red`（诱饵 UTF-16）用 `strings -el` 对比
+- vtable 指针是内存地址，每次运行都变——Frida hook 不能硬编码偏移
+
+答案：加和 `49873`；flag `FLAG_18_L50{abyssal_depths}`
 
 
 ## 天地秘境 · 昆仑山（KL1-5）

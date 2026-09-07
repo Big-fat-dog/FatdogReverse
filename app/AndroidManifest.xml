@@ -133,6 +133,14 @@
         <activity android:name=".tideActivity" android:exported="false" />
         <activity android:name=".loomActivity" android:exported="false" />
 
+        <!-- Native大陆 L48：落日平原（operator+ 重载） -->
+        <activity android:name=".x48Activity" android:exported="false" />
+
+        <!-- Native大陆 L49：迷雾森林（std::map 分发 · RAII） -->
+        <activity android:name=".x49Activity" android:exported="false" />
+        <activity android:name=".x50Activity" android:exported="false" />
+        <activity android:name=".x51Activity" android:exported="false" />
+
         <!-- 天地秘境小说阅读器 -->
         <activity android:name=".DivineStoryActivity" android:exported="false" />
 
