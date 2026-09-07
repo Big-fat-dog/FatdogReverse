@@ -2127,6 +2127,195 @@ def api_l52(page: int = Query(...), ts: int = Query(...),
     return {"page": page, "nums": NUMS52[idx:idx + PER_PAGE52]}
 
 
+# ---------------- L53 焚天火域：魔改 AES + Feistel + HMAC-SHA256 + RC4 ----------------
+KEY53_AES = b"Fatdog_aes_key_"   # 16 bytes
+KEY53_HMAC = b"Fatdog_hmac_k53"  # 实际 15 bytes → pad to 16
+KEY53_RC4 = b"Fatdog_rc4_k53"    # 实际 14 bytes → pad to 16
+PAGES53, PER_PAGE53, SEED53 = 100, 10, 20291201
+
+_rng53 = random.Random(SEED53)
+NUMS53 = [_rng53.randint(1, 100) for _ in range(PAGES53 * PER_PAGE53)]
+
+# 魔改 AES S 盒（4 处替换，与 native53c.cpp 一致）
+AES_SBOX_53 = [
+    0x63,0x7C,0x77,0x7B,0xF2,0x6B,0x6F,0xC5,0x30,0x01,0x67,0x2B,0xFE,0xD7,0xAB,0x76,
+    0xCA,0x82,0xC9,0x7D,0xFA,0x59,0x47,0xF0,0xAD,0xD4,0xA2,0xAF,0x9C,0xA4,0x72,0xC0,
+    0xB7,0xFD,0x93,0x26,0x36,0x3F,0xF7,0xCC,0x34,0xA5,0xE5,0xF1,0x71,0xD8,0x31,0x15,
+    0x04,0xC7,0x23,0xC3,0x18,0x96,0x05,0x9A,0x07,0x12,0x80,0xE2,0xEB,0x27,0xB2,0x75,
+    0x09,0x83,0x2C,0x1A,0x1B,0x6E,0x5A,0xA0,0x52,0x3B,0xD6,0xB3,0x29,0xE3,0x2F,0x84,
+    0x53,0xD1,0x00,0xED,0x20,0xFC,0xB1,0x5B,0x6A,0xCB,0xBE,0x39,0x4A,0x4C,0x58,0xCF,
+    0xD0,0xEF,0xAA,0xFB,0x43,0x4D,0x33,0x85,0x45,0xF9,0x02,0x7F,0x50,0x3C,0x9F,0xA8,
+    0x51,0xA3,0x40,0x8F,0x92,0x9D,0x38,0xF5,0xBC,0xB6,0xDA,0x21,0x10,0xFF,0xF3,0xD2,
+    0xCD,0x0C,0x13,0xEC,0x5F,0x97,0x44,0x17,0xC4,0xA7,0x7E,0x3D,0x64,0x5D,0x19,0x73,
+    0x60,0x81,0x4F,0xDC,0x22,0x2A,0x90,0x88,0x46,0xEE,0xB8,0x14,0xDE,0x5E,0x0B,0xDB,
+    0xE0,0x32,0x3A,0x0A,0x49,0x06,0x24,0x5C,0xC2,0xD3,0xAC,0x62,0x91,0x95,0xE4,0x79,
+    0xE7,0xC8,0x37,0x6D,0x8D,0xD5,0x4E,0xA9,0x6C,0x56,0xF4,0xEA,0x65,0x7A,0xAE,0x08,
+    0xBA,0x78,0x25,0x2E,0x1C,0xA6,0xB4,0xC6,0xE8,0xDD,0x74,0x1F,0x4B,0xBD,0x8B,0x8A,
+    0x70,0x3E,0xB5,0x66,0x48,0x03,0xF6,0x0E,0x61,0x35,0x57,0xB9,0x86,0xC1,0x1D,0x9E,
+    0xE1,0xF8,0x98,0x11,0x69,0xD9,0x8E,0x94,0x9B,0x1E,0x87,0xE9,0xCE,0x55,0x28,0xDF,
+    0x8C,0xA1,0x89,0x0D,0xBF,0xE6,0x42,0x68,0x41,0x99,0x2D,0x0F,0xB0,0x54,0xBB,0x16,
+]
+# 4 处替换
+_S53 = list(AES_SBOX_53)
+_S53[0x63] = 0x3A; _S53[0x7C] = 0x7F; _S53[0x77] = 0xB2; _S53[0x7B] = 0xE8
+
+
+def _s53(v):
+    return _S53[v & 0xFF]
+
+
+FK_XOR_53 = [0x5254465F, 0x4C33335F, 0x46495245, 0x5F4D4B35]
+
+RCON_53 = [0x00000000, 0x01000000, 0x02000000, 0x04000000, 0x08000000,
+            0x10000000, 0x20000000, 0x40000000, 0x80000000, 0x1B000000,
+            0x36000000, 0x6C000000, 0xD8000000, 0xAB000000, 0x4D000000,
+            0x9A000000, 0x2F000000, 0x5E000000, 0xBC000000, 0x63000000,
+            0xC6000000, 0x97000000, 0x35000000, 0x6A000000, 0xD4000000,
+            0xAB000000, 0x4D000000, 0x9A000000, 0x2F000000, 0x5E000000,
+            0xBC000000, 0x63000000, 0xC6000000, 0x97000000, 0x35000000,
+            0x6A000000, 0xD4000000, 0xAB000000, 0x4D000000, 0x9A000000,
+            0x2F000000, 0x5E000000, 0xBC000000, 0x63000000, 0xC6000000,
+            0x97000000, 0x35000000, 0x6A000000]
+
+
+def _rot_word53(w):
+    return ((w << 8) | (w >> 24)) & 0xFFFFFFFF
+
+
+def _sub_word53(w):
+    return ((_s53((w >> 24) & 0xFF) << 24) | (_s53((w >> 16) & 0xFF) << 16) |
+            (_s53((w >> 8) & 0xFF) << 8) | _s53(w & 0xFF))
+
+
+def _key_expand53(master):
+    """3 变体密钥扩展"""
+    w = []
+    for i in range(4):
+        w.append((master[i*4] << 24) | (master[i*4+1] << 16) | (master[i*4+2] << 8) | master[i*4+3])
+    for i in range(4, 48):
+        tmp = w[i-1]
+        if i % 4 == 0:
+            variant = (i // 4) % 3
+            if variant == 0:
+                tmp = _sub_word53(_rot_word53(tmp)) ^ RCON_53[i // 4]
+            elif variant == 1:
+                tmp = _sub_word53(((tmp << 1) | (tmp >> 31)) & 0xFFFFFFFF) ^ RCON_53[i // 4]
+            else:
+                tmp = _sub_word53(((tmp << 2) | (tmp >> 30)) & 0xFFFFFFFF) ^ RCON_53[i // 4]
+        w.append(w[i-4] ^ tmp)
+    # 取 8 轮 × 3 子密钥
+    keys = []
+    for r in range(8):
+        round_keys = []
+        for k in range(3):
+            val = w[(r * 3 + k) % 48]
+            key_bytes = bytes([(val >> 24) & 0xFF, (val >> 16) & 0xFF, (val >> 8) & 0xFF, val & 0xFF])
+            # 扩展到 16 字节
+            full = bytearray(16)
+            for j in range(4):
+                full[j] = key_bytes[j]
+            for j in range(4, 16):
+                full[j] = full[j % 4] ^ ((j * 0x11 + r * 0x37 + k * 0x5B) & 0xFF)
+            round_keys.append(bytes(full))
+        keys.append(round_keys)
+    return keys
+
+
+def _feistel_round53(left, right, subkey):
+    """轮函数：SubBytes → ShiftRows → XOR subkey → XOR left → swap"""
+    # SubBytes
+    tmp = bytes([_s53(b) for b in right])
+    # ShiftRows
+    shifted = bytearray(16)
+    shifted[0] = tmp[0]; shifted[1] = tmp[5]; shifted[2] = tmp[10]; shifted[3] = tmp[15]
+    shifted[4] = tmp[4]; shifted[5] = tmp[9]; shifted[6] = tmp[14]; shifted[7] = tmp[3]
+    shifted[8] = tmp[8]; shifted[9] = tmp[13]; shifted[10] = tmp[2]; shifted[11] = tmp[7]
+    shifted[12] = tmp[12]; shifted[13] = tmp[1]; shifted[14] = tmp[6]; shifted[15] = tmp[11]
+    # new_right = left ^ shifted ^ subkey, then swap
+    new_right = bytes([left[i] ^ shifted[i] ^ subkey[i] for i in range(16)])
+    return right, new_right  # swap: left becomes old right, right becomes new_right
+
+
+def _feistel_encrypt53(data, key):
+    """Feistel 加密：8 轮"""
+    # Pad to 32 bytes
+    padded = data + b'\0' * (32 - len(data) % 32) if len(data) % 32 != 0 else data
+    keys = _key_expand53(key)
+    result = bytearray()
+    for blk in range(0, len(padded), 32):
+        left = padded[blk:blk+16]
+        right = padded[blk+16:blk+32]
+        for r in range(8):
+            sk = keys[r][0] if r % 3 == 0 else (keys[r][1] if r % 3 == 1 else keys[r][2])
+            left, right = _feistel_round53(left, right, sk)
+        result += left + right
+    return bytes(result)
+
+
+def _feistel53_encrypt(plaintext):
+    """魔改 AES (Feistel) 加密（服务端重加密比对）"""
+    key = bytearray(KEY53_AES[:16])
+    # FK 异或
+    for i in range(4):
+        val = (key[i*4] << 24) | (key[i*4+1] << 16) | (key[i*4+2] << 8) | key[i*4+3]
+        val ^= FK_XOR_53[i]
+        key[i*4] = (val >> 24) & 0xFF
+        key[i*4+1] = (val >> 16) & 0xFF
+        key[i*4+2] = (val >> 8) & 0xFF
+        key[i*4+3] = val & 0xFF
+    return _feistel_encrypt53(plaintext, bytes(key))
+
+
+def _rc4_53(key, data):
+    S = list(range(256))
+    j = 0
+    for i in range(256):
+        j = (j + S[i] + key[i % len(key)]) % 256
+        S[i], S[j] = S[j], S[i]
+    x = y = 0
+    result = bytearray(data)
+    for i in range(len(data)):
+        x = (x + 1) % 256
+        y = (y + S[x]) % 256
+        S[x], S[y] = S[y], S[x]
+        result[i] ^= S[(S[x] + S[y]) % 256]
+    return bytes(result)
+
+
+@app.post("/api/l53")
+def api_l53(page: int = Form(...), ts: int = Form(...),
+            enc: str = Form(...), aes: str = Form(...), sign: str = Form(...)):
+    """L53 焚天火域：魔改 AES + Feistel + HMAC-SHA256 + RC4 响应
+
+    客户端: enc=hex(Feistel(key, payload)), aes=hex(AES53(key, payload)), sign=HMAC-SHA256(hmac_key, payload)
+    服务端: 重加密比对 enc 和 aes → 验 sign → 返回 RC4 加密的 JSON
+    """
+    _check_ts(ts)
+    payload = f"page={page}&ts={ts}".encode()
+    try:
+        expected_enc = _feistel53_encrypt(payload).hex()
+        if enc != expected_enc:
+            raise HTTPException(status_code=403, detail="enc mismatch")
+        # aes 在 native53c 中与 enc 使用相同密钥和算法，验证方式相同
+        if aes != expected_enc:
+            raise HTTPException(status_code=403, detail="aes mismatch")
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(status_code=403, detail="decrypt failed")
+    _check_page(page, PAGES53)
+    # 验证 HMAC
+    expected_sign = hmac.new(KEY53_HMAC[:16], payload, hashlib.sha256).hexdigest()
+    if not hmac.compare_digest(sign, expected_sign):
+        raise HTTPException(status_code=403, detail="sign mismatch")
+    idx = (page - 1) * PER_PAGE53
+    nums = NUMS53[idx:idx + PER_PAGE53]
+    # RC4 加密响应
+    resp_json = json.dumps({"page": page, "nums": nums})
+    encrypted = _rc4_53(KEY53_RC4[:16], resp_json.encode())
+    return {"d": encrypted.hex()}
+
+
 if __name__ == "__main__":
     cert_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "certs")
     print(f"FatdogReverse 服务端（FastAPI）：http://{HOST}:{PORT_HTTP}（15-20） https://{HOST}:{PORT_HTTPS}（21-27）")
@@ -2138,7 +2327,7 @@ if __name__ == "__main__":
           f"KL6={sum(NUMS_KL6)} KL7={sum(NUMS_KL7)} KL8={sum(NUMS_KL8)} KL9={sum(NUMS_KL9)} KL10={sum(NUMS_KL10)} "
           f"KKL2={sum(NUMS_KKL2)} KKL3={sum(NUMS_KKL3)} "
           f"L43={sum(NUMS43)} L44={sum(NUMS44)} L45={sum(NUMS45)} L46={sum(NUMS46)} L47={sum(NUMS47)} "
-          f"L48={sum(NUMS48)} L49={sum(NUMS49)} L50={sum(NUMS50)} L51={sum(NUMS51)}")
+          f"L48={sum(NUMS48)} L49={sum(NUMS49)} L50={sum(NUMS50)} L51={sum(NUMS51)} L53={sum(NUMS53)}")
     http_cfg = uvicorn.Config(app, host=HOST, port=PORT_HTTP, log_level="info")
     threading.Thread(target=uvicorn.Server(http_cfg).run, daemon=True).start()
     https_cfg = uvicorn.Config(app, host=HOST, port=PORT_HTTPS,

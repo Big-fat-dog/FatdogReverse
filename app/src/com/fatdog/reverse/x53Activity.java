@@ -31,29 +31,32 @@ import javax.net.ssl.X509TrustManager;
 
 import okhttp3.Call;
 import okhttp3.Callback;
+import okhttp3.FormBody;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
+import okhttp3.RequestBody;
 import okhttp3.Response;
 
 /**
- * Native大陆 L52 冰封雪域（★★★★★ 魔改 SM4 · 3 SO 分离）
+ * Native大陆 L53 焚天火域（★★★★★ 魔改 AES + Feistel · 3 SO 分离 · 最终关）
  *
- * libnative52.so   — 主入口 + 魔改 SM4
- * libnative52k.so  — 密钥 + RC4
- * libnative52b.so  — 业务干扰（dlopen 加载）
+ * libnative53.so  — 调度 + 异常控制流
+ * libnative53c.so — 魔改 AES + Feistel + 密钥
+ * libnative53b.so — 22类业务代码干扰（dlopen 加载）
  *
  * 破解路线：
- *   ① IDA 识别魔改 SM4（S盒4处换值 + FK异或 + CK循环左移）
- *   ② Frida hook Bk52.nativeSign/nativeEnc 拿明文 payload 对拍
- *   ③ Python 复刻 SM4 加密 + HMAC-SHA256 签名取数
+ *   ① IDA 分析 3 个 SO，识别魔改 AES（S盒4处替换 + FK异或 + 密钥扩展3变体）
+ *   ② 识别 Feistel 轮函数（8轮×3子密钥）
+ *   ③ Frida hook Bk53.nativeSign/nativeEnc 拿明文 payload 对拍
+ *   ④ Python 复刻全部加密 + HMAC 签名 + RC4 解密响应
  *
- * Flag: FLAG_18_L52{frozen_snowfield}
+ * Flag: FLAG_18_L53{scorched_fireland}
  */
-public class x52Activity extends Activity {
+public class x53Activity extends Activity {
 
     private static final int PAGES = 100;
     private static final int PER_PAGE = 10;
-    private static final String SUM_HASH = "f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8";
+    private static final String SUM_HASH = "c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3d4";
 
     private OkHttpClient client;
     private String base;
@@ -77,11 +80,11 @@ public class x52Activity extends Activity {
         box.setPadding(Ui.dp(16), Ui.dp(14), Ui.dp(16), Ui.dp(12));
 
         TextView tv = new TextView(this);
-        tv.setText("L52 · 冰封雪域（★★★★★ 魔改 SM4 · 3 SO 分离）\n"
-                + "libnative52.so   — 魔改 SM4 加密\n"
-                + "libnative52k.so  — 密钥 + RC4\n"
-                + "libnative52b.so  — 业务代码干扰\n"
-                + "魔改 SM4 + HMAC-SHA256 · 深层调用栈");
+        tv.setText("L53 · 焚天火域（★★★★★ 魔改 AES + Feistel · 最终关）\n"
+                + "libnative53.so  — 调度 + 异常控制流\n"
+                + "libnative53c.so — 魔改 AES + Feistel + 密钥\n"
+                + "libnative53b.so — 22类业务代码干扰\n"
+                + "魔改 AES + Feistel + HMAC-SHA256 + RC4");
         tv.setGravity(Gravity.CENTER);
         box.addView(tv, Ui.wrap(4));
 
@@ -163,8 +166,8 @@ public class x52Activity extends Activity {
                 try {
                     int p = Integer.parseInt(s);
                     if (p >= 1 && p <= PAGES) loadPage(p);
-                    else Toast.makeText(x52Activity.this, "页码超出范围 1-" + PAGES, Toast.LENGTH_SHORT).show();
-                } catch (Exception e) { Toast.makeText(x52Activity.this, "请输入页码", Toast.LENGTH_SHORT).show(); }
+                    else Toast.makeText(x53Activity.this, "页码超出范围 1-" + PAGES, Toast.LENGTH_SHORT).show();
+                } catch (Exception e) { Toast.makeText(x53Activity.this, "请输入页码", Toast.LENGTH_SHORT).show(); }
             }
         });
         box.addView(jumpRow, Ui.fullWidth(10));
@@ -184,24 +187,24 @@ public class x52Activity extends Activity {
         Ui.styleButton(hint);
         hint.setOnClickListener(new View.OnClickListener() {
             @Override public void onClick(View v) {
-                new AlertDialog.Builder(x52Activity.this)
+                new AlertDialog.Builder(x53Activity.this)
                         .setTitle("提示")
-                        .setMessage("魔改 SM4 + 3 SO 分离：\n\n"
-                                + "libnative52.so 里有魔改 SM4（S盒4处换值 0x3A/0x7F/0xB2/0xE8，FK异或，CK循环左移）\n"
-                                + "libnative52k.so 里有密钥 + RC4\n"
-                                + "libnative52b.so 里是业务代码干扰\n\n"
+                        .setMessage("魔改 AES + Feistel + 3 SO 分离：\n\n"
+                                + "libnative53c.so 里有魔改 AES（S盒4处替换 + FK异或 + 密钥扩展3变体）+ Feistel 轮函数（8轮×3子密钥）\n"
+                                + "libnative53.so 里有异常控制流（try/catch 藏真逻辑）+ HMAC-SHA256 签名\n"
+                                + "libnative53b.so 里是 22 类业务代码干扰\n\n"
                                 + "Frida 训练：\n"
-                                + "  • Hook Bk52.nativeSign / nativeEnc 拿明文 payload\n"
-                                + "  • 深层栈回溯追 5+ 层调用链\n"
-                                + "  • dlopen 依赖链追踪\n\n"
-                                + "Python 复刻：魔改 SM4 加密 + HMAC-SHA256 签名。")
+                                + "  • Hook Bk53.nativeSign / nativeEnc 拿明文 payload\n"
+                                + "  • 异常控制流：注意 try/catch 块里藏真逻辑\n"
+                                + "  • 响应 RC4 解密：hook nativeRc4Decrypt\n\n"
+                                + "Python 复刻：魔改 AES + Feistel + HMAC + RC4 解密响应。")
                         .setPositiveButton("知道了", null)
                         .show();
             }
         });
         box.addView(hint, Ui.wrap(10));
 
-        box.addView(Ui.banner(this, R.drawable.level_52, 150));
+        box.addView(Ui.banner(this, R.drawable.level_53, 150));
 
         setContentView(Ui.wrapScroll(box));
         ThemeKit.apply(this);
@@ -209,12 +212,12 @@ public class x52Activity extends Activity {
         subBtn.setOnClickListener(new View.OnClickListener() {
             @Override public void onClick(View v) {
                 String ans = ansInput.getText().toString().trim();
-                if (ans.isEmpty()) { Toast.makeText(x52Activity.this, "请输入答案", Toast.LENGTH_SHORT).show(); return; }
+                if (ans.isEmpty()) { Toast.makeText(x53Activity.this, "请输入答案", Toast.LENGTH_SHORT).show(); return; }
                 if (sha256Hex(ans).equals(SUM_HASH)) {
-                    Celebration.show(x52Activity.this, "FLAG_18_L52{frozen_snowfield}");
-                    PassLog.mark(x52Activity.this, "L52");
+                    Celebration.show(x53Activity.this, "FLAG_18_L53{scorched_fireland}");
+                    PassLog.mark(x53Activity.this, "L53");
                 } else {
-                    Toast.makeText(x52Activity.this, "加和不对，再取数算一遍。", Toast.LENGTH_SHORT).show();
+                    Toast.makeText(x53Activity.this, "加和不对，再取数算一遍。", Toast.LENGTH_SHORT).show();
                 }
             }
         });
@@ -282,10 +285,20 @@ public class x52Activity extends Activity {
         loading = true;
         status.setText("正在请求第 " + page + " 页…");
         final long ts = System.currentTimeMillis() / 1000;
-        String enc = Bk52.nativeEnc(page + "|" + ts);
-        String sign = Bk52.nativeSign(page, (int) ts);
-        String url = base + "/api/l52?page=" + page + "&ts=" + ts + "&enc=" + enc + "&sign=" + sign;
-        Request req = new Request.Builder().url(url).get().build();
+        String payload = "page=" + page + "&ts=" + ts;
+        String enc = Bk53.nativeEnc(payload, 1);
+        String aes = Bk53.nativeEnc(payload, 2);
+        String sign = Bk53.nativeSign(payload);
+
+        RequestBody body = new FormBody.Builder()
+                .add("page", String.valueOf(page))
+                .add("ts", String.valueOf(ts))
+                .add("enc", enc)
+                .add("aes", aes)
+                .add("sign", sign)
+                .build();
+        String url = base + "/api/l53";
+        Request req = new Request.Builder().url(url).post(body).build();
         client.newCall(req).enqueue(new Callback() {
             @Override public void onFailure(Call call, java.io.IOException e) {
                 loading = false;
@@ -296,7 +309,10 @@ public class x52Activity extends Activity {
                     if (!rsp.isSuccessful()) { final String msg = "HTTP " + rsp.code(); loading = false; runOnUiThread(new Runnable() { @Override public void run() { status.setText(msg); } }); return; }
                     String rspBody = rsp.body().string();
                     org.json.JSONObject obj = new org.json.JSONObject(rspBody);
-                    org.json.JSONArray arr = obj.optJSONArray("nums");
+                    String hex = obj.optString("d", "");
+                    String json = Bk53.nativeEnc(hex, 3);
+                    org.json.JSONObject pageObj = new org.json.JSONObject(json);
+                    org.json.JSONArray arr = pageObj.optJSONArray("nums");
                     final int[] nums = new int[arr.length()];
                     for (int i = 0; i < arr.length(); i++) nums[i] = arr.optInt(i);
                     loading = false;

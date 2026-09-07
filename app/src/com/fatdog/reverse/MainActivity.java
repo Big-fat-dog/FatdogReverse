@@ -300,6 +300,8 @@ public class MainActivity extends Activity {
         bind(R.id.btn_l49, x49Activity.class);
         bind(R.id.btn_l50, x50Activity.class);
         bind(R.id.btn_l51, x51Activity.class);
+        bind(R.id.btn_l52, x52Activity.class);
+        bind(R.id.btn_l53, x53Activity.class);
     }
 
     private void bind(int id, final Class<?> target) {

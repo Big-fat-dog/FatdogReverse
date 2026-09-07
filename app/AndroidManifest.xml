@@ -103,6 +103,9 @@
         <!-- 幽冥海 KL15：万法归宗（综合收官卷） -->
         <activity android:name=".x52Activity" android:exported="false" />
 
+        <!-- Native大陆 L53：焚天火域（魔改 AES + Feistel + 异常控制流 · 最终关） -->
+        <activity android:name=".x53Activity" android:exported="false" />
+
         <!-- 太玄之初 KL16：破壳新生（一代壳 DEX 静态加密） -->
         <activity android:name=".y53Activity" android:exported="false" />
 
