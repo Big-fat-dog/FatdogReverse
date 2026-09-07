@@ -3026,6 +3026,86 @@ Interceptor.attach(fn, {
 答案：加和 `49873`；flag `FLAG_18_L50{abyssal_depths}`
 
 
+### 关卡 51：雷霆山巅（3DES-EDE-ECB + SM3 + HMAC-SHA256 · 3 SO 分离）
+
+**考点**：L50 的升级版——三重签名算法（3DES 对称加密 + SM3 哈希 + HMAC-SHA256 签名）分布在三个独立 SO 中，通过 dlopen 依赖链加载。
+
+**静态解法**：
+1. 解包 APK 取 `libnative51.so`、`libnative51h.so`、`libnative51b.so`
+2. IDA 分析 `libnative51.so`：`nativeSign` 调用 `dlopen("libnative51h.so")` 获取 SM3 和 HMAC 函数指针
+3. 密钥派生：`key_3des = SHA256("Fatdog_peak|3des")[:24]`、`key_sm3 = SHA256("Fatdog_peak|sm3")`、`key_mac = SHA256("Fatdog_peak|mac")`
+4. `enc = hex(3DES_ECB(key_3des, "page=N&ts=T" 零填充))`、`hash = SM3(enc)`、`sign = HMAC-SHA256(key_mac, hash)`
+5. `GET /api/l51?page=N&ts=T&enc=…&hash=…&sign=…`
+
+**动态解法**：
+```javascript
+// hook_l51.js — 3 SO 分离 + dlopen 依赖链
+Java.perform(function () {
+    var Bk51 = Java.use('com.fatdog.reverse.Bk51');
+    Bk51.nativeSign.implementation = function (page, ts) {
+        var result = this.nativeSign(page, ts);
+        console.log('[Bk51.nativeSign] page=' + page + ' ts=' + ts + ' sign=' + result);
+        return result;
+    };
+});
+// 也可以 hook dlopen 观察 SO 加载顺序
+Interceptor.attach(Module.findExportByName(null, 'dlopen'), {
+    onEnter: function (args) {
+        console.log('[dlopen] ' + args[0].readCString());
+    }
+});
+```
+
+**坑位提醒**：
+- 三个 SO 必须同时存在，缺任何一个 `dlopen` 失败导致崩溃
+- SM3 是国密哈希算法，标准库没有——必须从 `libnative51h.so` 的导出函数还原
+- `libnative51b.so` 是纯业务代码干扰（ThreadPool/EventBus/MetricsCollector/CircuitBreaker/RateLimiter），与加密无关
+- `Fatdog_peak`（真标记）和 `Fatdog_pick`（诱饵 UTF-16）用 `strings -el` 对比
+
+答案：加和 `50247`；flag `FLAG_18_L51{thunder_peak}`
+
+
+### 关卡 52：冰封雪域（魔改 SM4 + 深层调用栈 + HMAC-SHA256 · 3 SO 分离）
+
+**考点**：L51 的升级版——魔改 SM4（S 盒 4 处换值 + FK 异或 + CK 循环左移）+ 深层调用栈（5+ 层）+ 海量业务代码干扰（8 个类 ~1500 行）。
+
+**静态解法**：
+1. 解包 APK 取 `libnative52.so`、`libnative52k.so`、`libnative52b.so`
+2. IDA 分析 `libnative52.so`：识别魔改 SM4（S 盒魔数 0xd6,0x90,0xe9…可认出骨架），找到 4 处换值（0x3A/0x7F/0xB2/0xE8）
+3. 密钥：`libnative52k.so` 导出 `getSm4Key()`/`getHmacKey()`，XOR 数组 ^0x3C 还原
+4. `enc = hex(SM52_ECB(sm4_key, "page=N&ts=T"))`、`sign = HMAC-SHA256(hmac_key, "page=N&ts=T")`
+5. `GET /api/l52?page=N&ts=T&enc=…&sign=…`
+
+**动态解法**：
+```javascript
+// hook_l52.js — 深层栈回溯 + dlopen 依赖链
+Java.perform(function () {
+    var Bk52 = Java.use('com.fatdog.reverse.Bk52');
+    Bk52.nativeSign.implementation = function (page, ts) {
+        var result = this.nativeSign(page, ts);
+        console.log('[Bk52.nativeSign] page=' + page + ' ts=' + ts + ' sign=' + result);
+        // 深层栈回溯
+        console.log(Thread.backtrace(this.context, Backtracer.ACCURATE)
+            .map(DebugSymbol.fromAddress).join('\n'));
+        return result;
+    };
+    Bk52.nativeEnc.implementation = function (data) {
+        var result = this.nativeEnc(data);
+        console.log('[Bk52.nativeEnc] data=' + data + ' enc=' + result);
+        return result;
+    };
+});
+```
+
+**坑位提醒**：
+- 魔改 SM4 的 S 盒与标准只差 4 个字节——肉眼几乎看不出差异，需逐字节比对
+- `libnative52b.so` 有 8 个业务类（InventoryService/ShippingCalculator/UserPreferenceStore/DataSyncer/ReportGenerator/BackupManager/NotificationService/RateLimiter），每个类 5-8 个方法，纯干扰
+- 深层调用栈：JNI → k52_dispatch → k52_process → Sm52Cipher::encryptBlock → k52_sm4_round × 32 → k52_sub_bytes
+- `Fatdog_snow`（真标记）和 `Fatdog_snowflake`（诱饵 UTF-16）用 `strings -el` 对比
+
+答案：加和 `50247`；flag `FLAG_18_L52{frozen_snowfield}`
+
+
 ## 天地秘境 · 昆仑山（KL1-5）
 
 

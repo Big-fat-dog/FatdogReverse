@@ -10,20 +10,22 @@ import android.view.View;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.LinearLayout;
-import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 
 /**
- * KL15 万法归宗（★★★★★ 综合收官卷）。
+ * L52 冰封雪域（★★★★★ 魔改 SM4 + 深层调用栈 + 海量业务代码 · 3 SO 分离）
  *
- * 三阶段递进谜题，四个独立 native 入口：
- *   computeA() → computeB(a) → computeC(a,b) → verify(a,b,c)
- * 三个值全部还原正确才能通过，UI 不自动填入、不打印中间值。
+ * 考点：
+ *   - 魔改 SM4（S盒4处换值 + FK异或 + CK循环左移）
+ *   - 深层调用栈（5+ 层）
+ *   - 3 SO 分离（native52 + native52k + native52b）
+ *   - HMAC-SHA256 签名
+ *   - 海量业务代码干扰（8 个类）
  */
 public class x52Activity extends Activity {
 
-    private EditText aBox, bBox, cBox;
+    private EditText sumBox;
 
     @Override protected void onCreate(Bundle b) {
         super.onCreate(b);
@@ -34,68 +36,48 @@ public class x52Activity extends Activity {
         root.setPadding(Ui.dp(16), Ui.dp(20), Ui.dp(16), Ui.dp(12));
 
         TextView tv = new TextView(this);
-        tv.setText("KL15 · 万法归宗（★★★★★）\n\n"
-                + "三阶段递进谜题，每阶段算法不同：\n"
-                + "A=XOR+移位，B=CRC衍生，C=SHA256组合。\n\n"
-                + "按 computeA → computeB(a) → computeC(a,b) 还原，\n"
-                + "三值全对 verify 才返回 1，本关不自动填答案。");
+        tv.setText("L52 · 冰封雪域（★★★★★ 魔改 SM4 · 3 SO 分离）\n\n"
+                + "魔改 SM4 加密 + HMAC-SHA256 签名，深层调用栈（5+ 层）。\n"
+                + "3 个 SO 协同：native52（主入口+SM4）+ native52k（密钥+RC4）+ native52b（业务干扰）\n\n"
+                + "请求：GET /api/l52?page=N&ts=T&enc=hex(SM4(key, payload))&sign=HMAC(key, payload)\n"
+                + "响应：明文 JSON {page, nums}（无加密）\n\n"
+                + "100 页取数，每页 10 个数，求和后提交。");
         tv.setGravity(Gravity.CENTER);
         tv.setTextColor(Color.WHITE);
-        tv.setTextSize(15);
+        tv.setTextSize(14);
         root.addView(tv, Ui.wrap(6));
 
         int p = Ui.dp(10);
 
-        aBox = new EditText(this);
-        aBox.setHint("A 值（十进制整数）");
-        aBox.setTextColor(Color.WHITE);
-        aBox.setTypeface(Typeface.MONOSPACE);
-        aBox.setBackgroundColor(0x33FFFFFF);
-        aBox.setPadding(p, p, p, p);
-        root.addView(aBox, Ui.fullWidth(10));
-
-        bBox = new EditText(this);
-        bBox.setHint("B 值（十进制整数）");
-        bBox.setTextColor(Color.WHITE);
-        bBox.setTypeface(Typeface.MONOSPACE);
-        bBox.setBackgroundColor(0x33FFFFFF);
-        bBox.setPadding(p, p, p, p);
-        root.addView(bBox, Ui.fullWidth(10));
-
-        cBox = new EditText(this);
-        cBox.setHint("C 值（十进制整数）");
-        cBox.setTextColor(Color.WHITE);
-        cBox.setTypeface(Typeface.MONOSPACE);
-        cBox.setBackgroundColor(0x33FFFFFF);
-        cBox.setPadding(p, p, p, p);
-        root.addView(cBox, Ui.fullWidth(10));
+        sumBox = new EditText(this);
+        sumBox.setHint("100 页数字总和");
+        sumBox.setTextColor(Color.WHITE);
+        sumBox.setTypeface(Typeface.MONOSPACE);
+        sumBox.setBackgroundColor(0x33FFFFFF);
+        sumBox.setPadding(p, p, p, p);
+        root.addView(sumBox, Ui.fullWidth(10));
 
         Button submit = new Button(this);
-        submit.setText("验证三值 verify(A, B, C)");
+        submit.setText("提交总和");
         Ui.styleButton(submit);
         submit.setOnClickListener(new View.OnClickListener() {
             @Override public void onClick(View v) {
-                String sa = aBox.getText().toString().trim();
-                String sb = bBox.getText().toString().trim();
-                String sc = cBox.getText().toString().trim();
-                if (sa.isEmpty() || sb.isEmpty() || sc.isEmpty()) {
-                    Toast.makeText(x52Activity.this, "请填入 A、B、C 三值", Toast.LENGTH_SHORT).show();
+                String s = sumBox.getText().toString().trim();
+                if (s.isEmpty()) {
+                    Toast.makeText(x52Activity.this, "请输入总和", Toast.LENGTH_SHORT).show();
                     return;
                 }
-                int a, b, c;
-                try {
-                    a = Integer.parseInt(sa);
-                    b = Integer.parseInt(sb);
-                    c = Integer.parseInt(sc);
-                } catch (NumberFormatException e) {
-                    Toast.makeText(x52Activity.this, "请输入十进制整数", Toast.LENGTH_SHORT).show();
+                int sum;
+                try { sum = Integer.parseInt(s); }
+                catch (NumberFormatException e) {
+                    Toast.makeText(x52Activity.this, "请输入整数", Toast.LENGTH_SHORT).show();
                     return;
                 }
-                if (Am.nativeVerify(a, b, c) == 1) {
-                    Celebration.show(x52Activity.this, "FLAG_18_KL15{all_methods_converge}");
-                    PassLog.mark(x52Activity.this, "KL15");
+                if (sum == 50247) {
+                    Celebration.show(x52Activity.this, "FLAG_18_L52{frozen_snowfield}");
+                    PassLog.mark(x52Activity.this, "L52");
                 } else {
-                    Toast.makeText(x52Activity.this, "验证失败，三值至少一个不对。", Toast.LENGTH_SHORT).show();
+                    Toast.makeText(x52Activity.this, "总和不对，再算算", Toast.LENGTH_SHORT).show();
                 }
             }
         });
@@ -107,12 +89,13 @@ public class x52Activity extends Activity {
         hint.setOnClickListener(new View.OnClickListener() {
             @Override public void onClick(View v) {
                 new AlertDialog.Builder(x52Activity.this)
-                        .setTitle("提示")
-                        .setMessage("四个独立入口：computeA → computeB(a) → computeC(a,b) → verify(a,b,c)。\n"
-                                + "正解方向：IDA/Ghidra 还原每一阶段算法，按依赖顺序算出 A、B、C；也可 Frida hook 三个 compute 出口观察返回值对拍。\n"
-                                + "三值全对 verify 才返回 1。")
-                        .setPositiveButton("好的", null)
-                        .show();
+                    .setTitle("提示")
+                    .setMessage("静态：IDA 识别魔改 SM4（S 盒 4 处换值 0x3A/0x7F/0xB2/0xE8，FK 异或，CK 循环左移）→ Python 复刻加密 + HMAC 取数。\n\n"
+                        + "动态：Frida hook Bk52.nativeSign/nativeEnc 拿明文 payload 对拍 → Python 复刻。\n\n"
+                        + "深层栈回溯：Thread.backtrace 追 5+ 层调用链。\n"
+                        + "dlopen 依赖：native52 加载 native52k（密钥）和 native52b（业务干扰）。")
+                    .setPositiveButton("好的", null)
+                    .show();
             }
         });
         root.addView(hint, Ui.wrap(8));
@@ -125,7 +108,7 @@ public class x52Activity extends Activity {
         });
         root.addView(back, Ui.wrap(8));
 
-        root.addView(Ui.banner(this, R.drawable.level_kl15, 140));
+        root.addView(Ui.banner(this, R.drawable.level_52, 140));
 
         setContentView(Ui.wrapScroll(root));
         ThemeKit.apply(this);
