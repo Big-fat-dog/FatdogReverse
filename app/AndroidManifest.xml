@@ -88,6 +88,9 @@
 
         <activity android:name=".w52Activity" android:exported="false" />
 
+        <!-- Native大陆 L52：冰雪原野（主页面按钮 btn_l52） -->
+        <activity android:name=".x52Activity" android:exported="false" />
+
         <!-- 幽冥海 KL11：偷梁换柱（SO patch 入门） -->
         <activity android:name=".s48Activity" android:exported="false" />
 
@@ -101,7 +104,7 @@
         <activity android:name=".v51Activity" android:exported="false" />
 
         <!-- 幽冥海 KL15：万法归宗（综合收官卷） -->
-        <activity android:name=".x52Activity" android:exported="false" />
+        <activity android:name=".kl15Activity" android:exported="false" />
 
         <!-- Native大陆 L53：焚天火域（魔改 AES + Feistel + 异常控制流 · 最终关） -->
         <activity android:name=".x53Activity" android:exported="false" />
@@ -125,6 +128,7 @@
         <activity android:name=".kkl1Activity" android:exported="false" />
         <activity android:name=".kkl2Activity" android:exported="false" />
         <activity android:name=".kkl3Activity" android:exported="false" />
+        <activity android:name=".kkl4Activity" android:exported="false" />
         <activity android:name=".c58Activity" android:exported="false" />
         <activity android:name=".d59Activity" android:exported="false" />
         <activity android:name=".e60Activity" android:exported="false" />

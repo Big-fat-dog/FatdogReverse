@@ -45,7 +45,7 @@ public class kn4Activity extends Activity {
             @Override
             public void onClick(View v) {
                 String s = input.getText().toString().trim();
-                if (s.equals("Fatdog_glacier_unlocked")) {
+                if (Ku4.nativeSubmit(s) == 1) {
                     Celebration.show(kn4Activity.this, "FLAG_18_KL4{glacier_crossed_clean}");
                     PassLog.mark(kn4Activity.this, "KL4");
                 } else {

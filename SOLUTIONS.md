@@ -1,7 +1,7 @@
 # FatdogReverse · 完整题解（按分类组织 · 不分季）
 
 > 建议每关至少独立卡 10 分钟再看对应小节。闯关的意义是练出「先搜什么、再看什么、最后用什么工具」的肌肉记忆，而不是抄答案。
-> 本文按 App 内的关卡分类组织正文（静态分析 → Smali → Frida → 网络对抗 → SSL 抓包 → Native → Xposed → 签名校验 → 天地秘境六卷），不再区分"第几季"。编号即关卡真名：主流程 `L1-L47`，天地秘境 `KL1-KL30`，太玄之初追加卷 `KKL1-KKL3`（KKL4-5 尚未开启）。关卡 6 没有入口按钮，藏在 Manifest；关卡 20 虽是 20 号，主题属 Smali 挑战，故排在 Smali 分类。
+> 本文按 App 内的关卡分类组织正文（静态分析 → Smali → Frida → 网络对抗 → SSL 抓包 → Native → Xposed → 签名校验 → 天地秘境六卷），不再区分"第几季"。编号即关卡真名：主流程 `L1-L47`，天地秘境 `KL1-KL30`，太玄之初追加卷 `KKL1-KKL4`（KKL5 尚未开启）。关卡 6 没有入口按钮，藏在 Manifest；关卡 20 虽是 20 号，主题属 Smali 挑战，故排在 Smali 分类。
 
 ## 关卡总览
 
@@ -18,11 +18,11 @@
 | 天地秘境 · 昆仑山 | KL1-KL5 | `## 天地秘境 · 昆仑山（KL1-5）` |
 | 天地秘境 · 流沙河 | KL6-KL10 | `## 天地秘境 · 流沙河（KL6-10）` |
 | 天地秘境 · 幽冥海 | KL11-KL15 | `## 天地秘境 · 幽冥海（KL11-15）` |
-| 天地秘境 · 太玄之初 | KL16-KL20、KKL1-KKL3（KKL4-5 未开启） | `## 天地秘境 · 太玄之初（KL16-20、KKL1-5）` |
+| 天地秘境 · 太玄之初 | KL16-KL20、KKL1-KKL4（KKL5 未开启） | `## 天地秘境 · 太玄之初（KL16-20、KKL1-5）` |
 | 天地秘境 · 扶桑树 | KL21-KL28 | `## 天地秘境 · 扶桑树（KL21-28）` |
 | 天地秘境 · 天机阁 | KL29-KL30 | `## 天地秘境 · 天机阁（KL29-30）` |
 
-> 网络/服务端类关卡（L15-L47 与 KL6-KL10、KKL2-KKL3）的加和答案以各节正文为准；服务端先 `python server.py` 起 HTTPS（21 起）才能取数。
+> 网络/服务端类关卡（L15-L47 与 KL6-KL10、KKL2-KKL4）的加和答案以各节正文为准；服务端先 `python server.py` 起 HTTPS（21 起）才能取数。
 
 ## 静态分析（L1-6）
 
@@ -3105,8 +3105,7 @@ Java.perform(function () {
 
 答案：加和 `50247`；flag `FLAG_18_L52{frozen_snowfield}`
 
-
-## L53：焚天火域（★★★★★ 魔改 AES + Feistel 轮函数 + 异常控制流 · 3 SO 分离 · 最终关）
+### L53：焚天火域（★★★★★ 魔改 AES + Feistel 轮函数 + 异常控制流 · 3 SO 分离 · 最终关）
 
 **加密**：魔改 AES（S盒4处替换 0x3A/0x7F/0xB2/0xE8 + FK异或 + 密钥扩展3变体）+ Feistel 轮函数（8轮×3子密钥）+ HMAC-SHA256 签名 + RC4 响应加密
 
@@ -3688,7 +3687,7 @@ print(A, B, C)
 
 flag `FLAG_18_KL15{all_methods_converge}`。
 
-**动态路线**：Frida hook `Am.nativeComputeA/B/C` 出口拿现成值对拍；或直接 hook `nativeVerify` 返回值恒 1（省事路线）。注意 `nativeGuard` 入口还叠了 ptrace 反调试 + 数据区 CRC 自校验（返回 -1/-2 表示被拦），验证时保持调试器环境干净。真标记 `Fatdog_pact`，诱饵 `Fatdog_packed`。
+**动态路线**：Frida hook `Am.nativeComputeA/B/C` 出口拿值对拍，或按 A→B→C 依赖静态复刻（本地 UI 只收三值，`nativeVerify` 全对才返回 1）。`nativeGuard` 叠 ptrace 反调试，`nativeGuard`/`nativeVerify` 都会走真实代码段 CRC：基线由 `tools/gen_shale_crc_baseline.py` 从 NDK 产物按 ABI 烘焙进 `shale_crc_baseline.h`，静态 patch 窗口内指令会返回 -2。真标记 `Fatdog_pact`，诱饵 `Fatdog_packed`。
 
 ## 天地秘境 · 太玄之初（KL16-20、KKL1-5）
 
@@ -4201,7 +4200,7 @@ console.log('直接计算:', Gk.nativeDirect(20280915));
 **flag**：`FLAG_18_KL20{all_shells_broken}`
 
 
-> 太玄之初除了"三代壳"卷（KL16-20），还追加了独立编号的 C++ 壳教学卷 KKL1-5（玄冥渊 / 万剑冢 / 断魂谷 / 锁妖塔 / 诛仙台），全部由 `app/jni/kkl*.cpp` 实现。目前开放 KKL1-KKL3，KKL4-5 在 MainActivity 里仍是"尚未开启"占位。与 KL16-20 的壳课不同，KKL 卷强调**用 C++ 造现代壳零件**：虚表派发、抽取回填、动态注册、真 DEX 内存加载。
+> 太玄之初除了"三代壳"卷（KL16-20），还追加了独立编号的 C++ 壳教学卷 KKL1-5（玄冥渊 / 万剑冢 / 断魂谷 / 锁妖塔 / 诛仙台），全部由 `app/jni/kkl*.cpp` 实现。目前开放 KKL1-KKL4，KKL5 在 MainActivity 里仍是"尚未开启"占位。与 KL16-20 的壳课不同，KKL 卷强调**用 C++ 造现代壳零件**：虚表派发、抽取回填、动态注册、真 DEX 内存加载。
 
 ### KKL1：玄冥渊（太玄之初 · C++ vtable 派发 + 抽取回填）
 
@@ -4290,6 +4289,31 @@ print(hashlib.sha256(str(total).encode()).hexdigest())
 **答案**：100 页加和 = `52219`，提交 `sha256("52219")` = `5b675c4a63fbc84ebc0478f244d3c63093d57d6a1eca7df8618dbf1485c92fd7`（64 hex，大小写不敏感）；flag `FLAG_18_KKL3{valley_of_the_sentinel}`。
 
 **patch/hook 路线**：目标是让四路哨兵在签名前全部判安全，而不是改 `nativeStatus()`。常见做法：nop 掉 `run_sentinels(true)` 的调用点或让四个 `detect_*` 恒返 0；注意进程一旦已被投毒，密钥在内存里已经翻位，patch 后要重启进程。服务端 seed 是 `20260916`（`random.Random(20260916).randint(1,100)` 生成 1000 个数），本地可离线复算对拍。
+
+### KKL4：锁妖塔（太玄之初 · 代码段 CRC + 三点记账 + 服务端取数）
+
+**考点**：`libkkl4.so` 先读 `/proc/self/maps` 定位自己的可执行段，再对 `nativeOpen` / `nativeSign` / `nativeCommit` / `kkl4_crc_check` 四个窗口做 CRC-32 自校验（基线由 `tools/gen_kkl4_crc_baseline.py` 在构建期烘焙，放在独立 `kkl4_baseline.c`，不做运行时自证）。真机关不在 `nativeStatus()`：每页请求前 `nativeSign` 都要过 open→sign→Java 回调 commit 的三点记账，任一函数被静态 patch 或 inline hook，代码窗口 CRC 立即失配，HMAC 密钥被永久投毒，`/api/kkl4` 静默 403。
+
+**静态路线**：strings 能看到明文诱饵 `Fatdog_grim`，真标记是 UTF-16 藏匿的 `Fatdog_grit`（`strings -el lib/arm64-v8a/libkkl4.so` 可看到 11 个码元）。密钥派生与 KKL3 同构，`key = SHA-256("Fatdog_grit" + "|kkl4_tower")`，之后不依赖 so 直接逐页取数求和：
+
+```python
+import hashlib, hmac, time, requests
+key = hashlib.sha256(b'Fatdog_grit|kkl4_tower').digest()
+total = 0
+for page in range(1, 101):
+    ts = int(time.time())
+    sign = hmac.new(key, f'page={page}&ts={ts}'.encode(), hashlib.sha256).hexdigest()
+    r = requests.get('https://127.0.0.1:8443/api/kkl4',
+                     params={'page': page, 'ts': ts, 'sign': sign},
+                     verify='certs/ca.crt', timeout=5).json()
+    total += sum(r['nums'])
+print(total)                                # 51434
+print(hashlib.sha256(str(total).encode()).hexdigest())
+```
+
+**答案**：100 页加和 = `51434`，提交 `sha256("51434")` = `6e769234a6eaaeb3118e6444cb116fb4f72935cd7f947400c1eee0bee368c62b`（64 hex，大小写不敏感）；flag `FLAG_18_KKL4{tower_of_the_sealed}`。
+
+**patch/hook 路线**：不要只改 `nativeStatus()`。四点记账要求 open 先置位、sign 与 commit 交替闭合；inline hook `kkl4_crc_check` 或任一 JNI 入口都会改写前几条指令，CRC 窗口自己会先失配。想靠 patch 走通，必须完整重建 CRC 与记账链路（进程已被投毒时先重启）；最省事仍是静态还原 UTF-16 真标记派生密钥直接复刻请求。服务端 seed 是 `20260923`（`random.Random(20260923).randint(1,100)` 生成 1000 个数）。
 
 ## 天地秘境 · 扶桑树（KL21-28）
 
@@ -4478,7 +4502,7 @@ frida -U -n com.fatdog.reverse -l hook_l10.js
 ```
 
 
-### 附 3 · flag 速查表（全量 L1-47 + KL1-30 + KKL1-3）
+### 附 3 · flag 速查表（全量 L1-47 + KL1-30 + KKL1-4）
 
 
 | 关卡 | flag |
@@ -4571,6 +4595,7 @@ frida -U -n com.fatdog.reverse -l hook_l10.js
 | KKL1 | `FLAG_18_KKL1{abyss_of_mystery}` |
 | KKL2 | `FLAG_18_KKL2{tomb_of_myriad_blades}` |
 | KKL3 | `FLAG_18_KKL3{valley_of_the_sentinel}` |
+| KKL4 | `FLAG_18_KKL4{tower_of_the_sealed}` |
 
 
 > 备注：L43-L45 现版源码庆祝串均为 `FLAG_18_L48{mirror_tells_true}`（L48 为历史编号残留、三关复制未改），上表按关卡语义区分；L47 以当前 App 庆祝串 `FLAG_18_L47{guard_matrix_crc_aes}` 为准。关卡 9 有两个变体串（`single_gate_not_enough` 是只过一重门时的诱饵/半程提示）。

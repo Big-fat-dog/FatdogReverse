@@ -239,6 +239,28 @@ def main():
                 except subprocess.CalledProcessError:
                     if attempt == 2:
                         raise
+            # KL15 libshale 真实代码段 CRC：同样烘焙基线 → 重编 → 校验
+            gen_shale = os.path.join(HERE, 'tools', 'gen_shale_crc_baseline.py')
+            for attempt in range(3):
+                run([sys.executable, gen_shale])
+                run([ndk_build, '-C', APP])
+                try:
+                    run([sys.executable, gen_shale, '--verify'])
+                    break
+                except subprocess.CalledProcessError:
+                    if attempt == 2:
+                        raise
+            # KKL4 libkkl4 真实代码窗口 CRC：四组导出符号烘焙 → 重编 → 校验
+            gen_kkl4 = os.path.join(HERE, 'tools', 'gen_kkl4_crc_baseline.py')
+            for attempt in range(3):
+                run([sys.executable, gen_kkl4])
+                run([ndk_build, '-C', APP])
+                try:
+                    run([sys.executable, gen_kkl4, '--verify'])
+                    break
+                except subprocess.CalledProcessError:
+                    if attempt == 2:
+                        raise
             for abi in ('arm64-v8a', 'armeabi-v7a'):
                 for so in sorted(glob.glob(os.path.join(APP, 'libs', abi, '*.so'))):
                     libs.setdefault(abi, []).append(so)

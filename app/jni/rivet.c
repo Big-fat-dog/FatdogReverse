@@ -50,3 +50,25 @@ Java_com_fatdog_reverse_Ku4_nativeProbe(JNIEnv *env, jclass clazz) {
     /* 环境干净 */
     return (*env)->NewStringUTF(env, "Fatdog_glacier_unlocked");
 }
+
+/*
+ * 提交校验完全放在 so 里：先重查环境，再比较令牌。
+ * Java/DEX 中不再出现正确答案的明文，防止静态搜索直接抄。
+ */
+JNIEXPORT jint JNICALL
+Java_com_fatdog_reverse_Ku4_nativeSubmit(JNIEnv *env, jclass clazz, jstring token) {
+    (void)clazz;
+    int maps = k4_check_maps();
+    int tracer = k4_detect_tracer();
+    if (maps == 1 || tracer == 1 || maps == -1 || tracer == -1)
+        return 0;   /* 环境不干净，任何输入都不认 */
+    if (token == NULL)
+        return 0;
+    const char *u = (*env)->GetStringUTFChars(env, token, NULL);
+    if (u == NULL)
+        return 0;
+    const char *expected = "Fatdog_glacier_unlocked";
+    jint ok = strcmp(u, expected) == 0 ? 1 : 0;
+    (*env)->ReleaseStringUTFChars(env, token, u);
+    return ok;
+}

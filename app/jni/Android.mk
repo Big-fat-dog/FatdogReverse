@@ -191,7 +191,7 @@ include $(BUILD_SHARED_LIBRARY)
 # KL15
 include $(CLEAR_VARS)
 LOCAL_MODULE := shale
-LOCAL_SRC_FILES := shale.c
+LOCAL_SRC_FILES := shale.c shale_baseline.c
 LOCAL_LDLIBS := -llog
 include $(BUILD_SHARED_LIBRARY)
 
@@ -309,6 +309,14 @@ include $(BUILD_SHARED_LIBRARY)
 include $(CLEAR_VARS)
 LOCAL_MODULE := kkl3
 LOCAL_SRC_FILES := kkl3.cpp
+LOCAL_CPPFLAGS := -std=c++17 -fexceptions -frtti
+LOCAL_LDLIBS := -llog
+include $(BUILD_SHARED_LIBRARY)
+
+# KKL4
+include $(CLEAR_VARS)
+LOCAL_MODULE := kkl4
+LOCAL_SRC_FILES := kkl4.cpp kkl4_baseline.c
 LOCAL_CPPFLAGS := -std=c++17 -fexceptions -frtti
 LOCAL_LDLIBS := -llog
 include $(BUILD_SHARED_LIBRARY)

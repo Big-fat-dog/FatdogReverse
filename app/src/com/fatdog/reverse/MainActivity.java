@@ -42,7 +42,7 @@ public class MainActivity extends Activity {
             {R.id.btn_t21, R.id.btn_p22, R.id.btn_w23, R.id.btn_g24, R.id.btn_n25, R.id.btn_m26, R.id.btn_f27},
             {R.id.btn_l28, R.id.btn_l29, R.id.btn_l30, R.id.btn_l31, R.id.btn_l32, R.id.btn_l33, R.id.btn_l34, R.id.btn_l35, R.id.btn_l36, R.id.btn_l37},
             {R.id.btn_l43, R.id.btn_l44, R.id.btn_l45, R.id.btn_l46, R.id.btn_l47},
-            {R.id.btn_l48, R.id.btn_l49, R.id.btn_l50, R.id.btn_l51},
+            {R.id.btn_l48, R.id.btn_l49, R.id.btn_l50, R.id.btn_l51, R.id.btn_l52, R.id.btn_l53},
     };
 
     private FrameLayout host;
@@ -551,7 +551,7 @@ public class MainActivity extends Activity {
                         : (kl == 12 ? t49Activity.class
                         : (kl == 13 ? u50Activity.class
                         : (kl == 14 ? v51Activity.class
-                        : (kl == 15 ? x52Activity.class : null))));
+                        : (kl == 15 ? kl15Activity.class : null))));
                 if (target != null) {
                     b.setOnClickListener(new View.OnClickListener() {
                         @Override public void onClick(View v) {
@@ -590,7 +590,7 @@ public class MainActivity extends Activity {
             }
             /* KKL1-5（追加于太玄之初，编号独立） */
             String[] kklNames = {"玄冥渊", "万剑冢", "断魂谷", "锁妖塔", "诛仙台"};
-            Class<?>[] kklTargets = {kkl1Activity.class, kkl2Activity.class, kkl3Activity.class, null, null};
+            Class<?>[] kklTargets = {kkl1Activity.class, kkl2Activity.class, kkl3Activity.class, kkl4Activity.class, null};
 
             for (int i = 0; i < kklNames.length; i++) {
                 final String kklKey = "KKL" + (i + 1);

@@ -56,7 +56,7 @@ public class x53Activity extends Activity {
 
     private static final int PAGES = 100;
     private static final int PER_PAGE = 10;
-    private static final String SUM_HASH = "c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3d4";
+    private static final String SUM_HASH = "070cf7dceebe34d383de3862873f41afb575201be268d7b36ffb672a301cca35";
 
     private OkHttpClient client;
     private String base;
@@ -310,7 +310,7 @@ public class x53Activity extends Activity {
                     String rspBody = rsp.body().string();
                     org.json.JSONObject obj = new org.json.JSONObject(rspBody);
                     String hex = obj.optString("d", "");
-                    String json = Bk53.nativeEnc(hex, 3);
+                    String json = Bk53.nativeRc4Decrypt(hex);
                     org.json.JSONObject pageObj = new org.json.JSONObject(json);
                     org.json.JSONArray arr = pageObj.optJSONArray("nums");
                     final int[] nums = new int[arr.length()];

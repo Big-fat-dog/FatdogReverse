@@ -94,6 +94,7 @@ APK 结构刻意做得和真实 App 一致：图标（5 种密度）、XML 布�
 | KKL1 | 玄冥渊 | ★☆ | 壳系列开篇（C++17）：vtable 派发取抽取表 + 指令抽取回填 + 真标记 UTF-16 藏匿 | 认三张虚表找真身 → 还原抽取表 → 解密回填 → 提交 SHA-256(seed) | hallow | hollow | libkkl1.so |
 | KKL2 | 万剑冢 | ★★ | 真 DEX 加密埋 assets（假壳伴生）：JNI 动态注册解 dex + InMemoryDexClassLoader 内存加载 + HMAC 密钥 UTF-16 派生 | 还原解密链 / hook nativeUnseal → dump dex → 拿 key → HMAC 取 100 页求和 | tense | timid | libkkl2.so |
 | KKL3 | 断魂谷 | ★★★ | 四路哨兵（TracerPid/maps/端口/线程名）守取数签名：命中即 HMAC 密钥翻转 1 bit，服务端静默 403 | 绕哨兵取数 / 静态还原 UTF-16 真标记派生密钥 | quell | quiet | libkkl3.so |
+| KKL4 | 锁妖塔 | ★★★★ | 可执行段 CRC 自校验（读 maps 自算，四组导出窗口）+ 三点记账守卫（open/sign/native 回调互核）：patch 任一函数或 inline hook 校验器即密钥投毒，服务端静默 403 | 还原真标记派生密钥取数 / 完整重建记账与 CRC 链路 | grit | grim | libkkl4.so |
 
 每关的**解题思路分级提示**见下方折叠块；完整题解（含 Python 复刻代码与 Frida 脚本）在 `SOLUTIONS.md`（建议先自己练）。
 
@@ -136,7 +137,7 @@ adb install -r FatdogReverse-patched.apk
 
 主页还显示当前境界的描述、进度条（█/░）和"再通 X 关迈入下一境界"的提示。**化神起境界徽章带柔和呼吸光晕**（低透明度慢节奏脉动，不刺眼）；终点"独断万古"独占深空鎏金渐变徽章与金色光晕。
 
-主页分类条共五个：基本情况 / 太古禁地 / 神念自察 / 昔日枷锁 / 前世今生。昔日枷锁是天地秘境通关故事的阅读器（按通关解锁）；前世今生是进度修复页：输入命令 Fatdog 进入后，L1-L47、KL1-KL30、KKL1-KKL3 逐关点选即可补回通关记录，再点一次可撤销。进入关卡仍走底部「天地秘境」页签，昆仑山五关已开放，流沙河分区已开篇（KL6 起，编号接续昆仑山）。
+主页分类条共五个：基本情况 / 太古禁地 / 神念自察 / 昔日枷锁 / 前世今生。昔日枷锁是天地秘境通关故事的阅读器（按通关解锁）；前世今生是进度修复页：输入命令 Fatdog 进入后，L1-L47、KL1-KL30、KKL1-KKL4 逐关点选即可补回通关记录，再点一次可撤销。进入关卡仍走底部「天地秘境」页签，昆仑山五关已开放，流沙河分区已开篇（KL6 起，编号接续昆仑山）。
 
 天地秘境目前已开放六个分区：昆仑山（KL1-5）、流沙河（KL6-10）、幽冥海（KL11-15）、太玄之初（KL16-20）、扶桑树（KL21-28）、天机阁（KL29 起，编号接续扶桑树）。
 
@@ -657,8 +658,9 @@ license 链路：`base64 → AES解密(密钥A在XBox) → AES解密(密钥B在M
 - **标记变更（自 L28 起）**：密钥/口令等标记弃用 `fatdemo_` 前缀，改用 `Fatdog_<情绪词>`（情绪词用尽换动词，如 `Fatdog_unhappy` / `Fatdog_sneak`）；L1-27 保持不变，完整规范见 `SKILL.md` §四
 - 天地秘境·幽冥海分区：KL11-KL15 五关已落地（SO patch 对抗五连关，入口在天地秘境「幽冥海」页签；后续太玄之初规划见 PLANNED.md）
 - 天地秘境·太玄之初分区：KL16-KL20 已落地（一代壳+二代壳+OLLVM+VMP+三代壳综合收官卷，入口在天地秘境「太玄之初」页签）
-- 天地秘境·太玄之初分区（C++ 壳系列）：KKL1 玄冥渊已落地（vtable 派发 + 指令抽取回填，`libkkl1.so` + `libc++_shared.so`；KKL2-5 万剑冢/断魂谷/锁妖塔/诛仙台均按 PLANNED.md 顺序推进）
+- 天地秘境·太玄之初分区（C++ 壳系列）：KKL1 玄冥渊已落地（vtable 派发 + 指令抽取回填，`libkkl1.so` + `libc++_shared.so`；KKL2-KKL4 万剑冢/断魂谷/锁妖塔也已落地，KKL5 诛仙台按 PLANNED.md 顺序推进）
 - 天地秘境·太玄之初分区（C++ 壳系列）：KKL2 万剑冢已落地（真 DEX 加密埋 assets → `libkkl2.so` 动态注册解 dex → `InMemoryDexClassLoader` 内存加载 → `/api/kkl2` 验 HMAC 取数，100 页求和 49755）
 - 天地秘境·太玄之初分区（C++ 壳系列）：KKL3 断魂谷已落地（四路哨兵守取数签名 → `libkkl3.so` 命中即静默投毒 → `/api/kkl3` 403 断数，真标记 UTF-16 藏匿，100 页求和 52219）
+- 天地秘境·太玄之初分区（C++ 壳系列）：KKL4 锁妖塔已落地（`libkkl4.so` 读 `/proc/self/maps` 做四组导出窗口 CRC 自校验 + open/sign/native 回调三点记账，任一被 patch/inline hook 即密钥投毒 → `/api/kkl4` 403 断数，真标记 UTF-16 藏匿，100 页求和 51434）
 
 - 天地秘境·天机阁分区：KL29 暗流涌动、KL30 天机织锦已落地（二进制协议逆向两连关，入口在天地秘境「天机阁」页签；KL31-35 规划见 PLANNED.md）

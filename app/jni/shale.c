@@ -12,12 +12,23 @@
  *
  * 标记（真）：Fatdog_pact  — UTF-16 码元。
  * 诱饵（假）：Fatdog_packed — 一字之差。
+ *
+ * nativeGuard 叠了一层真实代码段 CRC：窗口从本函数起始的
+ * KL15_SHALE_CRC_WINDOW 字节在编译期烘焙基线。静态 patch 窗口内任意
+ * 指令都会让校验失败；Frida 纯运行时 hook（不改字节）不受影响。
  */
 #include <jni.h>
 #include <stdint.h>
 #include <string.h>
 #include <unistd.h>
 #include <sys/ptrace.h>
+#include "shale_crc_baseline.h"
+
+/* 代码段 CRC 基线由独立翻译单元 shale_baseline.c 提供。 */
+extern const uint32_t kShaleCrcBaseline;
+
+JNIEXPORT jint JNICALL
+Java_com_fatdog_reverse_Am_nativeGuard(JNIEnv *env, jclass clazz, jint input);
 
 /* --- 真标记：Fatdog_pact（UTF-16LE 码元） --- */
 static const jchar MARKER[] = {
@@ -97,28 +108,12 @@ static uint32_t crc32(const uint8_t *d, int l){
 
 /* --- 反调试 --- */
 static int anti_debug(void){
-    return (ptrace(PTRACE_TRACEME,0,0,0)!=-1)?1:0;
+    return ptrace(PTRACE_TRACEME,0,0,0)==-1?0:1;
 }
 
-/* --- CRC 校验 --- */
-static uint32_t crc_base=0;
-static void init_crc(void){
-    uint8_t buf[64]; int o=0; uint32_t v;
-    memcpy(buf,MARKER,sizeof(MARKER)); o+=sizeof(MARKER);
-    v=MAGIC; memcpy(buf+o,&v,4); o+=4;
-    v=XOR_K; memcpy(buf+o,&v,4); o+=4;
-    v=SEED;  memcpy(buf+o,&v,4); o+=4;
-    memcpy(buf+o,KX,8); o+=8;
-    crc_base=crc32(buf,o);
-}
-static int chk_crc(void){
-    uint8_t buf[64]; int o=0; uint32_t v;
-    memcpy(buf,MARKER,sizeof(MARKER)); o+=sizeof(MARKER);
-    v=MAGIC; memcpy(buf+o,&v,4); o+=4;
-    v=XOR_K; memcpy(buf+o,&v,4); o+=4;
-    v=SEED;  memcpy(buf+o,&v,4); o+=4;
-    memcpy(buf+o,KX,8); o+=8;
-    return crc32(buf,o)==crc_base;
+static int verify_shale_crc(void){
+    const uint8_t *code=(const uint8_t *)(uintptr_t)Java_com_fatdog_reverse_Am_nativeGuard;
+    return crc32(code,KL15_SHALE_CRC_WINDOW)==kShaleCrcBaseline;
 }
 
 /*
@@ -179,10 +174,8 @@ void m14_spin(void){}
 JNIEXPORT jint JNICALL
 Java_com_fatdog_reverse_Am_nativeGuard(JNIEnv *env, jclass clazz, jint input){
     (void)env;(void)clazz;
-    static int inited=0;
-    if(!inited){init_crc();inited=1;}
     if(!anti_debug()) return -1;
-    if(!chk_crc()) return -2;
+    if(!verify_shale_crc()) return -2;
     (void)input;
     return 1;
 }
@@ -191,8 +184,6 @@ Java_com_fatdog_reverse_Am_nativeGuard(JNIEnv *env, jclass clazz, jint input){
 JNIEXPORT jint JNICALL
 Java_com_fatdog_reverse_Am_nativeComputeA(JNIEnv *env, jclass clazz){
     (void)env;(void)clazz;
-    static int inited=0;
-    if(!inited){init_crc();inited=1;}
     return (jint)calc_a();
 }
 
@@ -214,8 +205,7 @@ Java_com_fatdog_reverse_Am_nativeComputeC(JNIEnv *env, jclass clazz, jint a, jin
 JNIEXPORT jint JNICALL
 Java_com_fatdog_reverse_Am_nativeVerify(JNIEnv *env, jclass clazz, jint a, jint b, jint c){
     (void)env;(void)clazz;
-    static int inited=0;
-    if(!inited){init_crc();inited=1;}
+    if(!verify_shale_crc()) return -2;
     return (jint)do_verify((uint32_t)a,(uint32_t)b,(uint32_t)c);
 }
 

@@ -21,6 +21,8 @@ public final class Bk53 {
 
     public static native String nativeEnc(String data, int algo);
 
+    public static native String nativeRc4Decrypt(String hex);
+
     public static native String nativeGetServiceInfo();
 
     public static native int nativeBusinessOp(int op, int arg);

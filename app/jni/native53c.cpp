@@ -218,24 +218,24 @@ static std::string rc4_crypt(const uint8_t* key, int key_len, const std::string&
 }
 
 // ==================== 密钥分散存储 ====================
-// 混淆数组 A：与 K53_AES_KEY 异或后 = "Fatdog_aes_key_k53" (18 bytes → 截取 16)
-static const uint8_t K53_AES_OBFUSC_A[] = {
-    0x42,0x62,0x71,0x64,0x6E,0x66,0x52,0x45,
-    0x4F,0x70,0x67,0x4E,0x69,0x66,0x41,0x70
+// 混淆数组 A：^0x3C 还原 = "Fatdog_aes_key_\x00"（16 bytes）
+uint8_t K53_AES_OBFUSC_A[] = {
+    0x7a,0x5d,0x48,0x58,0x53,0x5b,0x63,0x5d,
+    0x59,0x4f,0x63,0x57,0x59,0x45,0x63,0x3c
 };
 static const uint8_t K53_AES_XOR_A = 0x3C;
 
-// 混淆数组 B：与 K53_HMAC_KEY 异或后 = "Fatdog_hmac_k53" (15 bytes → 16 with pad)
-static const uint8_t K53_HMAC_OBFUSC_B[] = {
-    0x42,0x62,0x71,0x64,0x6E,0x66,0x57,0x41,
-    0x4C,0x70,0x67,0x00,0x00,0x00,0x00,0x00
+// 混淆数组 B：^0x3C 还原 = "Fatdog_hmac_k53\x00"（16 bytes）
+uint8_t K53_HMAC_OBFUSC_B[] = {
+    0x7a,0x5d,0x48,0x58,0x53,0x5b,0x63,0x54,
+    0x51,0x5d,0x5f,0x63,0x57,0x09,0x0f,0x3c
 };
 static const uint8_t K53_HMAC_XOR_B = 0x3C;
 
-// 混淆数组 C：与 K53_RC4_KEY 异或后 = "Fatdog_rc4_k53" (14 bytes → 16 with pad)
-static const uint8_t K53_RC4_OBFUSC_C[] = {
-    0x42,0x62,0x71,0x64,0x6E,0x66,0x55,0x41,
-    0x4D,0x70,0x67,0x00,0x00,0x00,0x00,0x00
+// 混淆数组 C：^0x3C 还原 = "Fatdog_rc4_k53\x00\x00"（16 bytes）
+uint8_t K53_RC4_OBFUSC_C[] = {
+    0x7a,0x5d,0x48,0x58,0x53,0x5b,0x63,0x4e,
+    0x5f,0x08,0x63,0x57,0x09,0x0f,0x3c,0x3c
 };
 static const uint8_t K53_RC4_XOR_C = 0x3C;
 
@@ -272,19 +272,28 @@ static void ensure_keys() {
     g_keys_init = true;
 }
 
+
+static void build_feistel_key(uint8_t aes_key[16]) {
+    ensure_keys();
+    memcpy(aes_key, g_aes_key, 16);
+    // FK 按大端逐字节异或，与 Python/server 端一致
+    for (int i = 0; i < 4; i++) {
+        uint32_t val = ((uint32_t)aes_key[i * 4] << 24) |
+                       ((uint32_t)aes_key[i * 4 + 1] << 16) |
+                       ((uint32_t)aes_key[i * 4 + 2] << 8) |
+                       aes_key[i * 4 + 3];
+        val = fk_transform(val, i);
+        aes_key[i * 4] = (val >> 24) & 0xFF;
+        aes_key[i * 4 + 1] = (val >> 16) & 0xFF;
+        aes_key[i * 4 + 2] = (val >> 8) & 0xFF;
+        aes_key[i * 4 + 3] = val & 0xFF;
+    }
+}
+
 // 魔改 AES 加密（AES S盒替换 + FK 异或 + Feistel）
 std::string aesEncrypt(const std::string& data) {
-    ensure_keys();
     uint8_t aes_key[16];
-    memcpy(aes_key, g_aes_key, 16);
-
-    // FK 异或混淆
-    for (int i = 0; i < 4; i++) {
-        uint32_t* p = reinterpret_cast<uint32_t*>(aes_key + i * 4);
-        *p = fk_transform(*p, i);
-    }
-
-    // Feistel 加密
+    build_feistel_key(aes_key);
     return feistel_encrypt(data, aes_key);
 }
 
@@ -313,6 +322,29 @@ const uint8_t* getAesKeyC() {
 const uint8_t* getRc4KeyC() {
     ensure_keys();
     return g_rc4_key;
+}
+
+int k53FeistelEncrypt(const uint8_t* in, int inLen, uint8_t* out, int outCap, int* outLen) {
+    ensure_keys();
+    if (!out || !outLen || inLen < 0) return -1;
+    uint8_t aes_key[16];
+    build_feistel_key(aes_key);
+    std::string raw(inLen > 0 ? (const char*)in : "", inLen > 0 ? inLen : 0);
+    std::string enc = feistel_encrypt(raw, aes_key);
+    if ((int)enc.size() > outCap) return -2;
+    memcpy(out, enc.data(), enc.size());
+    *outLen = (int)enc.size();
+    return 0;
+}
+
+int k53Rc4Crypt(const uint8_t* in, int inLen, uint8_t* out, int outCap, int* outLen) {
+    ensure_keys();
+    if (!out || !outLen || inLen < 0 || inLen > outCap) return -1;
+    std::string raw(inLen > 0 ? (const char*)in : "", inLen > 0 ? inLen : 0);
+    std::string enc = rc4_crypt(g_rc4_key, 16, raw);
+    memcpy(out, enc.data(), enc.size());
+    *outLen = inLen;
+    return 0;
 }
 
 }  // extern "C"

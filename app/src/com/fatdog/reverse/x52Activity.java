@@ -53,7 +53,7 @@ public class x52Activity extends Activity {
 
     private static final int PAGES = 100;
     private static final int PER_PAGE = 10;
-    private static final String SUM_HASH = "f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8";
+    private static final String SUM_HASH = "47cb5641288711d579bff008be98e623ef2ee8d37a22fba400b3cf7ad041e245";
 
     private OkHttpClient client;
     private String base;
@@ -282,7 +282,7 @@ public class x52Activity extends Activity {
         loading = true;
         status.setText("正在请求第 " + page + " 页…");
         final long ts = System.currentTimeMillis() / 1000;
-        String enc = Bk52.nativeEnc(page + "|" + ts);
+        String enc = Bk52.nativeEnc("page=" + page + "&ts=" + ts);
         String sign = Bk52.nativeSign(page, (int) ts);
         String url = base + "/api/l52?page=" + page + "&ts=" + ts + "&enc=" + enc + "&sign=" + sign;
         Request req = new Request.Builder().url(url).get().build();

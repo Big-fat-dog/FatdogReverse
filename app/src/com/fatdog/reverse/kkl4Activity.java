@@ -1,0 +1,303 @@
+package com.fatdog.reverse;
+
+import android.app.Activity;
+import android.app.AlertDialog;
+import android.graphics.Color;
+import android.graphics.Typeface;
+import android.graphics.drawable.GradientDrawable;
+import android.os.Bundle;
+import android.view.Gravity;
+import android.view.View;
+import android.widget.Button;
+import android.widget.EditText;
+import android.widget.GridLayout;
+import android.widget.HorizontalScrollView;
+import android.widget.LinearLayout;
+import android.widget.TextView;
+import android.widget.Toast;
+
+import org.json.JSONArray;
+import org.json.JSONObject;
+
+import java.util.concurrent.TimeUnit;
+
+import okhttp3.OkHttpClient;
+import okhttp3.Request;
+import okhttp3.Response;
+
+// 太玄之初 KKL4 · 锁妖塔（★★★★，服务端取数）。
+// libkkl4.so 用可执行段 CRC 自校验 + 三点记账守卫守护取数 HMAC：
+// 任一函数被 patch/inline hook，后续签名密钥即被投毒，服务端恒 403。
+public class kkl4Activity extends Activity {
+    static final String SUM_HASH = "6e769234a6eaaeb3118e6444cb116fb4f72935cd7f947400c1eee0bee368c62b";
+    static final int PAGES = 100;
+    static final int PER_PAGE = 10;
+
+    private TextView status;
+    private final TextView[] cells = new TextView[10];
+    private LinearLayout pageBar;
+    private int currentPage = 1;
+    private boolean loading = false;
+    private String base;
+    private OkHttpClient client;
+
+    @Override
+    protected void onCreate(Bundle b) {
+        super.onCreate(b);
+        base = NetHost.httpBase();
+        client = new OkHttpClient.Builder()
+                .connectTimeout(5, TimeUnit.SECONDS)
+                .readTimeout(5, TimeUnit.SECONDS)
+                .build();
+
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setGravity(Gravity.CENTER_HORIZONTAL);
+        root.setPadding(Ui.dp(16), Ui.dp(20), Ui.dp(16), Ui.dp(12));
+
+        TextView tv = new TextView(this);
+        tv.setText("KKL4 · 锁妖塔（★★★★）\n\n"
+                + "libkkl4.so 代码段 CRC 自校验 + 三点记账守卫：\n"
+                + "  ① nativeOpen 开门记账\n"
+                + "  ② nativeSign 取数前核账\n"
+                + "  ③ native 回调交叉核账\n\n"
+                + "任一窗口被 patch/inline hook，签名密钥立即投毒——\n"
+                + "服务端验签 403，数据仍在服务端。");
+        tv.setGravity(Gravity.CENTER);
+        root.addView(tv, Ui.wrap(6));
+
+        status = new TextView(this);
+        status.setText("点击「守卫自检」查看状态，翻页即触发真实签名。");
+        status.setTextColor(Color.LTGRAY);
+        status.setTypeface(Typeface.MONOSPACE);
+        status.setTextSize(12);
+        status.setGravity(Gravity.CENTER);
+        root.addView(status, Ui.fullWidth(6));
+
+        Button scanBtn = new Button(this);
+        scanBtn.setText("守卫自检");
+        Ui.styleButton(scanBtn);
+        scanBtn.setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View v) {
+                status.setText(Kkl4Native.nativeStatus());
+            }
+        });
+        root.addView(scanBtn, Ui.wrap(10));
+
+        // 数字网格：5 列 x 2 行
+        GridLayout grid = new GridLayout(this);
+        grid.setColumnCount(5);
+        grid.setRowCount(2);
+        for (int i = 0; i < 10; i++) {
+            TextView c = new TextView(this);
+            c.setGravity(Gravity.CENTER);
+            c.setTextSize(17);
+            c.setTypeface(Typeface.DEFAULT_BOLD);
+            c.setTextColor(0xFFECECF2);
+            GradientDrawable bg = new GradientDrawable();
+            bg.setShape(GradientDrawable.RECTANGLE);
+            bg.setCornerRadius(Ui.dp(10));
+            bg.setColor(0xFF24242B);
+            c.setBackground(bg);
+            c.setPadding(0, Ui.dp(8), 0, Ui.dp(8));
+            GridLayout.LayoutParams lp = new GridLayout.LayoutParams();
+            lp.width = 0;
+            lp.height = GridLayout.LayoutParams.WRAP_CONTENT;
+            lp.columnSpec = GridLayout.spec(i % 5, 1f);
+            lp.rowSpec = GridLayout.spec(i / 5);
+            lp.setMargins(Ui.dp(3), Ui.dp(3), Ui.dp(3), Ui.dp(3));
+            grid.addView(c, lp);
+            cells[i] = c;
+        }
+        root.addView(grid, Ui.fullWidth(12));
+
+        // 分页
+        LinearLayout navRow = new LinearLayout(this);
+        navRow.setOrientation(LinearLayout.HORIZONTAL);
+        navRow.setGravity(Gravity.CENTER_VERTICAL);
+        Button prev = new Button(this);
+        prev.setText("◀ 上一页");
+        Ui.styleButton(prev);
+        navRow.addView(prev, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+        prev.setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View v) {
+                if (!loading && currentPage > 1) loadPage(currentPage - 1);
+            }
+        });
+        HorizontalScrollView hsv = new HorizontalScrollView(this);
+        hsv.setHorizontalScrollBarEnabled(false);
+        pageBar = new LinearLayout(this);
+        pageBar.setOrientation(LinearLayout.HORIZONTAL);
+        hsv.addView(pageBar);
+        navRow.addView(hsv, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+        Button next = new Button(this);
+        next.setText("下一页 ▶");
+        Ui.styleButton(next);
+        navRow.addView(next, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+        next.setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View v) {
+                if (!loading && currentPage < PAGES) loadPage(currentPage + 1);
+            }
+        });
+        root.addView(navRow, Ui.fullWidth(10));
+
+        final EditText ansIn = new EditText(this);
+        ansIn.setHint("输入总和 sha256（64 位 hex）");
+        ansIn.setTextColor(Color.WHITE);
+        ansIn.setTypeface(Typeface.MONOSPACE);
+        ansIn.setBackgroundColor(0x33FFFFFF);
+        int pad = Ui.dp(10);
+        ansIn.setPadding(pad, pad, pad, pad);
+        root.addView(ansIn, Ui.fullWidth(10));
+
+        Button subBtn = new Button(this);
+        subBtn.setText("提交答案");
+        Ui.styleButton(subBtn);
+        subBtn.setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View v) {
+                String ans = ansIn.getText().toString().trim();
+                if (ans.isEmpty()) {
+                    Toast.makeText(kkl4Activity.this, "请输入答案", Toast.LENGTH_SHORT).show();
+                    return;
+                }
+                if (ans.equalsIgnoreCase(SUM_HASH)) {
+                    Celebration.show(kkl4Activity.this, "FLAG_18_KKL4{tower_of_the_sealed}");
+                    PassLog.mark(kkl4Activity.this, "KKL4");
+                } else {
+                    Toast.makeText(kkl4Activity.this, "加和不对，先取回全部 100 页。", Toast.LENGTH_SHORT).show();
+                }
+            }
+        });
+        root.addView(subBtn, Ui.wrap(10));
+
+        Button hint = new Button(this);
+        hint.setText("提示");
+        Ui.styleButton(hint);
+        hint.setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View v) {
+                new AlertDialog.Builder(kkl4Activity.this)
+                        .setTitle("提示")
+                        .setMessage("锁妖塔守的是「签名前的完整性」，不是结果判断：\n\n"
+                                + "① 无 patch/hook 时，三点记账逐页闭合，翻页可取数；\n"
+                                + "② patch 任一函数或 inline hook 校验器都会改变代码字节，\n"
+                                + "   后续签名被投毒，服务端静默 403；\n"
+                                + "③ 绕法分两类：还原真标记派生 HMAC 后直接取数，\n"
+                                + "   或完整重建记账与 CRC 链路；\n"
+                                + "④ 两个标记中有一个是诱饵，仔细对比拼写差异。\n\n"
+                                + "取证注意：真机关在 nativeSign，自检按钮不判胜。")
+                        .setPositiveButton("知道了", null)
+                        .show();
+            }
+        });
+        root.addView(hint, Ui.wrap(8));
+        root.addView(Ui.banner(this, R.drawable.level_kkl4, 140));
+
+        setContentView(Ui.wrapScroll(root));
+        ThemeKit.apply(this);
+
+        int opened = Kkl4Native.nativeOpen();
+        if (opened == 0) {
+            loadPage(1);
+        } else {
+            status.setText("开门记账失败（守卫返回 " + opened
+                    + "）。可能 so 被 patch 过，重启进程后再试。");
+        }
+    }
+
+    private void loadPage(final int page) {
+        if (loading) return;
+        loading = true;
+        runOnUiThread(new Runnable() {
+            @Override public void run() { status.setText("正在请求第 " + page + " 页…"); }
+        });
+        new Thread(new Runnable() {
+            @Override public void run() {
+                try {
+                    final long ts = System.currentTimeMillis() / 1000;
+                    final String sign = Kkl4Native.nativeSign(page, ts);
+                    final String url = base + "/api/kkl4?page=" + page + "&ts=" + ts + "&sign=" + sign;
+                    Request req = new Request.Builder().url(url)
+                            .header("User-Agent", "Fatdog/1.0 (Android)")
+                            .get().build();
+                    Response resp = client.newCall(req).execute();
+                    final int[] nums;
+                    try {
+                        if (!resp.isSuccessful()) {
+                            throw new IllegalStateException("HTTP " + resp.code()
+                                    + "（守卫被触发或标记用错，密钥可能已被投毒）");
+                        }
+                        JSONObject jo = new JSONObject(resp.body().string());
+                        JSONArray arr = jo.getJSONArray("nums");
+                        nums = new int[arr.length()];
+                        for (int i = 0; i < arr.length(); i++) nums[i] = arr.getInt(i);
+                    } finally {
+                        resp.close();
+                    }
+                    final int commit = Kkl4Native.nativeCommit(page, nums.length);
+                    runOnUiThread(new Runnable() {
+                        @Override public void run() {
+                            loading = false;
+                            currentPage = page;
+                            render(nums);
+                            renderNav(page);
+                            status.setText("第 " + page + "/" + PAGES + " 页已取，"
+                                    + nums.length + " 个数"
+                                    + (commit == 0 ? "（记账闭合）" : "（回调核账失败 " + commit + "）"));
+                        }
+                    });
+                } catch (final Throwable t) {
+                    Kkl4Native.nativeRollback();
+                    runOnUiThread(new Runnable() {
+                        @Override public void run() {
+                            loading = false;
+                            status.setText("请求失败: " + t + "\n已撤销挂账，可重试。");
+                        }
+                    });
+                }
+            }
+        }).start();
+    }
+
+    private void render(int[] nums) {
+        for (int i = 0; i < cells.length; i++) {
+            if (i < nums.length) {
+                cells[i].setText(String.valueOf(nums[i]));
+                cells[i].setVisibility(View.VISIBLE);
+            } else {
+                cells[i].setVisibility(View.INVISIBLE);
+            }
+        }
+    }
+
+    private void renderNav(int page) {
+        pageBar.removeAllViews();
+        int win = 3;
+        int start = Math.max(1, page - win);
+        int end = Math.min(PAGES, page + win);
+        for (int p = start; p <= end; p++) {
+            final int fp = p;
+            TextView chip = new TextView(this);
+            chip.setText(String.valueOf(p));
+            chip.setTextSize(14);
+            chip.setTypeface(Typeface.DEFAULT_BOLD);
+            chip.setGravity(Gravity.CENTER);
+            chip.setPadding(Ui.dp(12), Ui.dp(6), Ui.dp(12), Ui.dp(6));
+            GradientDrawable g = new GradientDrawable();
+            g.setShape(GradientDrawable.RECTANGLE);
+            g.setCornerRadius(Ui.dp(14));
+            boolean sel = (p == page);
+            g.setColor(sel ? 0xFFFB7299 : (ThemeKit.isDark(this) ? 0xFF2A2A33 : 0xFFF1F1F4));
+            chip.setBackground(g);
+            chip.setTextColor(sel ? 0xFFFFFFFF : (ThemeKit.isDark(this) ? 0xFFD8D8E0 : 0xFF3A3A42));
+            chip.setOnClickListener(new View.OnClickListener() {
+                @Override public void onClick(View v) {
+                    if (!loading && fp != currentPage) loadPage(fp);
+                }
+            });
+            pageBar.addView(chip, new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+        }
+    }
+}

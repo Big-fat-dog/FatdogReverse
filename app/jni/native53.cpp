@@ -16,15 +16,15 @@
 #include <dlfcn.h>
 #include <stdexcept>
 #include <android/log.h>
+#include <vector>
 
 #define LOG_TAG "native53"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
 
 // ==================== dlopen 函数指针类型 ====================
 typedef const uint8_t* (*get_key_func)();
-typedef std::string (*encrypt_func)(const std::string&);
-typedef std::string (*sign_func)(const std::string&);
-typedef std::string (*rc4_func)(const uint8_t*, int, const std::string&);
+typedef int (*feistel_core_fn)(const uint8_t*, int, uint8_t*, int, int*);
+typedef int (*rc4_core_fn)(const uint8_t*, int, uint8_t*, int, int*);
 
 // ==================== 异常控制流：ErrorHandler ====================
 class ErrorHandler {
@@ -98,25 +98,27 @@ public:
     std::string name() const override { return "xor"; }
 };
 
+static std::string core_feistel_encrypt(const std::string& data);
+
+// 真加密器：还原 ErrorHandler 的 XOR 掩码后调用 libnative53c.so 的 Feistel 核心
+class AesFeistelEngine : public ICipher {
+public:
+    std::string encrypt(const std::string& data) override {
+        std::string plain = data;
+        for (size_t i = 0; i < plain.size(); i++) plain[i] ^= 0x5A;
+        return core_feistel_encrypt(plain);
+    }
+    std::string name() const override { return "aes53"; }
+};
+
 class CipherFactory {
 public:
     // 根据 algo_id 创建加密器——vtable 分发
     static ICipher* create(int algo_id) {
-        // 真加密器从 libnative53c.so 获取
-        void* handle = dlopen("libnative53c.so", RTLD_NOW);
-        if (handle) {
-            typedef ICipher* (*create_func)();
-            create_func fn = (create_func)dlsym(handle, "createAesEngine");
-            if (fn) {
-                ICipher* cipher = fn();
-                if (cipher) return cipher;
-            }
-            dlclose(handle);
-        }
+        if (algo_id == 1 || algo_id == 2) return new AesFeistelEngine();
         // fallback：返回诱饵
         switch (algo_id) {
             case 0: return new NullCipher();
-            case 1: return new XorCipher(0x5A);
             default: return new NullCipher();
         }
     }
@@ -189,9 +191,10 @@ static std::string hmac_sha256(const std::string& key, const std::string& msg) {
 }
 
 // ==================== XOR 密钥（本地 fallback） ====================
-static const uint8_t K53_HMAC_XOR[] = {
-    0x46,0x61,0x74,0x64,0x6F,0x67,0x5F,0x66,  // "Fatdog_f"
-    0x69,0x72,0x65,0x5F,0x6B,0x65,0x79,0x5F   // "ire_key_"
+// ==================== XOR 密钥（本地 fallback，正常由 libnative53c 提供） ====================
+uint8_t K53_HMAC_XOR[] = {
+    0x7a,0x5d,0x48,0x58,0x53,0x5b,0x63,0x54,
+    0x51,0x5d,0x5f,0x63,0x57,0x09,0x0f,0x3c
 };
 static const uint8_t K53_XOR = 0x3C;
 
@@ -199,6 +202,29 @@ static std::string get_hmac_key_local() {
     std::string key(16, '\0');
     for (int i = 0; i < 16; i++) key[i] = K53_HMAC_XOR[i] ^ K53_XOR;
     return key;
+}
+
+static void* g_53c_handle = nullptr;
+static feistel_core_fn g_feistel_fn = nullptr;
+static rc4_core_fn g_rc4_fn = nullptr;
+
+static void ensure53cCore() {
+    if (g_53c_handle) return;
+    g_53c_handle = dlopen("libnative53c.so", RTLD_NOW);
+    if (!g_53c_handle) return;
+    g_feistel_fn = (feistel_core_fn)dlsym(g_53c_handle, "k53FeistelEncrypt");
+    g_rc4_fn = (rc4_core_fn)dlsym(g_53c_handle, "k53Rc4Crypt");
+}
+
+static std::string core_feistel_encrypt(const std::string& data) {
+    ensure53cCore();
+    if (!g_feistel_fn) return "";
+    std::vector<uint8_t> out(data.size() + 32);
+    int outLen = 0;
+    if (g_feistel_fn((const uint8_t*)data.data(), (int)data.size(),
+                     out.data(), (int)out.size(), &outLen) != 0 || outLen <= 0)
+        return "";
+    return std::string((const char*)out.data(), outLen);
 }
 
 // ==================== 深层调用栈辅助函数 ====================
@@ -213,17 +239,10 @@ static std::string k53_dispatch(int algo_id, const std::string& data) {
     return result;
 }
 
-// ==================== JNI 入口 ====================
+// ==================== JNI 函数（静态命名 → RegisterNatives 动态绑定） ====================
 static JavaVM* g_jvm = nullptr;
 
-jint JNI_OnLoad(JavaVM* vm, void*) {
-    g_jvm = vm;
-    LOGI("JNI_OnLoad: L53 initialized (final level)");
-    return JNI_VERSION_1_6;
-}
-
-extern "C" JNIEXPORT jstring JNICALL
-Java_com_fatdog_reverse_Bk53_nativeSign(JNIEnv* env, jobject, jstring data) {
+static jstring nativeSign53(JNIEnv* env, jobject, jstring data) {
     const char* cdata = env->GetStringUTFChars(data, nullptr);
     std::string payload(cdata);
     env->ReleaseStringUTFChars(data, cdata);
@@ -247,8 +266,7 @@ Java_com_fatdog_reverse_Bk53_nativeSign(JNIEnv* env, jobject, jstring data) {
     return env->NewStringUTF(hex.c_str());
 }
 
-extern "C" JNIEXPORT jstring JNICALL
-Java_com_fatdog_reverse_Bk53_nativeEnc(JNIEnv* env, jobject, jstring data, jint algo) {
+static jstring nativeEnc53(JNIEnv* env, jobject, jstring data, jint algo) {
     const char* cdata = env->GetStringUTFChars(data, nullptr);
     std::string input(cdata);
     env->ReleaseStringUTFChars(data, cdata);
@@ -259,4 +277,52 @@ Java_com_fatdog_reverse_Bk53_nativeEnc(JNIEnv* env, jobject, jstring data, jint 
     std::string hex;
     for (unsigned char c : enc) { char buf[3]; snprintf(buf, sizeof(buf), "%02x", c); hex += buf; }
     return env->NewStringUTF(hex.c_str());
+}
+
+static int hex_nibble(char c) {
+    if (c >= '0' && c <= '9') return c - '0';
+    if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+    if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+    return -1;
+}
+
+static jstring nativeRc4Decrypt53(JNIEnv* env, jobject, jstring hexData) {
+    const char* cdata = env->GetStringUTFChars(hexData, nullptr);
+    std::string hex(cdata);
+    env->ReleaseStringUTFChars(hexData, cdata);
+    if (hex.size() % 2 != 0) return env->NewStringUTF("");
+    std::vector<uint8_t> in(hex.size() / 2);
+    for (size_t i = 0; i < in.size(); i++) {
+        int hi = hex_nibble(hex[i * 2]);
+        int lo = hex_nibble(hex[i * 2 + 1]);
+        if (hi < 0 || lo < 0) return env->NewStringUTF("");
+        in[i] = (uint8_t)((hi << 4) | lo);
+    }
+    ensure53cCore();
+    if (!g_rc4_fn) return env->NewStringUTF("");
+    std::vector<uint8_t> out(in.size());
+    int outLen = 0;
+    if (g_rc4_fn(in.data(), (int)in.size(), out.data(), (int)out.size(), &outLen) != 0 || outLen <= 0)
+        return env->NewStringUTF("");
+    std::string plain((const char*)out.data(), outLen);
+    return env->NewStringUTF(plain.c_str());
+}
+
+// ==================== RegisterNatives 动态绑定 ====================
+
+static const JNINativeMethod gMethods53[] = {
+    {"nativeSign", "(Ljava/lang/String;)Ljava/lang/String;", (void*)nativeSign53},
+    {"nativeEnc",  "(Ljava/lang/String;I)Ljava/lang/String;", (void*)nativeEnc53},
+    {"nativeRc4Decrypt", "(Ljava/lang/String;)Ljava/lang/String;", (void*)nativeRc4Decrypt53},
+};
+
+extern "C" JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void*) {
+    g_jvm = vm;
+    JNIEnv* env;
+    if (vm->GetEnv(reinterpret_cast<void**>(&env), JNI_VERSION_1_6) != JNI_OK) return JNI_ERR;
+    jclass cls = env->FindClass("com/fatdog/reverse/Bk53");
+    if (!cls) return JNI_ERR;
+    if (env->RegisterNatives(cls, gMethods53, 3) != JNI_OK) return JNI_ERR;
+    LOGI("JNI_OnLoad: L53 initialized (RegisterNatives dynamic)");
+    return JNI_VERSION_1_6;
 }

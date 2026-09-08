@@ -36,7 +36,7 @@ static uint8_t SM52_SBOX[256] = {
     0x8d,0x1b,0xaf,0x92,0xbb,0xdd,0xbc,0x7f,0x11,0xd9,0x5c,0x41,0x1f,0x10,0x5a,0xd8,
     0x0a,0xc1,0x31,0x88,0xa5,0xcd,0x7b,0xbd,0x2d,0x74,0xd0,0x12,0xb8,0xe5,0xb4,0xb0,
     0x89,0x69,0x97,0x4a,0x0c,0x96,0x77,0x7e,0x65,0xb9,0xf1,0x09,0xc5,0x6e,0xc6,0x84,
-    0x18,0xf0,0x7d,0xec,0x3a,0xdc,0x4d,0x20,0x79,0xee,0x5f,0x3e,0xd7,0x50,0x66,0x82,
+    0x18,0xf0,0x7d,0xec,0x3a,0xdc,0x4d,0x20,0x79,0xee,0x5f,0x3e,0xd7,0xcb,0x39,0x48,
     // 魔改点：偏移 0x3A → 0x7F, 0x7F → 0x3A, 0xB2 → 0xE8, 0xE8 → 0xB2
 };
 
@@ -157,15 +157,12 @@ public:
 
     std::string encrypt(const std::string& data) {
         if (!initialized_) return "";
-        size_t len = data.size();
-        size_t padded = ((len + 15) / 16) * 16;
-        std::string out(padded, '\0');
-        for (size_t i = 0; i < padded; i += 16) {
-            uint8_t block[16] = {};
-            size_t copy_len = (len - i > 16) ? 16 : (len - i);
-            memcpy(block, data.c_str() + i, copy_len);
+        size_t pad_len = 16 - (data.size() % 16);
+        std::string padded = data + std::string(pad_len, (char)pad_len);
+        std::string out(padded.size(), '\0');
+        for (size_t i = 0; i < padded.size(); i += 16) {
             uint8_t enc[16];
-            k52_encrypt_block(block, enc, rk_);
+            k52_encrypt_block(reinterpret_cast<const uint8_t*>(padded.c_str() + i), enc, rk_);
             memcpy(&out[i], enc, 16);
         }
         return out;
@@ -250,19 +247,22 @@ static std::string hmac_sha256(const std::string& key, const std::string& msg) {
 }
 
 // ==================== XOR 密钥数组 → HMAC key ====================
-static const uint8_t K52_HMAC_XOR[] = {
-    0x46,0x61,0x74,0x64,0x6F,0x67,0x5F,0x73, // "Fatdog_s"
-    0x6E,0x6F,0x77,0x5F,0x6B,0x65,0x79,0x5F  // "now_key_"
+uint8_t K52_HMAC_XOR[] = {
+    0x7a,0x5d,0x48,0x58,0x53,0x5b,0x63,0x4f,
+    0x52,0x53,0x4b,0x63,0x57,0x59,0x45,0x1d
 };
 static const int K52_HMAC_XOR_LEN = 16;
 static const uint8_t K52_HMAC_KEY_XOR = 0x3C;
 
+static std::string get_key_from_so(const char* so_name, const char* func_name);
+
 static std::string get_hmac_key() {
-    std::string key(K52_HMAC_XOR_LEN, '\0');
-    for (int i = 0; i < K52_HMAC_XOR_LEN; i++) {
-        key[i] = K52_HMAC_XOR[i] ^ K52_HMAC_KEY_XOR;
-    }
-    return key;
+    std::string key = get_key_from_so("libnative52k.so", "getHmacKey");
+    if (!key.empty()) return key;
+    std::string fallback(K52_HMAC_XOR_LEN, '\0');
+    for (int i = 0; i < K52_HMAC_XOR_LEN; i++)
+        fallback[i] = K52_HMAC_XOR[i] ^ K52_HMAC_KEY_XOR;
+    return fallback;
 }
 
 // ==================== dlopen 获取密钥 ====================
@@ -280,18 +280,10 @@ static std::string get_key_from_so(const char* so_name, const char* func_name) {
     return key;
 }
 
-// ==================== JNI 入口 ====================
+// ==================== JNI 函数（静态命名 → RegisterNatives 动态绑定） ====================
 static JavaVM* g_jvm = nullptr;
 
-jint JNI_OnLoad(JavaVM* vm, void*) {
-    g_jvm = vm;
-    init_ck();
-    LOGI("JNI_OnLoad: L52 initialized");
-    return JNI_VERSION_1_6;
-}
-
-extern "C" JNIEXPORT jstring JNICALL
-Java_com_fatdog_reverse_Bk52_nativeSign(JNIEnv* env, jobject, jint page, jint ts) {
+static jstring nativeSign52(JNIEnv* env, jobject, jint page, jint ts) {
     // 深层调用栈：JNI → k52_dispatch → k52_process → encrypt → hmac
     std::string payload = "page=" + std::to_string(page) + "&ts=" + std::to_string(ts);
 
@@ -316,8 +308,7 @@ Java_com_fatdog_reverse_Bk52_nativeSign(JNIEnv* env, jobject, jint page, jint ts
     return env->NewStringUTF(hex_sig.c_str());
 }
 
-extern "C" JNIEXPORT jstring JNICALL
-Java_com_fatdog_reverse_Bk52_nativeEnc(JNIEnv* env, jobject, jstring data) {
+static jstring nativeEnc52(JNIEnv* env, jobject, jstring data) {
     const char* cdata = env->GetStringUTFChars(data, nullptr);
     std::string input(cdata);
     env->ReleaseStringUTFChars(data, cdata);
@@ -336,8 +327,8 @@ Java_com_fatdog_reverse_Bk52_nativeEnc(JNIEnv* env, jobject, jstring data) {
     if (sm4_key.empty()) {
         // 本地 fallback: XOR 还原
         static const uint8_t K52_SM4_XOR[] = {
-            0x46,0x61,0x74,0x64,0x6F,0x67,0x5F,0x73,
-            0x6E,0x6F,0x77,0x5F,0x73,0x6D,0x34,0x5F
+            0x7a,0x5d,0x48,0x58,0x53,0x5b,0x63,0x4f,
+            0x52,0x53,0x4b,0x63,0x4f,0x51,0x08,0x63
         };
         sm4_key = std::string(16, '\0');
         for (int i = 0; i < 16; i++) sm4_key[i] = K52_SM4_XOR[i] ^ 0x3C;
@@ -354,4 +345,23 @@ Java_com_fatdog_reverse_Bk52_nativeEnc(JNIEnv* env, jobject, jstring data) {
         hex_enc += buf;
     }
     return env->NewStringUTF(hex_enc.c_str());
+}
+
+// ==================== RegisterNatives 动态绑定 ====================
+
+static const JNINativeMethod gMethods52[] = {
+    {"nativeSign", "(II)Ljava/lang/String;", (void*)nativeSign52},
+    {"nativeEnc",  "(Ljava/lang/String;)Ljava/lang/String;", (void*)nativeEnc52},
+};
+
+extern "C" JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void*) {
+    g_jvm = vm;
+    init_ck();
+    JNIEnv* env;
+    if (vm->GetEnv(reinterpret_cast<void**>(&env), JNI_VERSION_1_6) != JNI_OK) return JNI_ERR;
+    jclass cls = env->FindClass("com/fatdog/reverse/Bk52");
+    if (!cls) return JNI_ERR;
+    if (env->RegisterNatives(cls, gMethods52, 2) != JNI_OK) return JNI_ERR;
+    LOGI("JNI_OnLoad: L52 initialized (RegisterNatives dynamic)");
+    return JNI_VERSION_1_6;
 }

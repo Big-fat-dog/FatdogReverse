@@ -12,6 +12,7 @@
 import hashlib
 import hmac
 import os
+import json
 import random
 import re
 import threading
@@ -1816,6 +1817,24 @@ def api_kkl3(page: int = Query(...), ts: int = Query(...), sign: str = Query(...
     return {"page": page, "nums": NUMS_KKL3[idx:idx + PER_PAGE_KKL3]}
 
 
+# ---------------- 关卡 KKL4：锁妖塔（代码段 CRC 自校验 + 三点记账 · 服务端只验 HMAC） ----------------
+# HMAC 密钥 = SHA-256("Fatdog_grit" + "|kkl4_tower")，与 libkkl4.so real_key() 派生一致；
+# 真标记在 so 里藏 UTF-16（strings 哑火），明文诱饵 Fatdog_grim 验签 403。
+KEY_KKL4 = hashlib.sha256(b"Fatdog_grit|kkl4_tower").digest()
+PAGES_KKL4, PER_PAGE_KKL4, SEED_KKL4 = 100, 10, 20260923
+_rng_kkl4 = random.Random(SEED_KKL4)
+NUMS_KKL4 = [_rng_kkl4.randint(1, 100) for _ in range(PAGES_KKL4 * PER_PAGE_KKL4)]
+
+@app.get("/api/kkl4")
+def api_kkl4(page: int = Query(...), ts: int = Query(...), sign: str = Query(...)):
+    _check_page(page, PAGES_KKL4)
+    _check_ts(ts)
+    if not hmac.compare_digest(sign, hmac.new(KEY_KKL4, f"page={page}&ts={ts}".encode(), hashlib.sha256).hexdigest()):
+        raise HTTPException(status_code=403, detail="sign invalid")
+    idx = (page - 1) * PER_PAGE_KKL4
+    return {"page": page, "nums": NUMS_KKL4[idx:idx + PER_PAGE_KKL4]}
+
+
 # ---------------- 关卡 49（Native大陆）迷雾森林：std::map 分发 · SM4-ECB + HMAC-SHA256 ----------
 # SM4 密钥: Fatdog_mist_2026（XOR 数组解码）
 # HMAC 密钥: Fatdog_forest_2026
@@ -1961,7 +1980,7 @@ def sm3_hash(msg: bytes) -> bytes:
 # SM3 盐: Fatdog_peak_salt!（XOR ^0x2D）
 # HMAC 密钥: Fatdog_hmac51_key!（XOR ^0x63）
 # 协议: GET /api/l51?enc=3DES 密文&sig=SM3 摘要&ts=T
-KEY51_3DES = b"Fatdog_thunder_2026"
+KEY51_3DES = b"Fatdog_thunder_2026" + b"\x00" * 5  # 19 + 5 = 24 bytes
 KEY51_SM3_SALT = b"Fatdog_peak_salt!"
 KEY51_HMAC = b"Fatdog_hmac51_key!"
 PAGES51, PER_PAGE51, SEED51 = 100, 10, 20291008
@@ -1999,7 +2018,7 @@ def api_l51(enc: str = Query(...), sig: str = Query(...), ts: int = Query(...)):
 
 
 # ---------------- L52 冰封雪域：魔改 SM4 + HMAC-SHA256 ----------------
-KEY52_SM4 = b"Fatdog_snow_sm4_k"  # 16 bytes
+KEY52_SM4 = b"Fatdog_snow_sm4_"  # 16 bytes
 KEY52_HMAC = b"Fatdog_snow_key!"  # 16 bytes
 PAGES52, PER_PAGE52, SEED52 = 100, 10, 20291115
 
@@ -2025,13 +2044,15 @@ def _sm52_sbox(val: int) -> int:
         0x8d,0x1b,0xaf,0x92,0xbb,0xdd,0xbc,0x7f,0x11,0xd9,0x5c,0x41,0x1f,0x10,0x5a,0xd8,
         0x0a,0xc1,0x31,0x88,0xa5,0xcd,0x7b,0xbd,0x2d,0x74,0xd0,0x12,0xb8,0xe5,0xb4,0xb0,
         0x89,0x69,0x97,0x4a,0x0c,0x96,0x77,0x7e,0x65,0xb9,0xf1,0x09,0xc5,0x6e,0xc6,0x84,
-        0x18,0xf0,0x7d,0xec,0x3a,0xdc,0x4d,0x20,0x79,0xee,0x5f,0x3e,0xd7,0x50,0x66,0x82,
+        0x18,0xf0,0x7d,0xec,0x3a,0xdc,0x4d,0x20,0x79,0xee,0x5f,0x3e,0xd7,0xcb,0x39,0x48,
     ]
     sbox = list(STD_SBOX)
     sbox[0x3A] = 0x7F
     sbox[0x7F] = 0x3A
     sbox[0xB2] = 0xE8
     sbox[0xE8] = 0xB2
+    if val is None:
+        return sbox
     return sbox[val]
 
 
@@ -2040,9 +2061,7 @@ def _sm52_encrypt(key: bytes, plaintext: bytes) -> bytes:
     import struct
 
     # S 盒
-    sbox = list(range(256))
-    sbox[0x3A], sbox[0x7F] = 0x7F, 0x3A
-    sbox[0xB2], sbox[0xE8] = 0xE8, 0xB2
+    sbox = _sm52_sbox(None)  # 完整换值 S 盒（标准 SM4 S 盒 4 处换值）
 
     # FK: 2 处异或
     FK = [0xa3b1bac6, 0x56aa3350 ^ 0x12345678, 0x677d9197, 0xb27022dc ^ 0x9ABCDEF0]
@@ -2071,16 +2090,20 @@ def _sm52_encrypt(key: bytes, plaintext: bytes) -> bytes:
     def T(x): return L(tau(x))
     def Tp(x): return Lp(tau(x))
 
-    def encrypt_block(block):
-        X = list(struct.unpack('>4I', block))
-        rk = list(X)
-        rk[0] ^= FK[0]; rk[1] ^= FK[1]; rk[2] ^= FK[2]; rk[3] ^= FK[3]
+    def key_expand(mk):
+        rk = [int.from_bytes(mk[i*4:i*4+4], 'big') for i in range(4)]
+        rk = [rk[i] ^ FK[i] for i in range(4)]
         keys = []
         for i in range(32):
             k = rk[0] ^ Tp(rk[1] ^ rk[2] ^ rk[3] ^ CK[i])
             keys.append(k)
             rk = [rk[1], rk[2], rk[3], k]
-        X = list(X)
+        return keys
+
+    keys = key_expand(key)
+
+    def encrypt_block(block):
+        X = list(struct.unpack('>4I', block))
         for i in range(0, 32, 4):
             X[0] = X[0] ^ T(X[1] ^ X[2] ^ X[3] ^ keys[i])
             X[1] = X[1] ^ T(X[2] ^ X[3] ^ X[0] ^ keys[i+1])
@@ -2109,7 +2132,6 @@ def api_l52(page: int = Query(...), ts: int = Query(...),
     _check_ts(ts)
     try:
         sm4_key = KEY52_SM4[:16]
-        cipher_bytes = _sm52_encrypt(sm4_key, b"")
         # 解密：用标准 SM4 的逆太复杂，直接重新加密比对
         expected_enc = _sm52_encrypt(sm4_key, f"page={page}&ts={ts}".encode()).hex()
         if enc != expected_enc:
@@ -2128,9 +2150,9 @@ def api_l52(page: int = Query(...), ts: int = Query(...),
 
 
 # ---------------- L53 焚天火域：魔改 AES + Feistel + HMAC-SHA256 + RC4 ----------------
-KEY53_AES = b"Fatdog_aes_key_"   # 16 bytes
-KEY53_HMAC = b"Fatdog_hmac_k53"  # 实际 15 bytes → pad to 16
-KEY53_RC4 = b"Fatdog_rc4_k53"    # 实际 14 bytes → pad to 16
+KEY53_AES = b"Fatdog_aes_key_\x00"   # 16 bytes
+KEY53_HMAC = b"Fatdog_hmac_k53\x00"  # 16 bytes
+KEY53_RC4 = b"Fatdog_rc4_k53\x00\x00"  # 16 bytes
 PAGES53, PER_PAGE53, SEED53 = 100, 10, 20291201
 
 _rng53 = random.Random(SEED53)
@@ -2254,7 +2276,7 @@ def _feistel_encrypt53(data, key):
 
 def _feistel53_encrypt(plaintext):
     """魔改 AES (Feistel) 加密（服务端重加密比对）"""
-    key = bytearray(KEY53_AES[:16])
+    key = bytearray(KEY53_AES)
     # FK 异或
     for i in range(4):
         val = (key[i*4] << 24) | (key[i*4+1] << 16) | (key[i*4+2] << 8) | key[i*4+3]
@@ -2305,14 +2327,14 @@ def api_l53(page: int = Form(...), ts: int = Form(...),
         raise HTTPException(status_code=403, detail="decrypt failed")
     _check_page(page, PAGES53)
     # 验证 HMAC
-    expected_sign = hmac.new(KEY53_HMAC[:16], payload, hashlib.sha256).hexdigest()
+    expected_sign = hmac.new(KEY53_HMAC, payload, hashlib.sha256).hexdigest()
     if not hmac.compare_digest(sign, expected_sign):
         raise HTTPException(status_code=403, detail="sign mismatch")
     idx = (page - 1) * PER_PAGE53
     nums = NUMS53[idx:idx + PER_PAGE53]
     # RC4 加密响应
     resp_json = json.dumps({"page": page, "nums": nums})
-    encrypted = _rc4_53(KEY53_RC4[:16], resp_json.encode())
+    encrypted = _rc4_53(KEY53_RC4, resp_json.encode())
     return {"d": encrypted.hex()}
 
 
@@ -2325,9 +2347,9 @@ if __name__ == "__main__":
           f"L21={sum(NUMS21)} L22={sum(NUMS22)} L24={sum(NUMS24)} L25={sum(NUMS25)} L26={sum(NUMS26)} L27={sum(NUMS27)} "
           f"L28={sum(NUMS28)} L29={sum(NUMS29)} L30={sum(NUMS30)} L31={sum(NUMS31)} L32={sum(NUMS32)} L33={sum(NUMS33)} L34={sum(NUMS34)} L35={sum(NUMS35)} L36={sum(NUMS36)} L37={sum(NUMS37)} "
           f"KL6={sum(NUMS_KL6)} KL7={sum(NUMS_KL7)} KL8={sum(NUMS_KL8)} KL9={sum(NUMS_KL9)} KL10={sum(NUMS_KL10)} "
-          f"KKL2={sum(NUMS_KKL2)} KKL3={sum(NUMS_KKL3)} "
+          f"KKL2={sum(NUMS_KKL2)} KKL3={sum(NUMS_KKL3)} KKL4={sum(NUMS_KKL4)} "
           f"L43={sum(NUMS43)} L44={sum(NUMS44)} L45={sum(NUMS45)} L46={sum(NUMS46)} L47={sum(NUMS47)} "
-          f"L48={sum(NUMS48)} L49={sum(NUMS49)} L50={sum(NUMS50)} L51={sum(NUMS51)} L53={sum(NUMS53)}")
+          f"L48={sum(NUMS48)} L49={sum(NUMS49)} L50={sum(NUMS50)} L51={sum(NUMS51)} L52={sum(NUMS52)} L53={sum(NUMS53)}")
     http_cfg = uvicorn.Config(app, host=HOST, port=PORT_HTTP, log_level="info")
     threading.Thread(target=uvicorn.Server(http_cfg).run, daemon=True).start()
     https_cfg = uvicorn.Config(app, host=HOST, port=PORT_HTTPS,

@@ -6,4 +6,7 @@ public class Ku4 {
     static { System.loadLibrary("rivet"); }
     private Ku4() {}
     public static native String nativeProbe();
+
+    // 完整校验在 so 内完成：环境干净且令牌正确才返回 1。
+    public static native int nativeSubmit(String token);
 }

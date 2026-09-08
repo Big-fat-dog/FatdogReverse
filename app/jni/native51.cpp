@@ -85,7 +85,7 @@ static const uint8_t DES_SBOX7[64] = {
 };
 static const uint8_t DES_SBOX8[64] = {
     13,2,8,4,6,15,11,1,10,9,3,14,5,0,12,7,
-    1,15,13,8,10,3,7,4,12,5,6,2,0,14,9,11,
+    1,15,13,8,10,3,7,4,12,5,6,11,0,14,9,2,
     7,11,4,1,9,12,14,2,0,6,10,13,15,3,5,8,
     2,1,14,7,4,10,8,13,15,12,9,0,3,5,6,11
 };
@@ -124,93 +124,89 @@ static const uint8_t DES_PC2[48] = {
 };
 static const int DES_SHIFTS[16] = {1,1,2,2,2,2,2,2,1,2,2,2,2,2,2,1};
 
-static uint64_t des_permute(uint64_t input, const uint8_t* table, int n) {
-    uint64_t result = 0;
-    for (int i = 0; i < n; i++) {
-        int bit = (int)((input >> (64 - table[i])) & 1);
-        result |= (uint64_t)bit << (n - 1 - i);
-    }
-    return result;
+static void des_bits_from_bytes(const uint8_t in[8], uint8_t bits[64]) {
+    for (int i = 0; i < 8; i++)
+        for (int j = 0; j < 8; j++)
+            bits[i * 8 + j] = (uint8_t)((in[i] >> (7 - j)) & 1);
 }
 
-static uint32_t des_f(uint32_t R, const uint8_t key[7]) {
-    uint64_t eR = 0;
-    for (int i = 0; i < 48; i++) {
-        int bit = (R >> (32 - DES_E[i])) & 1;
-        eR |= (uint64_t)bit << (47 - i);
-    }
-    uint8_t k6[6] = {0};
-    for (int i = 0; i < 48; i++) {
-        int byteIdx = DES_PC2[i] <= 28 ? (DES_PC2[i] - 1) / 7 : (DES_PC2[i] - 29) / 7 + 4;
-        int bitIdx = DES_PC2[i] <= 28 ? (DES_PC2[i] - 1) % 7 : (DES_PC2[i] - 29) % 7;
-        if ((key[byteIdx] >> (6 - bitIdx)) & 1)
-            k6[i / 8] |= (1 << (7 - i % 8));
-    }
-    uint64_t xored = eR;
-    for (int i = 0; i < 6; i++) ((uint8_t*)&xored)[i] ^= k6[i];
-    uint32_t result = 0;
-    const uint8_t* sboxes[8] = {DES_SBOX1,DES_SBOX2,DES_SBOX3,DES_SBOX4,DES_SBOX5,DES_SBOX6,DES_SBOX7,DES_SBOX8};
-    for (int i = 0; i < 8; i++) {
-        int b = (xored >> (42 - i * 6)) & 0x3F;
-        int row = ((b >> 5) & 1) * 2 + (b & 1);
-        int col = (b >> 1) & 0xF;
-        uint8_t val = sboxes[i][row * 16 + col];
-        result |= (uint32_t)val << (28 - i * 4);
-    }
-    uint32_t pResult = 0;
-    for (int i = 0; i < 32; i++) {
-        int bit = (result >> (32 - DES_P[i])) & 1;
-        pResult |= (uint32_t)bit << (31 - i);
-    }
-    return pResult;
+static void des_bits_to_bytes(const uint8_t bits[64], uint8_t out[8]) {
+    memset(out, 0, 8);
+    for (int i = 0; i < 64; i++)
+        if (bits[i]) out[i / 8] |= (uint8_t)(0x80 >> (i & 7));
 }
 
-static void des_key_schedule(const uint8_t key[8], uint8_t subkeys[16][7]) {
-    uint64_t pc1 = des_permute(*(uint64_t*)key, DES_PC1, 56);
-    uint32_t C = (uint32_t)(pc1 >> 28) & 0x0FFFFFFF;
-    uint32_t D = (uint32_t)pc1 & 0x0FFFFFFF;
-    for (int i = 0; i < 16; i++) {
-        C = ((C << DES_SHIFTS[i]) | (C >> (28 - DES_SHIFTS[i]))) & 0x0FFFFFFF;
-        D = ((D << DES_SHIFTS[i]) | (D >> (28 - DES_SHIFTS[i]))) & 0x0FFFFFFF;
-        uint64_t cd = ((uint64_t)C << 28) | D;
-        uint64_t pc2 = des_permute(cd, DES_PC2, 48);
-        memset(subkeys[i], 0, 7);
-        for (int j = 0; j < 48; j++) {
-            int bit = (pc2 >> (47 - j)) & 1;
-            subkeys[i][j / 8] |= (uint8_t)(bit << (7 - j % 8));
+static void des_key_schedule(const uint8_t key[8], uint8_t subkeys[16][48]) {
+    uint8_t bits[64], pc1[56], c[28], d[28], cd[56];
+    des_bits_from_bytes(key, bits);
+    for (int i = 0; i < 56; i++) pc1[i] = bits[DES_PC1[i] - 1];
+    memcpy(c, pc1, 28);
+    memcpy(d, pc1 + 28, 28);
+    for (int r = 0; r < 16; r++) {
+        int shift = DES_SHIFTS[r];
+        for (int s = 0; s < shift; s++) {
+            uint8_t t = c[0];
+            for (int i = 0; i < 27; i++) c[i] = c[i + 1];
+            c[27] = t;
+            t = d[0];
+            for (int i = 0; i < 27; i++) d[i] = d[i + 1];
+            d[27] = t;
         }
+        memcpy(cd, c, 28);
+        memcpy(cd + 28, d, 28);
+        for (int i = 0; i < 48; i++) subkeys[r][i] = cd[DES_PC2[i] - 1];
     }
 }
 
-static void des_encrypt_block(const uint8_t in[8], uint8_t out[8], const uint8_t key[8]) {
-    uint64_t block = des_permute(*(uint64_t*)in, DES_IP, 64);
-    uint32_t L = (uint32_t)(block >> 32);
-    uint32_t R = (uint32_t)block;
-    uint8_t subkeys[16][7];
-    des_key_schedule(key, subkeys);
-    for (int i = 0; i < 16; i++) {
-        uint32_t f = des_f(R, subkeys[i]);
-        uint32_t newR = L ^ f;
-        L = R;
-        R = newR;
+static void des_f(const uint8_t r[32], const uint8_t subkey[48], uint8_t out[32]) {
+    uint8_t e[48], x[48], sb[32];
+    const uint8_t* sboxes[8] = {DES_SBOX1,DES_SBOX2,DES_SBOX3,DES_SBOX4,DES_SBOX5,DES_SBOX6,DES_SBOX7,DES_SBOX8};
+    for (int i = 0; i < 48; i++) {
+        e[i] = r[DES_E[i] - 1];
+        x[i] = (uint8_t)(e[i] ^ subkey[i]);
     }
-    uint64_t combined = ((uint64_t)R << 32) | L;
-    *(uint64_t*)out = des_permute(combined, DES_FP, 64);
+    for (int i = 0; i < 8; i++) {
+        int row = x[i * 6] * 2 + x[i * 6 + 5];
+        int col = x[i * 6 + 1] * 8 + x[i * 6 + 2] * 4 + x[i * 6 + 3] * 2 + x[i * 6 + 4];
+        int val = sboxes[i][row * 16 + col];
+        for (int j = 0; j < 4; j++) sb[i * 4 + j] = (uint8_t)((val >> (3 - j)) & 1);
+    }
+    for (int i = 0; i < 32; i++) out[i] = sb[DES_P[i] - 1];
+}
+
+static void des_crypt_block(const uint8_t in[8], uint8_t out[8], uint8_t subkeys[16][48]) {
+    uint8_t bits[64], state[64], l[32], r[32], nr[32], fout[32];
+    des_bits_from_bytes(in, bits);
+    for (int i = 0; i < 64; i++) state[i] = bits[DES_IP[i] - 1];
+    memcpy(l, state, 32);
+    memcpy(r, state + 32, 32);
+    for (int round = 0; round < 16; round++) {
+        des_f(r, subkeys[round], fout);
+        for (int i = 0; i < 32; i++) nr[i] = (uint8_t)(l[i] ^ fout[i]);
+        memcpy(l, r, 32);
+        memcpy(r, nr, 32);
+    }
+    memcpy(state, r, 32);
+    memcpy(state + 32, l, 32);
+    for (int i = 0; i < 64; i++) bits[i] = state[DES_FP[i] - 1];
+    des_bits_to_bytes(bits, out);
 }
 
 static void des3_ecb_encrypt(const uint8_t key24[24], const uint8_t* data, size_t len, uint8_t* out) {
-    uint8_t k1[8], k2[8], k3[8];
-    memcpy(k1, key24, 8);
-    memcpy(k2, key24 + 8, 8);
-    memcpy(k3, key24 + 16, 8);
+    uint8_t k1[16][48], k2[16][48], k3[16][48], rev[16][48];
+    des_key_schedule(key24, k1);
+    des_key_schedule(key24 + 8, k2);
+    des_key_schedule(key24 + 16, k3);
     for (size_t i = 0; i < len; i += 8) {
         uint8_t block[8], tmp[8];
-        memcpy(block, data + i, 8);
-        des_encrypt_block(block, tmp, k1);
-        des_encrypt_block(tmp, block, k2);
-        des_encrypt_block(block, out + i, k3);
+        des_crypt_block(data + i, tmp, k1);
+        for (int r = 0; r < 16; r++)
+            for (int j = 0; j < 48; j++) rev[r][j] = k2[15 - r][j];
+        des_crypt_block(tmp, block, rev);
+        des_crypt_block(block, out + i, k3);
     }
 }
+
 
 static std::string des3_ecb_encrypt_hex(const uint8_t key24[24], const std::string& data) {
     size_t padLen = 8 - (data.size() % 8);
@@ -224,13 +220,10 @@ static std::string des3_ecb_encrypt_hex(const uint8_t key24[24], const std::stri
 }
 
 /* ============================================================
- * JNI 入口
+ * JNI 函数（静态命名 → RegisterNatives 动态绑定）
  * ============================================================ */
 
-extern "C" {
-
-JNIEXPORT jstring JNICALL
-Java_com_fatdog_reverse_Bk51_nativeEnc(JNIEnv* env, jobject, jint page, jlong ts) {
+static jstring nativeEnc51(JNIEnv* env, jobject, jint page, jlong ts) {
     if (!loadHashLib()) return env->NewStringUTF("");
     std::string payload = "page=" + std::to_string(page) + "&ts=" + std::to_string(ts);
     const unsigned char* desKey = getDesKey_fn();
@@ -240,8 +233,7 @@ Java_com_fatdog_reverse_Bk51_nativeEnc(JNIEnv* env, jobject, jint page, jlong ts
     return env->NewStringUTF(enc.c_str());
 }
 
-JNIEXPORT jstring JNICALL
-Java_com_fatdog_reverse_Bk51_nativeSign(JNIEnv* env, jobject, jstring encHex) {
+static jstring nativeSign51(JNIEnv* env, jobject, jstring encHex) {
     if (!loadHashLib()) return env->NewStringUTF("");
     const char* hex = env->GetStringUTFChars(encHex, nullptr);
     std::string encStr(hex);
@@ -259,9 +251,26 @@ Java_com_fatdog_reverse_Bk51_nativeSign(JNIEnv* env, jobject, jstring encHex) {
     return env->NewStringUTF(sig);
 }
 
-JNIEXPORT jstring JNICALL
-Java_com_fatdog_reverse_Bk51_getKeyHint(JNIEnv* env, jobject) {
+static jstring getKeyHint51(JNIEnv* env, jobject) {
     return env->NewStringUTF("keys_in_native51h");
 }
 
-} /* extern "C" */
+/* ============================================================
+ * JNI_OnLoad — RegisterNatives 动态绑定
+ * ============================================================ */
+
+static const JNINativeMethod gMethods51[] = {
+    {"nativeEnc",  "(IJ)Ljava/lang/String;", (void*)nativeEnc51},
+    {"nativeSign", "(Ljava/lang/String;)Ljava/lang/String;", (void*)nativeSign51},
+    {"getKeyHint", "()Ljava/lang/String;", (void*)getKeyHint51},
+};
+
+extern "C" JNIEXPORT jint JNICALL
+JNI_OnLoad(JavaVM* vm, void*) {
+    JNIEnv* env;
+    if (vm->GetEnv(reinterpret_cast<void**>(&env), JNI_VERSION_1_6) != JNI_OK) return JNI_ERR;
+    jclass cls = env->FindClass("com/fatdog/reverse/Bk51");
+    if (!cls) return JNI_ERR;
+    if (env->RegisterNatives(cls, gMethods51, 3) != JNI_OK) return JNI_ERR;
+    return JNI_VERSION_1_6;
+}
