@@ -2972,7 +2972,7 @@ print(total)
   ts   = Unix 时间戳
 
 密钥（XOR 数组解码，分散在 KeyProvider 类中）：
-  aes_key  = Fatdog_abyss_2026（XOR ^0x2A）
+  aes_key  = Fatdog_abys_2026（XOR ^0x2A，16 字节适配 AES-128）
   hmac_key = Fatdog_depths_2026（XOR ^0x3D）← 用于服务端签名验证
 ```
 
@@ -2983,7 +2983,7 @@ import hashlib, time, requests
 from Crypto.Cipher import AES
 from Crypto.Util.Padding import pad
 
-AES_KEY = b"Fatdog_abyss_2026"
+AES_KEY = b"Fatdog_abys_2026"
 
 total = 0
 for page in range(1, 101):

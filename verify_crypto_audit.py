@@ -426,7 +426,7 @@ check("L49 K49_HMAC XOR ^0x5A decodes to server key", k49_hmac_decoded == k49_hm
 
 # ─── L50: AES + SHA256 (native50.cpp) ───
 print("\n=== L50: AES + SHA256 (native50.cpp) ===")
-KEY50_AES_SERVER = b"Fatdog_abyss_2026"
+KEY50_AES_SERVER = b"Fatdog_abys_2026"
 KEY50_HMAC_SERVER = b"Fatdog_depths_2026"
 # native50.cpp: getAesKey() XOR ^0x2A, getHmacKey() XOR ^0x3D
 K50_AES_NATIVE = [0x59, 0x74, 0x65, 0x77, 0x5F, 0x61, 0x62, 0x79,
