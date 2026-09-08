@@ -1881,10 +1881,10 @@ async def api_l49(enc: str = Form(...), sign: str = Form(...), algo: int = Form(
 
 
 # ---------------- 关卡 50（Native大陆）幽暗深渊：vtable 虚函数分发 · AES-128-ECB + SHA-256 + HMAC-SHA256 ----------
-# AES 密钥: Fatdog_abyss_2026（XOR 数组解码）
-# HMAC 密钥: Fatdog_depths_2026
+# AES 密钥: Fatdog_abys_2026（XOR 数组解码，16 字节适配 AES-128）
+# HMAC 密钥: Fatdog_depths_2026（未使用，SHA-256 签名）
 # 协议: GET /api/l50?enc=AES 密文&sign=SHA256 签名&ts=T
-KEY50_AES = b"Fatdog_abyss_2026"
+KEY50_AES = b"Fatdog_abys_2026"
 KEY50_HMAC = b"Fatdog_depths_2026"
 PAGES50, PER_PAGE50, SEED50 = 100, 10, 20290715
 _rng50 = random.Random(SEED50)

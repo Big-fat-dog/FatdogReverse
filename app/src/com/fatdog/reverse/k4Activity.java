@@ -81,11 +81,9 @@ public class k4Activity extends Activity {
     }
 
     boolean verify(String account, String token) {
-        if (!SignUtil.checkAccount(account)) return false;
-        try {
-            return KBox.checkToken(token);
-        } catch (Exception e) {
-            return false;
-        }
+        SignUtil signUtil = SignUtil.getInstance();
+        KBox kBox = KBox.getInstance();
+        if (!signUtil.checkAccount(account)) return false;
+        return kBox.checkToken(token);
     }
 }

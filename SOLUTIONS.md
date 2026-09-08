@@ -413,7 +413,7 @@ Java.perform(function () {
 ```java
 static final byte[] KEY = "FATDEMO_KEY_12AB".getBytes();
 static final byte[] IV  = "0001020304050607".getBytes();
-static final String VAULT = "Grg3J5v8Lh0r9KyE0Py0zw==";
+static final String VAULT = "k3jDkAuOkMyqETJhEnH2heWsp08zaC1xtgRbNRgUurk=";
 // 用 Cipher.getInstance("AES/CBC/PKCS5Padding") 解密 VAULT
 ```
 
@@ -426,7 +426,7 @@ from Crypto.Util.Padding import unpad
 
 key = b'FATDEMO_KEY_12AB'
 iv  = b'0001020304050607'
-data = base64.b64decode('Grg3J5v8Lh0r9KyE0Py0zw==')
+data = base64.b64decode('k3jDkAuOkMyqETJhEnH2heWsp08zaC1xtgRbNRgUurk=')
 plain = unpad(AES.new(key, AES.MODE_CBC, iv).decrypt(data), 16)
 print(plain.decode())    # vault_ok_123
 ```

@@ -156,14 +156,13 @@ static void hmac_sha256(const unsigned char *key, size_t klen,
  * XOR 数组：两段密钥，运行时解码后通过 operator+ 拼接
  * ============================================================ */
 static const uint8_t K48_A[] = {
-    0x12, 0x00, 0x15, 0x12, 0x36, 0x11, 0x16, 0x5E,
-    0x55, 0x45, 0x58, 0x06, 0x16, 0x5E, 0x11, 0x44,
-    0x4D, 0x45, 0x12, 0x15
-};  // ^0x3C → "Fatdog_calm_2026"
+    0x7A, 0x5D, 0x48, 0x58, 0x53, 0x5B, 0x63, 0x5F,
+    0x5D, 0x50, 0x51, 0x63
+};  // ^0x3C → "Fatdog_calm_"
 
 static const uint8_t K48_B[] = {
-    0x12, 0x54, 0x03, 0x12, 0x34, 0x04, 0x14, 0x16
-};  // ^0x5A → "sunshine"
+    0x68, 0x6A, 0x68, 0x6C
+};  // ^0x5A → "2026"
 
 #define K48_A_LEN (sizeof(K48_A))
 #define K48_B_LEN (sizeof(K48_B))
@@ -228,10 +227,14 @@ static const char FAKE_MARK[] = "Fatdog_sunrise";
  * ============================================================ */
 static std::string build_sign(int page, long ts) {
     /* 构造两段 SignKey 并用 operator+ 拼接 */
-    SignKey left;   // 解码 K48_A
-    SignKey right("sunshine");  // 右半段直接构造
+    SignKey left;   // 解码 K48_A → "Fatdog_calm_"
+    std::string right_raw(K48_B_LEN, '\0');
+    for (size_t i = 0; i < K48_B_LEN; i++) {
+        right_raw[i] = static_cast<char>(K48_B[i] ^ 0x5A);
+    }
+    SignKey right(right_raw);  // 解码 K48_B → "2026"
 
-    SignKey full = left + right;  // operator+ 拼接
+    SignKey full = left + right;  // operator+ 拼接 → "Fatdog_calm_2026"
 
     char msg[128];
     snprintf(msg, sizeof(msg), "page=%d&ts=%ld", page, ts);
@@ -252,7 +255,7 @@ Java_com_fatdog_reverse_Bk48_nativeSign(JNIEnv *env, jclass clazz, jint page, jl
 JNIEXPORT jstring JNICALL
 Java_com_fatdog_reverse_Bk48_getKeyHint(JNIEnv *env, jclass clazz) {
     /* 返回右半段提示（不是完整密钥） */
-    return env->NewStringUTF("right_part_is_sunset_string");
+    return env->NewStringUTF("right_part_is_year_string");
 }
 
 }  /* extern "C" */

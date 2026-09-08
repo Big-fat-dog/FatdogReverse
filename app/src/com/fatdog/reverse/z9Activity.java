@@ -85,16 +85,20 @@ public class z9Activity extends Activity {
 
     boolean verify(String license, String deviceId) {
         try {
-            byte[] s1 = XBox.decryptA(license);
-            String plain = Mux.finish(s1);
+            XBox xBox = XBox.getInstance();
+            Mux mux = Mux.getInstance();
+            PivotParts pivot = PivotParts.getInstance();
+
+            byte[] s1 = xBox.decryptA(license);
+            String plain = mux.finish(s1);
             return "GRANTED_2026_OK!".equals(plain)
-                    && md5Hex(deviceId).equals(PivotParts.fingerprint());
+                    && md5Hex(deviceId).equals(pivot.fingerprint());
         } catch (Exception e) {
             return false;
         }
     }
 
-    static String md5Hex(String s) {
+    private String md5Hex(String s) {
         try {
             MessageDigest md = MessageDigest.getInstance("MD5");
             byte[] d = md.digest(s.getBytes("UTF-8"));
