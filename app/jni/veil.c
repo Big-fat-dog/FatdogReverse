@@ -17,7 +17,7 @@
 #include <dlfcn.h>
 
 /* ============================================================
- * 诱饵标记：Fatdog_gauze（真）/ Fatdog_gauze（假·少 e）
+ * 诱饵标记：Fatdog_gauze（真）/ Fatdog_gauz（假·少 e）
  * ============================================================ */
 static const char REAL_MARK[]  = "Fatdog_gauze";
 static const char FAKE_MARK[]  = "Fatdog_gauz";
@@ -60,29 +60,67 @@ static int detect_thread_context(void) {
 }
 
 /* ============================================================
- * 检测②：时序指纹交叉验证
+ * 检测②：时序指纹交叉验证（多轮采样 + 中位数去抖）
  * ============================================================ */
+#define TIMING_ROUNDS      9
+#define TIMING_MIN_SLOW    7
+#define TIMING_ABS_NS      1000000L
+#define TIMING_RATIO       100L
+
+static long timing_delta_ns(const struct timespec *a, const struct timespec *b) {
+    return (b->tv_sec - a->tv_sec) * 1000000000L + (b->tv_nsec - a->tv_nsec);
+}
+
+static int cmp_long(const void *a, const void *b) {
+    long x = *(const long *)a;
+    long y = *(const long *)b;
+    return (x > y) - (x < y);
+}
+
 static int detect_timing_crossref(void) {
-    struct timespec t1, t2, t3, t4;
+    long dl_samples[TIMING_ROUNDS];
+    long mem_samples[TIMING_ROUNDS];
+    int valid = 0;
+    int slow = 0;
 
-    /* 测量 dlopen 延迟 */
-    clock_gettime(CLOCK_MONOTONIC, &t1);
-    void *h = dlopen("liblog.so", RTLD_NOW);
-    clock_gettime(CLOCK_MONOTONIC, &t2);
-    if (h) dlclose(h);
+    /* 预热动态加载器，排除首次加载造成的固定偏差。 */
+    for (int i = 0; i < 2; i++) {
+        void *h = dlopen("liblog.so", RTLD_NOW);
+        if (h) dlclose(h);
+        void *p = malloc(256);
+        free(p);
+    }
 
-    /* 测量 malloc 延迟 */
-    clock_gettime(CLOCK_MONOTONIC, &t3);
-    void *p = malloc(1024);
-    clock_gettime(CLOCK_MONOTONIC, &t4);
-    free(p);
+    for (int i = 0; i < TIMING_ROUNDS; i++) {
+        struct timespec t1, t2, t3, t4;
 
-    long dlopen_ns = (t2.tv_sec - t1.tv_sec) * 1000000000L + (t2.tv_nsec - t1.tv_nsec);
-    long malloc_ns = (t4.tv_sec - t3.tv_sec) * 1000000000L + (t4.tv_nsec - t3.tv_nsec);
+        clock_gettime(CLOCK_MONOTONIC, &t1);
+        void *h = dlopen("liblog.so", RTLD_NOW);
+        clock_gettime(CLOCK_MONOTONIC, &t2);
+        if (!h) continue;
+        dlclose(h);
 
-    /* 正常 dlopen 应该比 malloc 慢，但差距不应太大 */
-    /* 如果 dlopen 异常慢（hook 开销），可能是 Frida */
-    return dlopen_ns > 1000000 && (dlopen_ns / (malloc_ns + 1)) > 100;
+        clock_gettime(CLOCK_MONOTONIC, &t3);
+        void *p = malloc(1024);
+        clock_gettime(CLOCK_MONOTONIC, &t4);
+        free(p);
+
+        long dl_ns = timing_delta_ns(&t1, &t2);
+        long mem_ns = timing_delta_ns(&t3, &t4);
+        dl_samples[valid] = dl_ns;
+        mem_samples[valid] = mem_ns;
+        if (dl_ns > TIMING_ABS_NS && dl_ns / (mem_ns + 1) > TIMING_RATIO) slow++;
+        valid++;
+    }
+
+    if (valid < TIMING_MIN_SLOW) return 0;
+    qsort(dl_samples, valid, sizeof(long), cmp_long);
+    qsort(mem_samples, valid, sizeof(long), cmp_long);
+    long dl_median = dl_samples[valid / 2];
+    long mem_median = mem_samples[valid / 2];
+    if (dl_median <= TIMING_ABS_NS) return 0;
+    if (dl_median / (mem_median + 1) <= TIMING_RATIO) return 0;
+    return slow >= TIMING_MIN_SLOW;
 }
 
 /* ============================================================

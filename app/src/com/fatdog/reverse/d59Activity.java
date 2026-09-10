@@ -48,7 +48,7 @@ public class d59Activity extends Activity {
                 + "  String nativeStatus()\n\n"
                 + "两路 Frida 检测（OR 判定）：\n"
                 + "  ① fd 扫描：readlink /proc/self/fd → memfd:frida-agent\n"
-                + "  ② maps 搜索：/proc/self/maps 含 frida 字符串\n\n"
+                + "  ② maps 搜索：完整流式扫描 /proc/self/maps\n\n"
                 + "标记：两个标记一真一假，需仔细辨别");
         tv.setGravity(Gravity.CENTER);
         root.addView(tv, Ui.wrap(6));
@@ -105,18 +105,10 @@ public class d59Activity extends Activity {
             @Override public void onClick(View v) {
                 new AlertDialog.Builder(d59Activity.this)
                         .setTitle("提示")
-                        .setMessage("fd 层 + maps 双重检测：\n\n"
-                                + "① fd 扫描：遍历 /proc/self/fd，readlink 检查是否含 memfd:frida-agent\n"
-                                + "② maps 搜索：解析 /proc/self/maps，搜索 frida/gadget/gum-js-loop 等关键词\n\n"
+                        .setMessage("两种 Frida 痕迹：\n\n"
+                                + "① fd 扫描：遍历 /proc/self/fd，检查 memfd 相关信息\n"
+                                + "② maps 搜索：流式扫描完整 /proc/self/maps，并处理跨块边界\n\n"
                                 + "两路 OR 判定——任一检出即判定。\n\n"
-                                + "绕过路线：\n"
-                                + "  • hook readlinkat 返回假路径（如 /dev/null）\n"
-                                + "  • hook opendir 过滤 frida 相关 fd\n"
-                                + "  • 重命名 frida-agent 二进制\n\n"
-                                + "静态复刻路线：\n"
-                                + "  • IDA 分析 → 提取 SHA-256(SEED)\n"
-                                + "  • SEED = 20280716\n"
-                                + "  • 答案 = sha256(0x{SEED的4字节大端表示})\n\n"
                                 + "注意两个标记中有一个是诱饵，仔细对比拼写差异。")
                         .setPositiveButton("知道了", null)
                         .show();

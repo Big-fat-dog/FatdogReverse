@@ -15,15 +15,15 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 /**
- * 扶桑树 KL26 暮霭沉沉：XOR 判定。
+ * 扶桑树 KL26 暮霭沉沉：OR 判定。
  * libdusk.so 导出五个函数：
  *   int    nativeTiming()        — timing side-channel
  *   int    nativeVersion()       — Frida 版本嗅探
- *   int    nativeFridaDetect()   — 综合检测（XOR）
+ *   int    nativeFridaDetect()   — 综合检测（OR）
  *   String nativeAnswer()        — 最终答案
  *   String nativeStatus()        — 检测详情
  *
- * 关键创新：XOR 判定（奇数路触发才判定）
+ * 关键创新：timing 多轮采样 + OR 判定
  */
 public class h63Activity extends Activity {
 
@@ -36,15 +36,15 @@ public class h63Activity extends Activity {
         root.setPadding(Ui.dp(16), Ui.dp(20), Ui.dp(16), Ui.dp(12));
 
         TextView tv = new TextView(this);
-        tv.setText("KL26 · 暮霭沉沉（★★★ XOR 判定）\n\n"
+        tv.setText("KL26 · 暮霭沉沉（★★★ OR 判定）\n\n"
                 + "libdusk.so 导出五个函数：\n"
                 + "  int    nativeTiming()\n"
                 + "  int    nativeVersion()\n"
                 + "  int    nativeFridaDetect()\n"
                 + "  String nativeAnswer()\n"
                 + "  String nativeStatus()\n\n"
-                + "XOR 判定（奇数路触发才判定）：\n"
-                + "  ① timing side-channel\n"
+                + "OR 判定（任一触发即判定）：\n"
+                + "  ① timing side-channel（多轮中位数）\n"
                 + "  ② Frida 版本嗅探\n\n"
                 + "标记：两个标记一真一假，需仔细辨别");
         tv.setGravity(Gravity.CENTER);
@@ -102,16 +102,10 @@ public class h63Activity extends Activity {
             @Override public void onClick(View v) {
                 new AlertDialog.Builder(h63Activity.this)
                         .setTitle("提示")
-                        .setMessage("XOR 判定：\n\n"
-                                + "只有奇数路触发才判定 Frida 存在\n"
-                                + "（偶数路触发或全不触发 = 安全）\n\n"
-                                + "① timing side-channel（fork+clock）\n"
-                                + "② Frida 版本嗅探（dlsym/maps）\n\n"
-                                + "绕过路线：\n"
-                                + "  • 要么两路都触发（偶数路=安全）\n"
-                                + "  • 要么两路都不触发（零路=安全）\n"
-                                + "  • 精确控制使一路触发一路不触发=检出\n\n"
-                                + "静态复刻：SEED = 20280720\n\n"
+                        .setMessage("综合判定：\n\n"
+                                + "① timing side-channel：多轮采样后取中位数并做去抖\n"
+                                + "② Frida 版本嗅探：检查运行时符号与映射特征\n\n"
+                                + "OR 判定：任一子路触发即判定 Frida 存在\n\n"
                                 + "注意两个标记中有一个是诱饵，仔细对比拼写差异。")
                         .setPositiveButton("知道了", null)
                         .show();

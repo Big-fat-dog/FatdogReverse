@@ -4331,7 +4331,7 @@ print(hashlib.sha256(str(total).encode()).hexdigest())
 | KL23 | 照妖显形 | AND | maps 特征字节 + 运行时 DT_DEBUG + auxv 一致性 | 20280717 | `7553ec6d375135f8fb11dcf5a0a6f50060c6a68a05a9147f88f8771db5083bbb` | `FLAG_18_KL23{mirror_shows_true_face}` |
 | KL24 | 冰鉴悬镜 | OR | TracerPid + State | 20280718 | `83abc5a60bf846a88404c66b0cf24701` | `FLAG_18_KL24{ice_mirror_catches_all}` |
 | KL25 | 暮雾锁听 | AND | Frida maps/线程指纹 + auxv 一致性 | 20280719 | `c8c20ef9499a87f1c94e0fc64ab1886c` | `FLAG_18_KL25{mist_locks_the_ears}` |
-| KL26 | 暮霭沉沉 | XOR | timing + 版本嗅探 | 20280720 | `8ac8cc07027b4d6d8bf9cd8003454e71` | `FLAG_18_KL26{dusk_hides_the_truth}` |
+| KL26 | 暮霭沉沉 | OR | 稳定 timing + 版本嗅探 | 20280720 | `8ac8cc07027b4d6d8bf9cd8003454e71` | `FLAG_18_KL26{dusk_hides_the_truth}` |
 | KL27 | 轻纱覆影 | OR | 线程上下文 + 时序交叉 | 20280721 | `4cc08a01cc4402bc4da28b32cdcd0386` | `FLAG_18_KL27{veil_conceals_all}` |
 | KL28 | 雪落无痕 | OR | signal handler + TracerPid | 20280722 | `8399c59f0bec469884fec6510ce347fc` | `FLAG_18_KL28{snow_leaves_no_trace}` |
 
@@ -4371,7 +4371,7 @@ def lcg_ans(seed):                      # KL24-30：libice 之后统一 LCG 伪 
 ### KL22：落影寻痕（libowl.so · fd + maps）
 
 - **子路①fd 扫描**：遍历 `/proc/self/fd` 逐个 `readlink`，找 `memfd:frida-agent`；
-- **子路②maps 搜索**：解析 `/proc/self/maps`，搜 `frida` / `gadget` / `gum-js-loop` 等关键词；
+- **子路②maps 搜索**：流式读取完整 `/proc/self/maps`，搜 `frida` / `gadget` / `gum-js-loop` 等关键词，并保留跨块重叠区；
 - **判定 OR**。
 - **绕过**：hook `nativeFridaDetect`→0；hook `readlinkat` 返回假路径（如 `/dev/null`）；hook `opendir`/`getdents` 过滤 fd；或干脆给 agent 改名/藏到非 memfd 路径。
 - **静态**：seed `20280716` → `7ece99ec…aff2c6`。flag `FLAG_18_KL22{shadow_leaves_no_trace}`。真标记 `Fatdog_shadow` / 诱饵 `Fatdog_shade`。
@@ -4400,18 +4400,18 @@ def lcg_ans(seed):                      # KL24-30：libice 之后统一 LCG 伪 
 - **绕过**：hook `nativeFridaDetect`→0；或处理 maps 特征、线程名、auxv 校验中的任意一路。
 - **静态**：seed `20280719` → `c8c20ef9…b1886c`。flag `FLAG_18_KL25{mist_locks_the_ears}`。真标记 `Fatdog_gloom` / 诱饵 `Fatdog_glom`。
 
-### KL26：暮霭沉沉（libdusk.so · XOR 判定）
+### KL26：暮霭沉沉（libdusk.so · OR 判定）
 
-- **子路①timing**：fork + clock 测量执行耗时侧信道（frida 注入后指令流变慢）；
+- **子路①timing**：clock 测量执行耗时侧信道，做 9 轮采样，取中位数并额外要求 7 轮超过阈值，避免调度抖动误报；
 - **子路②版本嗅探**：dlsym/maps 里找 frida 版本串；
-- **判定 XOR**：奇数路触发=检出。两路都触发（偶数）或都不触发 = 安全——所以绕过可以"反向点亮"另一路来抵消，或者两路一起压掉。
-- **绕过**：hook `nativeFridaDetect`→0 最稳；研究型解法是精确控制一路触发一路熄灭验证 XOR 语义。
+- **判定 OR**：任一子路触发即检出；不存在两路同时命中反而抵消的情况。
+- **绕过**：hook `nativeFridaDetect`→0；或同时压制 timing 与版本嗅探两路。
 - **静态**：seed `20280720` → `8ac8cc07…454e71`。flag `FLAG_18_KL26{dusk_hides_the_truth}`。真标记 `Fatdog_dusk` / 诱饵 `Fatdog_duks`。
 
 ### KL27：轻纱覆影（libveil.so · 交叉验证 OR）
 
 - **子路①线程上下文**：枚举 `/proc/self/task` 的线程名/栈特征；
-- **子路②时序交叉**：dlopen 与 malloc 延迟比做交叉验证；
+- **子路②时序交叉**：dlopen 与 malloc 延迟比做交叉验证，做 9 轮采样，以中位数和 7 轮多数阈值去抖；
 - **判定 OR**，两路都得绕。
 - **绕过**：hook 线程名读取 + hook 计时源（`clock_gettime`/`gettimeofday`）喂恒定时延；hook `nativeFridaDetect`→0 照旧可用。
 - **静态**：seed `20280721` → `4cc08a01…cd0386`。flag `FLAG_18_KL27{veil_conceals_all}`。真标记 `Fatdog_gauze` / 诱饵 `Fatdog_gauz`。

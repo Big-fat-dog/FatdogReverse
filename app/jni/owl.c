@@ -4,6 +4,7 @@
  * 两路 Frida 检测：
  *   ① fd 扫描：遍历 /proc/self/fd，readlink 检查 memfd:frida-agent
  *   ② maps 搜索：解析 /proc/self/maps 搜索 "frida" 相关路径字符串
+ *      流式读取完整文件，并在块边界保留重叠区
  * 两路 OR 判定——任一检出即判定 Frida 存在。
  *
  * 标记（真）：Fatdog_shadow — UTF-16 码元。
@@ -143,23 +144,36 @@ static int detect_maps_scan(void) {
     int fd = open("/proc/self/maps", O_RDONLY);
     if (fd < 0) return 0;
 
-    char buf[8192];
-    int n = read(fd, buf, sizeof(buf) - 1);
-    close(fd);
-    if (n <= 0) return 0;
-    buf[n] = '\0';
-
-    /* 搜索 frida 相关关键词 */
+    enum { MAPS_BUF_SIZE = 8192, MAPS_OVERLAP = 14 };
     static const char *keywords[] = {
         "frida", "gadget", "gum-js-loop", "linjector",
         "re.frida.server", "frida-agent", NULL
     };
+    char buf[MAPS_BUF_SIZE + 1];
+    size_t overlap = 0;
 
-    for (int i = 0; keywords[i] != NULL; i++) {
-        if (strstr(buf, keywords[i]) != NULL) {
-            return 1;
+    for (;;) {
+        ssize_t n;
+        do {
+            n = read(fd, buf + overlap, MAPS_BUF_SIZE - overlap);
+        } while (n < 0 && errno == EINTR);
+        if (n <= 0) break;
+
+        size_t len = overlap + (size_t)n;
+        buf[len] = '\0';
+        for (int i = 0; keywords[i] != NULL; i++) {
+            if (strstr(buf, keywords[i]) != NULL) {
+                close(fd);
+                return 1;
+            }
         }
+
+        /* 最长关键词 15 字节，保留 14 字节以覆盖跨块命中。 */
+        overlap = len < MAPS_OVERLAP ? len : MAPS_OVERLAP;
+        memmove(buf, buf + len - overlap, overlap);
     }
+
+    close(fd);
     return 0;
 }
 
@@ -222,7 +236,7 @@ Java_com_fatdog_reverse_Nk_nativeStatus(JNIEnv *env, jclass clazz) {
     char buf[256];
     snprintf(buf, sizeof(buf),
         "fd_scan  = %d (memfd:frida-agent)\n"
-        "maps_scan = %d (frida in /proc/self/maps)\n"
+        "maps_scan = %d (stream scan of /proc/self/maps)\n"
         "combined = %d",
         g_fd_result, g_maps_result,
         (g_fd_result || g_maps_result) ? 1 : 0);

@@ -1,7 +1,7 @@
 /**
  * dusk.c — 扶桑树 KL26 暮霭沉沉
  * 双重检测：timing side-channel + Frida 版本字符串嗅探
- * 判定逻辑：XOR（奇数路触发才判定）
+ * 判定逻辑：OR（任一子路触发即判定）
  * SEED = 20280720
  * Flag: FLAG_18_KL26{dusk_hides_the_truth}
  */
@@ -16,30 +16,55 @@
 #include <sys/time.h>
 
 /* ============================================================
- * 诱饵标记：Fatdog_dusk（真）/ Fatdog_dusk（假·少 s）
+ * 诱饵标记：Fatdog_dusk（真）/ Fatdog_duks（假·少 s）
  * ============================================================ */
 static const char REAL_MARK[]  = "Fatdog_dusk";
 static const char FAKE_MARK[]  = "Fatdog_duks";
 
 /* ============================================================
- * 检测①：timing side-channel（fork+clock 测量反调试延迟）
+ * 检测①：timing side-channel（多轮采样 + 中位数去抖）
  * ============================================================ */
-static int detect_timing(void) {
-    struct timespec t1, t2;
-    clock_gettime(CLOCK_MONOTONIC, &t1);
+#define DUSK_TIMING_ROUNDS      9
+#define DUSK_TIMING_MIN_SLOW    7
+#define DUSK_TIMING_LIMIT_NS    500000L
 
-    /* 轻量操作：如果存在 frida hook，这会比预期慢 */
-    volatile int dummy = 0;
-    for (int i = 0; i < 1000; i++) {
-        dummy += i;
+static long dusk_timing_delta_ns(const struct timespec *a, const struct timespec *b) {
+    return (b->tv_sec - a->tv_sec) * 1000000000L + (b->tv_nsec - a->tv_nsec);
+}
+
+static int dusk_cmp_long(const void *a, const void *b) {
+    long x = *(const long *)a;
+    long y = *(const long *)b;
+    return (x > y) - (x < y);
+}
+
+static int detect_timing(void) {
+    long samples[DUSK_TIMING_ROUNDS];
+    int valid = 0;
+    int slow = 0;
+
+    /* 预热循环，避免首次调度的固定偏差进入样本。 */
+    for (int round = 0; round < 2; round++) {
+        volatile int dummy = 0;
+        for (int i = 0; i < 1000; i++) dummy += i;
     }
 
-    clock_gettime(CLOCK_MONOTONIC, &t2);
+    for (int round = 0; round < DUSK_TIMING_ROUNDS; round++) {
+        struct timespec t1, t2;
+        volatile int dummy = 0;
 
-    long elapsed_ns = (t2.tv_sec - t1.tv_sec) * 1000000000L + (t2.tv_nsec - t1.tv_nsec);
+        clock_gettime(CLOCK_MONOTONIC, &t1);
+        for (int i = 0; i < 1000; i++) dummy += i;
+        clock_gettime(CLOCK_MONOTONIC, &t2);
 
-    /* 正常应该 < 100000ns (100us)，hook 会导致显著延迟 */
-    return elapsed_ns > 500000;  /* 500us 阈值 */
+        long elapsed_ns = dusk_timing_delta_ns(&t1, &t2);
+        samples[valid++] = elapsed_ns;
+        if (elapsed_ns > DUSK_TIMING_LIMIT_NS) slow++;
+    }
+
+    if (valid < DUSK_TIMING_MIN_SLOW || slow < DUSK_TIMING_MIN_SLOW) return 0;
+    qsort(samples, valid, sizeof(long), dusk_cmp_long);
+    return samples[valid / 2] > DUSK_TIMING_LIMIT_NS;
 }
 
 /* ============================================================
@@ -84,14 +109,13 @@ static int detect_frida_version(void) {
 }
 
 /* ============================================================
- * 综合检测（XOR 判定：奇数路触发才判定）
+ * 综合检测（OR 判定：任一子路触发即判定）
  * ============================================================ */
 static int detect_frida(void) {
     int timing = detect_timing();
     int version = detect_frida_version();
 
-    /* XOR：只有奇数路触发才判定 */
-    return timing ^ version;
+    return timing || version;
 }
 
 /* ============================================================
@@ -128,7 +152,7 @@ static const char* compute_status(void) {
         "=== 暮霭沉沉 ===\n"
         "timing检测:     %s\n"
         "版本嗅探:       %s\n"
-        "综合判定(XOR):  %s\n\n"
+        "综合判定(OR):   %s\n\n"
         "标记A: %s\n标记B: %s",
         timing ? "检出" : "安全",
         version ? "检出" : "安全",

@@ -1,7 +1,7 @@
 package com.fatdog.reverse;
 
 /**
- * 扶桑树 KL26 暮霭沉沉：JNI 桥——XOR 判定。
+ * 扶桑树 KL26 暮霭沉沉：JNI 桥——OR 判定。
  * loadLibrary("dusk")
  */
 public final class Sk {
@@ -13,7 +13,7 @@ public final class Sk {
     /** 版本嗅探子结果 */
     public static native int nativeVersion();
 
-    /** 综合检测（XOR 判定）→ 0=安全 1=检出 */
+    /** 综合检测（OR 判定）→ 0=安全 1=检出 */
     public static native int nativeFridaDetect();
 
     /** 最终答案 */

@@ -43,7 +43,7 @@ public class i64Activity extends Activity {
                 + "  String nativeStatus()\n\n"
                 + "OR 判定（任一触发即判定）：\n"
                 + "  ① 线程上下文指纹\n"
-                + "  ② 时序交叉验证\n\n"
+                + "  ② 时序交叉验证（稳定中位数）\n\n"
                 + "标记：两个标记一真一假，需仔细辨别");
         tv.setGravity(Gravity.CENTER);
         root.addView(tv, Ui.wrap(6));
@@ -100,14 +100,10 @@ public class i64Activity extends Activity {
             @Override public void onClick(View v) {
                 new AlertDialog.Builder(i64Activity.this)
                         .setTitle("提示")
-                        .setMessage("交叉验证双重检测：\n\n"
-                                + "① 线程上下文指纹（/proc/self/task）\n"
-                                + "② 时序交叉验证（dlopen vs malloc 延迟比）\n\n"
+                        .setMessage("两路检测：\n\n"
+                                + "① 线程上下文指纹\n"
+                                + "② 时序交叉验证：9 轮采样，中位数与多数阈值去抖\n\n"
                                 + "OR 判定：任一触发即判定 Frida 存在\n\n"
-                                + "绕过路线：\n"
-                                + "  • 两路都需绕过\n"
-                                + "  • 挂钩线程名/时序测量\n\n"
-                                + "静态复刻：SEED = 20280721\n\n"
                                 + "注意两个标记中有一个是诱饵，仔细对比拼写差异。")
                         .setPositiveButton("知道了", null)
                         .show();
