@@ -623,7 +623,7 @@ Java.perform(function () {
 });
 ```
 
-**答案**：`FLAG_18_L14{triple_layer_chain}`
+**flag**：`FLAG_18_L14{triple_layer_chain}`
 
 ---
 

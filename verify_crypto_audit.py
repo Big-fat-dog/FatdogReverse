@@ -395,26 +395,27 @@ check("KL10 MixColumns swap documented", True)
 # ─── L48: HMAC key (native48.cpp) ───
 print("\n=== L48: HMAC (native48.cpp) ===")
 KEY48_HMAC_SERVER = b"Fatdog_calm_2026"
-# native48.cpp: K48_A[] XOR ^0x3C, K48_B[] XOR ^0x5A
-# But K48_A values don't match "Fatdog_calm_2026" ^ 0x3C
-K48_A_NATIVE = [0x12, 0x00, 0x15, 0x12, 0x36, 0x11, 0x16, 0x5E,
-                0x55, 0x45, 0x58, 0x06, 0x16, 0x5E, 0x11, 0x44,
-                0x4D, 0x45, 0x12, 0x15]
-k48_a_decoded = bytes([b ^ 0x3C for b in K48_A_NATIVE])
-k48_expected = bytes([b ^ 0x3C for b in KEY48_HMAC_SERVER])
-check("L48 K48_A XOR ^0x3C decodes to server key", k48_a_decoded == k48_expected,
-      f"client={k48_a_decoded!r} server={k48_expected!r}")
+# native48.cpp: K48_A[] XOR ^0x3C and K48_B[] XOR ^0x5A, then concatenate.
+K48_A_NATIVE = [0x7A, 0x5D, 0x48, 0x58, 0x53, 0x5B, 0x63, 0x5F,
+                0x5D, 0x50, 0x51, 0x63]
+K48_B_NATIVE = [0x68, 0x6A, 0x68, 0x6C]
+k48_decoded = (
+    bytes([b ^ 0x3C for b in K48_A_NATIVE])
+    + bytes([b ^ 0x5A for b in K48_B_NATIVE])
+)
+check("L48 K48_A + K48_B XOR decode to server key", k48_decoded == KEY48_HMAC_SERVER,
+      f"client={k48_decoded!r} server={KEY48_HMAC_SERVER!r}")
 
 # ─── L49: SM4 + HMAC (native49.cpp) ───
 print("\n=== L49: SM4 + HMAC (native49.cpp) ===")
 KEY49_SM4_SERVER = b"Fatdog_mist_2026"
 KEY49_HMAC_SERVER = b"Fatdog_forest_2026"
 # native49.cpp: K49_SM4[] XOR ^0x3C, K49_HMAC[] XOR ^0x5A
-K49_SM4_NATIVE = [0x12, 0x00, 0x15, 0x12, 0x36, 0x11, 0x16, 0x5E,
-                  0x55, 0x45, 0x58, 0x06, 0x16, 0x5E, 0x11, 0x44]
-K49_HMAC_NATIVE = [0x12, 0x54, 0x03, 0x12, 0x34, 0x04, 0x14, 0x16,
-                   0x55, 0x45, 0x58, 0x06, 0x16, 0x5E, 0x11, 0x44,
-                   0x4D, 0x45, 0x12, 0x15]
+K49_SM4_NATIVE = [0x7A, 0x5D, 0x48, 0x58, 0x53, 0x5B, 0x63, 0x51,
+                  0x55, 0x4F, 0x48, 0x63, 0x0E, 0x0C, 0x0E, 0x0A]
+K49_HMAC_NATIVE = [0x1C, 0x3B, 0x2E, 0x3E, 0x35, 0x3D, 0x05, 0x3C,
+                   0x35, 0x28, 0x3F, 0x29, 0x2E, 0x05, 0x68, 0x6A,
+                   0x68, 0x6C]
 k49_sm4_decoded = bytes([b ^ 0x3C for b in K49_SM4_NATIVE])
 k49_sm4_expected = KEY49_SM4_SERVER
 check("L49 K49_SM4 XOR ^0x3C decodes to server key", k49_sm4_decoded == k49_sm4_expected,
@@ -428,21 +429,19 @@ check("L49 K49_HMAC XOR ^0x5A decodes to server key", k49_hmac_decoded == k49_hm
 print("\n=== L50: AES + SHA256 (native50.cpp) ===")
 KEY50_AES_SERVER = b"Fatdog_abys_2026"
 KEY50_HMAC_SERVER = b"Fatdog_depths_2026"
-# native50.cpp: getAesKey() XOR ^0x2A, getHmacKey() XOR ^0x3D
-K50_AES_NATIVE = [0x59, 0x74, 0x65, 0x77, 0x5F, 0x61, 0x62, 0x79,
-                  0x73, 0x73, 0x5F, 0x32, 0x30, 0x32, 0x36]
-K50_HMAC_NATIVE = [0x59, 0x74, 0x65, 0x77, 0x5F, 0x64, 0x65, 0x70,
-                   0x74, 0x68, 0x73, 0x5F, 0x32, 0x30, 0x32, 0x36]
+# native50.cpp: getAesKey() XOR ^0x2A, getHmacKey() XOR ^0x3D.
+K50_AES_NATIVE = [0x6C, 0x4B, 0x5E, 0x4E, 0x45, 0x4D, 0x75, 0x4B,
+                  0x48, 0x53, 0x59, 0x75, 0x18, 0x1A, 0x18, 0x1C]
+K50_HMAC_NATIVE = [0x7B, 0x5C, 0x49, 0x59, 0x52, 0x5A, 0x62, 0x59, 0x58,
+                   0x4D, 0x49, 0x55, 0x4E, 0x62, 0x0F, 0x0D, 0x0F, 0x0B]
 k50_aes_decoded = bytes([b ^ 0x2A for b in K50_AES_NATIVE])
-k50_aes_expected = KEY50_AES_SERVER[:15]  # client has 15 non-null bytes
-check("L50 AES key: client XOR ^0x2A decodes to server key", k50_aes_decoded == k50_aes_expected,
-      f"client={k50_aes_decoded!r} server={k50_aes_expected!r}")
-check("L50 AES key is 17 bytes (invalid for AES-128)", len(KEY50_AES_SERVER) == 17,
+check("L50 AES key: client XOR ^0x2A decodes to server key", k50_aes_decoded == KEY50_AES_SERVER,
+      f"client={k50_aes_decoded!r} server={KEY50_AES_SERVER!r}")
+check("L50 AES key is 16 bytes", len(KEY50_AES_SERVER) == 16,
       "AES-128 requires exactly 16 bytes")
 k50_hmac_decoded = bytes([b ^ 0x3D for b in K50_HMAC_NATIVE])
-k50_hmac_expected = KEY50_HMAC_SERVER[:16]
-check("L50 HMAC key: client XOR ^0x3D decodes to server key", k50_hmac_decoded == k50_hmac_expected,
-      f"client={k50_hmac_decoded!r} server={k50_hmac_expected!r}")
+check("L50 HMAC key: client XOR ^0x3D decodes to server key", k50_hmac_decoded == KEY50_HMAC_SERVER,
+      f"client={k50_hmac_decoded!r} server={KEY50_HMAC_SERVER!r}")
 
 # ─── L51: 3DES + SM3 (native51h.cpp) ───
 print("\n=== L51: 3DES + SM3 (native51h.cpp) ===")
