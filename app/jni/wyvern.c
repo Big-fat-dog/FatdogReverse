@@ -168,15 +168,19 @@ static void to_hex(const unsigned char *d,int n,char *hex){
 
 __attribute__((noinline)) static void k37_variant_sign(JNIEnv *env,jint page,jlong ts,
                                                        char hex[65]) {
-    char msg[64];
-    unsigned char padded[64],dg[32],out[32];
-    int mlen,padded_n;
+    char msg[128];
+    unsigned char padded[128],dg[32],out[32];
+    size_t mlen,total;
+    int i;
     (void) env;
-    mlen=snprintf(msg,sizeof(msg),"page=%d&ts=%lld",(int)page,(long long)ts);
-    padded_n=(mlen+63)/64*64;
-    memset(padded,0,(size_t)padded_n);
-    memcpy(padded,msg,(size_t)mlen);
-    k37_sha(padded,(size_t)(padded_n/64),dg);
+    mlen=(size_t)snprintf(msg,sizeof(msg),"page=%d&ts=%lld",(int)page,(long long)ts);
+    total=((mlen+1+8+63)/64)*64;
+    memset(padded,0,total);
+    memcpy(padded,msg,mlen);
+    padded[mlen]=0x80;
+    for(i=0;i<8;i++)
+        padded[total-1-i]=(unsigned char)(((unsigned long long)mlen*8)>>(i*8));
+    k37_sha(padded,total/64,dg);
     k37_rc4(k37_rc4key,16,dg,32,out);
     to_hex(out,32,hex);
 }

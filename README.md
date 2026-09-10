@@ -95,6 +95,7 @@ APK 结构刻意做得和真实 App 一致：图标（5 种密度）、XML 布�
 | KKL2 | 万剑冢 | ★★ | 真 DEX 加密埋 assets（假壳伴生）：JNI 动态注册解 dex + InMemoryDexClassLoader 内存加载 + HMAC 密钥 UTF-16 派生 | 还原解密链 / hook nativeUnseal → dump dex → 拿 key → HMAC 取 100 页求和 | tense | timid | libkkl2.so |
 | KKL3 | 断魂谷 | ★★★ | 四路哨兵（TracerPid/maps/端口/线程名）守取数签名：命中即 HMAC 密钥翻转 1 bit，服务端静默 403 | 绕哨兵取数 / 静态还原 UTF-16 真标记派生密钥 | quell | quiet | libkkl3.so |
 | KKL4 | 锁妖塔 | ★★★★ | 可执行段 CRC 自校验（读 maps 自算，四组导出窗口）+ 三点记账守卫（open/sign/native 回调互核）：patch 任一函数或 inline hook 校验器即密钥投毒，服务端静默 403 | 还原真标记派生密钥取数 / 完整重建记账与 CRC 链路 | grit | grim | libkkl4.so |
+| KKL5 | 诛仙台 | ★★★★★ | VMP 解释器 + onCreate 抽取还原（对标 360 native onCreate）+ AES-128-CBC + HMAC-SHA256 复合签名 + 三点记账 | 逆向 VM 字节码 → 还原真标记派生子钥 → 反复制 AES-CBC 签名 → 100 页求和 | ascend | ascent | libkkl5.so |
 
 每关的**解题思路分级提示**见下方折叠块；完整题解（含 Python 复刻代码与 Frida 脚本）在 `SOLUTIONS.md`（建议先自己练）。
 
@@ -658,9 +659,10 @@ license 链路：`base64 → AES解密(密钥A在XBox) → AES解密(密钥B在M
 - **标记变更（自 L28 起）**：密钥/口令等标记弃用 `fatdemo_` 前缀，改用 `Fatdog_<情绪词>`（情绪词用尽换动词，如 `Fatdog_unhappy` / `Fatdog_sneak`）；L1-27 保持不变，完整规范见 `SKILL.md` §四
 - 天地秘境·幽冥海分区：KL11-KL15 五关已落地（SO patch 对抗五连关，入口在天地秘境「幽冥海」页签；后续太玄之初规划见 PLANNED.md）
 - 天地秘境·太玄之初分区：KL16-KL20 已落地（一代壳+二代壳+OLLVM+VMP+三代壳综合收官卷，入口在天地秘境「太玄之初」页签）
-- 天地秘境·太玄之初分区（C++ 壳系列）：KKL1 玄冥渊已落地（vtable 派发 + 指令抽取回填，`libkkl1.so` + `libc++_shared.so`；KKL2-KKL4 万剑冢/断魂谷/锁妖塔也已落地，KKL5 诛仙台按 PLANNED.md 顺序推进）
+- 天地秘境·太玄之初分区（C++ 壳系列）：KKL1 玄冥渊已落地（vtable 派发 + 指令抽取回填，`libkkl1.so` + `libc++_shared.so`；KKL2-KKL5 万剑冢/断魂谷/锁妖塔/诛仙台也已落地，全五关收官）
 - 天地秘境·太玄之初分区（C++ 壳系列）：KKL2 万剑冢已落地（真 DEX 加密埋 assets → `libkkl2.so` 动态注册解 dex → `InMemoryDexClassLoader` 内存加载 → `/api/kkl2` 验 HMAC 取数，100 页求和 49755）
 - 天地秘境·太玄之初分区（C++ 壳系列）：KKL3 断魂谷已落地（四路哨兵守取数签名 → `libkkl3.so` 命中即静默投毒 → `/api/kkl3` 403 断数，真标记 UTF-16 藏匿，100 页求和 52219）
 - 天地秘境·太玄之初分区（C++ 壳系列）：KKL4 锁妖塔已落地（`libkkl4.so` 读 `/proc/self/maps` 做四组导出窗口 CRC 自校验 + open/sign/native 回调三点记账，任一被 patch/inline hook 即密钥投毒 → `/api/kkl4` 403 断数，真标记 UTF-16 藏匿，100 页求和 51434）
 
+- 天地秘境·太玄之初分区（C++ 壳系列）：KKL5 诛仙台已落地（`libkkl5.so` 用自定义 VM 字节码还原 onCreate 门禁，AES-128-CBC + HMAC-SHA256 取数，`/api/kkl5` 100 页求和 53011）
 - 天地秘境·天机阁分区：KL29 暗流涌动、KL30 天机织锦已落地（二进制协议逆向两连关，入口在天地秘境「天机阁」页签；KL31-35 规划见 PLANNED.md）

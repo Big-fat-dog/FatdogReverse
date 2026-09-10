@@ -223,7 +223,7 @@ NUMS34 = [_rng34.randint(1, 100) for _ in range(PAGES34 * PER_PAGE34)]
 
 # ---------------- 关卡 35：双匣暗渡（手写 3DES+SM4 + 干扰包） ----------------
 KEY35_MASTER = b"Fatdog_sneak"
-DECOY35_KEYS = [b"Fatdog_skulk"]
+DECOY35_KEYS = ["Fatdog_skulk"]
 PAGES35, PER_PAGE35, SEED35 = 100, 10, 20271111
 _rng35 = random.Random(SEED35)
 NUMS35 = [_rng35.randint(1, 100) for _ in range(PAGES35 * PER_PAGE35)]
@@ -241,7 +241,7 @@ _K37_HEX = ("428a2f9871374491b5c0fbcfe9b5dba53956c25b59f111f1923f82a4ab1c5ed5"
             "983e5152a831c66db00327c8bf597fc7c6e00bf3d5a7914706ca635114292967"
             "27b70a852e1b21384d2c6dfc53380d13650a7354766a0abb81c2c92e92722c85"
             "a2bfe8a1a81a664bc24b8b70c76c51a3d192e819d6990624f40e3585106aa070"
-            "19a4c1161e376c082748774c34b0cb53391c0cb34ed8aa4a5b9cca4f682e6ff3"
+            "19a4c1161e376c082748774c34b0bcb5391c0cb34ed8aa4a5b9cca4f682e6ff3"
             "748f82ee78a5636f84c878148cc7020890befffaa4506cebbef9a3f7c67178f2")
 _K37_W = [int(_K37_HEX[i * 8:(i + 1) * 8], 16) for i in range(64)]
 _STD_IV_W = [0x6A09E667, 0xBB67AE85, 0x3C6EF372, 0xA54FF53A,
@@ -1218,14 +1218,14 @@ def api_l48(page: int = Query(...), ts: int = Query(...), sign: str = Query(...)
 def _des3_ecb_encrypt_py(key24: bytes, data8: bytes) -> bytes:
     d1 = _DES.new(key24[0:8], _DES.MODE_ECB)
     d2 = _DES.new(key24[8:16], _DES.MODE_ECB)
-    d3 = _D.new(key24[16:24], _DES.MODE_ECB)
+    d3 = _DES.new(key24[16:24], _DES.MODE_ECB)
     return d3.encrypt(d2.decrypt(d1.encrypt(data8)))
 
 
 def _des3_ecb_decrypt_py(key24: bytes, data8: bytes) -> bytes:
     d1 = _DES.new(key24[0:8], _DES.MODE_ECB)
     d2 = _DES.new(key24[8:16], _DES.MODE_ECB)
-    d3 = _D.new(key24[16:24], _DES.MODE_ECB)
+    d3 = _DES.new(key24[16:24], _DES.MODE_ECB)
     return d1.decrypt(d2.encrypt(d3.decrypt(data8)))
 
 
@@ -1236,7 +1236,7 @@ def _l35_try(master: str, page: int, ts: int, e1: str, e2: str, sign: str) -> bo
     if not hmac.compare_digest(sign, hmac.new(mk, (e1 + "|" + e2).encode(), hashlib.sha256).hexdigest()):
         return False
     try:
-        p = sm4_decrypt(smk, bytes.fromhex(e1))
+        p = sm4_decrypt(bytes.fromhex(e1), smk)
         plain = p.split(b"\x00")[0].decode("utf-8", "ignore")
     except Exception:
         return False
@@ -1857,11 +1857,6 @@ async def api_l49(enc: str = Form(...), sign: str = Form(...), algo: int = Form(
         raise HTTPException(status_code=400, detail="algo must be 0")
     try:
         plain = sm4_decrypt(bytes.fromhex(enc), KEY49_SM4)
-        # 去除 PKCS7 填充
-        pad_len = plain[-1]
-        if pad_len < 1 or pad_len > 16:
-            raise HTTPException(status_code=403, detail="bad padding")
-        plain = plain[:-pad_len]
         m = re.fullmatch(r"page=(\d+)&ts=(\d+)", plain.decode("utf-8", "ignore"))
         if not m:
             raise HTTPException(status_code=403, detail="invalid payload format")
@@ -1904,12 +1899,14 @@ def api_l50(enc: str = Query(...), sign: str = Query(...), ts: int = Query(...))
         m = re.fullmatch(r"page=(\d+)&ts=(\d+)", plain.decode("utf-8", "ignore"))
         if not m:
             raise HTTPException(status_code=403, detail="invalid payload format")
-        page = int(m.group(1))
+        page, payload_ts = int(m.group(1)), int(m.group(2))
     except HTTPException:
         raise
     except Exception:
         raise HTTPException(status_code=403, detail="decrypt failed")
     _check_page(page, PAGES50)
+    if payload_ts != ts:
+        raise HTTPException(status_code=403, detail="ts mismatch")
     # 验证 SHA-256 签名
     expected = hashlib.sha256(enc.encode()).hexdigest()
     if not hmac.compare_digest(sign, expected):
@@ -2003,12 +2000,14 @@ def api_l51(enc: str = Query(...), sig: str = Query(...), ts: int = Query(...)):
         m = re.fullmatch(r"page=(\d+)&ts=(\d+)", plain.decode("utf-8", "ignore"))
         if not m:
             raise HTTPException(status_code=403, detail="invalid payload format")
-        page = int(m.group(1))
+        page, payload_ts = int(m.group(1)), int(m.group(2))
     except HTTPException:
         raise
     except Exception:
         raise HTTPException(status_code=403, detail="decrypt failed")
     _check_page(page, PAGES51)
+    if payload_ts != ts:
+        raise HTTPException(status_code=403, detail="ts mismatch")
     # 验证 SM3 签名: sig = SM3(salt + enc)
     expected_sig = sm3_hash(KEY51_SM3_SALT + enc.encode()).hex()
     if not hmac.compare_digest(sig, expected_sig):
@@ -2338,6 +2337,48 @@ def api_l53(page: int = Form(...), ts: int = Form(...),
     return {"d": encrypted.hex()}
 
 
+# ---------------- 关卡 KKL5：诛仙台（VMP + AES-128-CBC + 三点记账 · 服务端只验复合签名） ----------------
+# HMAC 密钥 = SHA-256("Fatdog_ascend" + "|kkl5_ascension")，由 libkkl5.so 的 VMP 解释器派生；
+# 真标记 Fatdog_ascend UTF-16 藏于 VM 字节码内存，明文诱饵 Fatdog_ascent 派生密钥验签 403。
+# enc = hex(IV(16) || AES-128-CBC(key_aes, PKCS7("page=N&ts=T")))；sign = HMAC(mac_key, enc)。
+# 响应先签后密：iv/d 为另一把 AES 密钥的 CBC 密文，sign 覆盖 f"{page}|{ts}|{iv}|{d}"。
+KEY_KKL5_AES = bytes.fromhex("6a3315b12737d2b16d2ed50ddf8d4852")
+KEY_KKL5_MAC = hashlib.sha256(KEY_KKL5_AES + b"|kkl5_ascension").digest()
+KEY_KKL5_RSP = hashlib.sha256(b"Fatdog_ascend|kkl5_response").digest()[:16]
+PAGES_KKL5, PER_PAGE_KKL5, SEED_KKL5 = 100, 10, 20260930
+_rng_kkl5 = random.Random(SEED_KKL5)
+NUMS_KKL5 = [_rng_kkl5.randint(1, 100) for _ in range(PAGES_KKL5 * PER_PAGE_KKL5)]
+KKL5_SUM = sum(NUMS_KKL5)
+KKL5_SUM_HASH = hashlib.sha256(str(KKL5_SUM).encode()).hexdigest()
+
+
+@app.post("/api/kkl5")
+async def api_kkl5(page: int = Form(...), ts: int = Form(...), enc: str = Form(...), sign: str = Form(...)):
+    _check_page(page, PAGES_KKL5)
+    _check_ts(ts)
+    if len(enc) < 32 or (len(enc) % 2) != 0:
+        raise HTTPException(status_code=403, detail="enc malformed")
+    if not hmac.compare_digest(sign, hmac.new(KEY_KKL5_MAC, enc.encode(), hashlib.sha256).hexdigest()):
+        raise HTTPException(status_code=403, detail="sign invalid")
+    try:
+        raw = bytes.fromhex(enc)
+        iv, ct = raw[:16], raw[16:]
+        if len(ct) == 0 or (len(ct) % 16) != 0:
+            raise ValueError("bad block size")
+        plain = unpad(_AES.new(KEY_KKL5_AES, _AES.MODE_CBC, iv).decrypt(ct), 16).decode()
+    except Exception:
+        raise HTTPException(status_code=403, detail="enc invalid")
+    if plain != f"page={page}&ts={ts}":
+        raise HTTPException(status_code=403, detail="payload mismatch")
+    idx = (page - 1) * PER_PAGE_KKL5
+    body = json.dumps({"page": page, "nums": NUMS_KKL5[idx:idx + PER_PAGE_KKL5]}, separators=(",", ":"))
+    rsp_iv = hashlib.sha256(f"{page}|{ts}|{KEY_KKL5_RSP.hex()}".encode()).digest()[:16]
+    rsp_ct = _AES.new(KEY_KKL5_RSP, _AES.MODE_CBC, rsp_iv).encrypt(pad(body.encode(), 16))
+    rsp_iv_hex, rsp_d = rsp_iv.hex(), rsp_ct.hex()
+    rsp_sign = hmac.new(KEY_KKL5_MAC, f"{page}|{ts}|{rsp_iv_hex}|{rsp_d}".encode(), hashlib.sha256).hexdigest()
+    return {"iv": rsp_iv_hex, "d": rsp_d, "sign": rsp_sign}
+
+
 if __name__ == "__main__":
     cert_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "certs")
     print(f"FatdogReverse 服务端（FastAPI）：http://{HOST}:{PORT_HTTP}（15-20） https://{HOST}:{PORT_HTTPS}（21-27）")
@@ -2362,3 +2403,6 @@ if __name__ == "__main__":
                               ssl_cert_reqs=2,   # ssl.CERT_REQUIRED：握手层强制客户端证书
                               ssl_ca_certs=os.path.join(cert_dir, "ca.crt"), log_level="info")
     uvicorn.Server(mtls_cfg).run()
+
+
+# ---------------- 关卡 49（Native大陆）迷雾森林：std::map 分发 · SM4-ECB + HMAC-SHA256 ----------

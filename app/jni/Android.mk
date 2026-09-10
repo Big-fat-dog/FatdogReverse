@@ -321,6 +321,14 @@ LOCAL_CPPFLAGS := -std=c++17 -fexceptions -frtti
 LOCAL_LDLIBS := -llog
 include $(BUILD_SHARED_LIBRARY)
 
+# KKL5
+include $(CLEAR_VARS)
+LOCAL_MODULE := kkl5
+LOCAL_SRC_FILES := kkl5.cpp
+LOCAL_CPPFLAGS := -std=c++17 -fexceptions -frtti
+LOCAL_LDLIBS := -llog
+include $(BUILD_SHARED_LIBRARY)
+
 # L48
 include $(CLEAR_VARS)
 LOCAL_MODULE := native48

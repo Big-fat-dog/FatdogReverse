@@ -168,6 +168,27 @@ def main():
         else:
             print('警告: 未找到 kkl2 业务 dex 输出: ' + k2_dex)
 
+    # 0c) KKL5 诛仙台：业务 DEX 独立编译（源码在 app/kkl5dex，不进主 dex）
+    #     + gen_kkl5.py 用 AES-128-CBC 加密烘焙 assets（必须在 aapt2 link -A assets 之前完成）。
+    kkl5_src = os.path.join(APP, 'kkl5dex')
+    if os.path.isdir(kkl5_src):
+        k5_cls = os.path.join(BUILD, 'kkl5dex', 'classes')
+        k5_dex_dir = os.path.join(BUILD, 'kkl5dex', 'dex')
+        os.makedirs(k5_cls, exist_ok=True)
+        os.makedirs(k5_dex_dir, exist_ok=True)
+        k5_java = sorted(glob.glob(os.path.join(kkl5_src, '**', '*.java'), recursive=True))
+        run([javac, '-encoding', 'UTF-8', '-source', '8', '-target', '8',
+             '-bootclasspath', android_jar, '-d', k5_cls] + k5_java)
+        k5_jar = os.path.join(BUILD, 'kkl5dex', 'classes.jar')
+        with zipfile.ZipFile(k5_jar, 'w', zipfile.ZIP_DEFLATED) as zj:
+            for cf in sorted(glob.glob(os.path.join(k5_cls, '**', '*.class'), recursive=True)):
+                zj.write(cf, os.path.relpath(cf, k5_cls).replace('\\', '/'))
+        run([d8, '--release', '--min-api', '21', '--output', k5_dex_dir, k5_jar])
+        k5_dex = os.path.join(k5_dex_dir, 'classes.dex')
+        if os.path.isfile(k5_dex):
+            run([sys.executable, os.path.join(HERE, 'gen_kkl5.py'), '--bake', k5_dex])
+        else:
+            print('警告: 未找到 kkl5 业务 dex 输出: ' + k5_dex)
     # 1) aapt2：编译资源 + 链接生成未签名 APK 与 R.java
     res_zip = os.path.join(BUILD, 'res.zip')
     res_dir = os.path.join(APP, 'res')

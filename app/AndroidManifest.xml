@@ -129,6 +129,7 @@
         <activity android:name=".kkl2Activity" android:exported="false" />
         <activity android:name=".kkl3Activity" android:exported="false" />
         <activity android:name=".kkl4Activity" android:exported="false" />
+        <activity android:name=".kkl5Activity" android:exported="false" />
         <activity android:name=".c58Activity" android:exported="false" />
         <activity android:name=".d59Activity" android:exported="false" />
         <activity android:name=".e60Activity" android:exported="false" />

@@ -590,7 +590,7 @@ public class MainActivity extends Activity {
             }
             /* KKL1-5（追加于太玄之初，编号独立） */
             String[] kklNames = {"玄冥渊", "万剑冢", "断魂谷", "锁妖塔", "诛仙台"};
-            Class<?>[] kklTargets = {kkl1Activity.class, kkl2Activity.class, kkl3Activity.class, kkl4Activity.class, null};
+            Class<?>[] kklTargets = {kkl1Activity.class, kkl2Activity.class, kkl3Activity.class, kkl4Activity.class, kkl5Activity.class};
 
             for (int i = 0; i < kklNames.length; i++) {
                 final String kklKey = "KKL" + (i + 1);

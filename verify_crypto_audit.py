@@ -1,7 +1,8 @@
 # -*- coding: utf-8 -*-
 """Audit: server.py vs client (Java + native C) crypto consistency.
 Read-only verification script. Reports mismatches only."""
-import hashlib, hmac, struct, sys
+import ast
+import hashlib, hmac, pathlib, struct, sys
 
 OK = "  OK"
 FAIL = "  ** MISMATCH **"
@@ -169,6 +170,7 @@ KEY37_MARKER = b"Fatdog_dodge"
 # Server: IV37_B = sha37_iv(b"Fatdog_dodge|iv")
 # Server: RC4K37 = sha37_iv(b"Fatdog_dodge|rc4")[:16]
 check("L37 marker is correct", KEY37_MARKER == b"Fatdog_dodge")
+L37_EXPECTED_SIGN = "902ac65869469750db3d5d70cbc89f1221a3a7ccc173ee85f38ff72a9cc53938"
 
 # ─── KL6 (L43): Modified AES Rcon ───
 print("\n=== KL6 (L43): Modified AES Rcon ===")
@@ -646,9 +648,14 @@ K37_HEX = ("428a2f9871374491b5c0fbcfe9b5dba53956c25b59f111f1923f82a4ab1c5ed5"
             "983e5152a831c66db00327c8bf597fc7c6e00bf3d5a7914706ca635114292967"
             "27b70a852e1b21384d2c6dfc53380d13650a7354766a0abb81c2c92e92722c85"
             "a2bfe8a1a81a664bc24b8b70c76c51a3d192e819d6990624f40e3585106aa070"
-            "19a4c1161e376c082748774c34b0cb53391c0cb34ed8aa4a5b9cca4f682e6ff3"
+            "19a4c1161e376c082748774c34b0bcb5391c0cb34ed8aa4a5b9cca4f682e6ff3"
             "748f82ee78a5636f84c878148cc7020890befffaa4506cebbef9a3f7c67178f2")
 K37_W = [int(K37_HEX[i * 8:(i + 1) * 8], 16) for i in range(64)]
+check(
+    "L37 standard K table documented sample",
+    K37_W == STD_K,
+    "server K[51] must stay 0x34b0bcb5",
+)
 # Compare K37 with standard
 k37_differs = []
 for i in range(64):
@@ -659,6 +666,92 @@ if k37_differs:
         print(f"  L37 K[{idx}]: 0x{v37:08x} (L37) vs 0x{vstd:08x} (standard) -- DIFFERS")
 else:
     print("  L37 K table is identical to standard SHA-256 K table")
+
+# Reconstruct the documented L37 sample independently (standard K table, standard SHA padding).
+def _sha256_words(data, iv_words):
+    h = list(iv_words)
+    msg = bytearray(data)
+    ml = len(msg) * 8
+    msg.append(0x80)
+    while len(msg) % 64 != 56:
+        msg.append(0)
+    msg += ml.to_bytes(8, "big")
+    mask = 0xFFFFFFFF
+    rotr = lambda x, n: ((x >> n) | (x << (32 - n))) & mask
+    for off in range(0, len(msg), 64):
+        w = [int.from_bytes(msg[off + i * 4:off + i * 4 + 4], "big") for i in range(16)]
+        for i in range(16, 64):
+            s0 = rotr(w[i - 15], 7) ^ rotr(w[i - 15], 18) ^ (w[i - 15] >> 3)
+            s1 = rotr(w[i - 2], 17) ^ rotr(w[i - 2], 19) ^ (w[i - 2] >> 10)
+            w.append((w[i - 16] + s0 + w[i - 7] + s1) & mask)
+        a, b, c, d, e, f, g, hh = h
+        for i in range(64):
+            S1 = rotr(e, 6) ^ rotr(e, 11) ^ rotr(e, 25)
+            ch = (e & f) ^ ((~e & mask) & g)
+            t1 = (hh + S1 + ch + STD_K[i] + w[i]) & mask
+            S0 = rotr(a, 2) ^ rotr(a, 13) ^ rotr(a, 22)
+            mj = (a & b) ^ (a & c) ^ (b & c)
+            t2 = (S0 + mj) & mask
+            hh, g, f, e = g, f, e, (d + t1) & mask
+            d, c, b, a = c, b, a, (t1 + t2) & mask
+        h = [(x + y) & mask for x, y in zip(h, [a, b, c, d, e, f, g, hh])]
+    return h
+
+def _rc4(key, data):
+    s = list(range(256))
+    j = 0
+    for i in range(256):
+        j = (j + s[i] + key[i % len(key)]) & 0xFF
+        s[i], s[j] = s[j], s[i]
+    out = bytearray()
+    i = j = 0
+    for ch in data:
+        i = (i + 1) & 0xFF
+        j = (j + s[i]) & 0xFF
+        s[i], s[j] = s[j], s[i]
+        out.append(ch ^ s[(s[i] + s[j]) & 0xFF])
+    return bytes(out)
+
+_L37_STD_IV = [0x6A09E667,0xBB67AE85,0x3C6EF372,0xA54FF53A,
+               0x510E527F,0x9B05688C,0x1F83D9AB,0x5BE0CD19]
+_l37_iv = b"".join(x.to_bytes(4, "big") for x in _sha256_words(b"Fatdog_dodge|iv", _L37_STD_IV))
+_l37_iv_words = [int.from_bytes(_l37_iv[i:i + 4], "big") for i in range(0, 32, 4)]
+_l37_rc4_key = b"".join(x.to_bytes(4, "big") for x in _sha256_words(b"Fatdog_dodge|rc4", _L37_STD_IV))[:16]
+_l37_digest = b"".join(x.to_bytes(4, "big") for x in _sha256_words(b"page=1&ts=1787013761", _l37_iv_words))
+check("L37 documented sign sample", _rc4(_l37_rc4_key, _l37_digest).hex() == L37_EXPECTED_SIGN,
+      "standard K table + standard SHA-256 padding")
+
+# ─── Server request contracts ───
+print("\n=== Server request contracts ===")
+try:
+    _server_source = pathlib.Path("server.py").read_text(encoding="utf-8")
+    _server_tree = ast.parse(_server_source)
+    _server_funcs = {
+        node.name: ast.get_source_segment(_server_source, node)
+        for node in ast.walk(_server_tree)
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+    }
+    _l49_src = _server_funcs.get("api_l49", "")
+    check("L49 does not strip PKCS#7 twice",
+          "plain = plain[:-pad_len]" not in _l49_src and "pad_len = plain[-1]" not in _l49_src,
+          "sm4_decrypt already removes PKCS#7 padding")
+    _l35_src = _server_funcs.get("_l35_try", "")
+    check("L35 SM4 decrypt argument order",
+          "sm4_decrypt(bytes.fromhex(e1), smk)" in _l35_src)
+    check("L35 decoy keys are strings",
+          'DECOY35_KEYS = ["Fatdog_skulk"]' in _server_source)
+    _l50_src = _server_funcs.get("api_l50", "")
+    check("L50 binds encrypted timestamp to query timestamp",
+          "int(m.group(2))" in _l50_src and "if payload_ts != ts" in _l50_src)
+    _l51_src = _server_funcs.get("api_l51", "")
+    check("L51 binds encrypted timestamp to query timestamp",
+          "int(m.group(2))" in _l51_src and "if payload_ts != ts" in _l51_src)
+    _des3_src = "\n".join(_server_funcs.get(name, "") for name in (
+        "_des3_ecb_encrypt_py", "_des3_ecb_decrypt_py"))
+    check("L35 3DES helpers use _DES.new",
+          ".new(" in _des3_src and "_D.new(" not in _des3_src)
+except Exception as exc:
+    check("server.py request contract audit", False, repr(exc))
 
 # ─── Summary ───
 print("\n" + "=" * 60)
