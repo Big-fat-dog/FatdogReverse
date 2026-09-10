@@ -1,7 +1,7 @@
 package com.fatdog.reverse;
 
 /**
- * 扶桑树 KL25 暮雾锁听：JNI 桥——三重检测 NAND 判定。
+ * 扶桑树 KL25 暮雾锁听：JNI 桥——三重检测 AND 判定。
  * loadLibrary("mist")
  */
 public final class Rk {
@@ -13,10 +13,10 @@ public final class Rk {
     /** 线程指纹子结果（gum-js-loop/gmain 等 Frida 线程名） */
     public static native int nativeThreadFinger();
 
-    /** auxv hook 子结果 */
+    /** auxv/ELF 一致性子结果 */
     public static native int nativeAuxvHook();
 
-    /** 综合检测（NAND 判定）→ 0=安全 1=检出 */
+    /** 综合检测（AND 判定）→ 0=安全 1=检出 */
     public static native int nativeFridaDetect();
 
     /** 最终答案 */

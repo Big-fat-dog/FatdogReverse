@@ -1,12 +1,13 @@
 /**
  * mist.c — 扶桑树 KL25 暮雾锁听
  * 三重检测：/proc/self/maps frida 特征 + 线程指纹（gum-js-loop/gmain 等）+ getauxval(AT_PHDR)
- * 判定逻辑：NAND（全部触发才判定）
+ * 判定逻辑：AND（三路条件全部成立才判定检出）
  * SEED = 20280719
  * Flag: FLAG_18_KL25{mist_locks_the_ears}
  */
 
 #include <jni.h>
+#include <stdint.h>
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -88,35 +89,63 @@ static int detect_frida_threads(void) {
 }
 
 /* ============================================================
- * 检测③：auxv AT_PHDR 检查
+ * 校验③：auxv 与磁盘 ELF 头一致性
+ *
+ * 不能把 arm64 的 AT_PHDR 塞进 32 位地址范围判断。这里按
+ * AT_PHENT/AT_PHNUM 和 e_phoff 的页内偏移做 ABI 无关校验；
+ * 返回 1 表示运行时元数据一致，作为 AND 判定的环境守卫。
  * ============================================================ */
 static int detect_auxv_hook(void) {
-    unsigned long phdr = (unsigned long)getauxval(AT_PHDR);
+    uintptr_t phdr = (uintptr_t)getauxval(AT_PHDR);
+    uintptr_t phent = (uintptr_t)getauxval(AT_PHENT);
+    uintptr_t phnum = (uintptr_t)getauxval(AT_PHNUM);
+    if (phdr == 0 || phent == 0 || phnum == 0) return 0;
 
-    /* 正常 phdr 应该在合理的 ELF 加载范围内 */
-    if (phdr == 0) return 1;  /* 异常：AT_PHDR 为零 */
-    if (phdr > 0x80000000UL && phdr < 0xC0000000UL) {
-        /* 这个范围通常是正常的 */
+    int fd = open("/proc/self/exe", O_RDONLY);
+    if (fd < 0) return 0;
+
+    uint8_t h[64];
+    ssize_t got = read(fd, h, 16);
+    if (got != 16 || h[0] != 0x7f || h[1] != 'E' || h[2] != 'L' || h[3] != 'F') {
+        close(fd);
         return 0;
     }
 
-    /* 检查是否在常见的 frida 注入范围内 */
-    if (phdr >= 0x70000000UL && phdr <= 0x7FFFFFFFUL) {
-        return 1;  /* 可疑：frida 注入区域 */
+    int is64 = (h[4] == 2);
+    lseek(fd, 0, SEEK_SET);
+    got = read(fd, h, is64 ? 64 : 52);
+    close(fd);
+    if (got != (is64 ? 64 : 52)) return 0;
+
+    uint64_t e_phoff;
+    uint16_t e_phentsize, e_phnum;
+    if (is64) {
+        e_phoff = (uint64_t)h[32] | ((uint64_t)h[33] << 8) |
+                  ((uint64_t)h[34] << 16) | ((uint64_t)h[35] << 24) |
+                  ((uint64_t)h[36] << 32) | ((uint64_t)h[37] << 40) |
+                  ((uint64_t)h[38] << 48) | ((uint64_t)h[39] << 56);
+        e_phentsize = (uint16_t)(h[54] | (h[55] << 8));
+        e_phnum = (uint16_t)(h[56] | (h[57] << 8));
+    } else {
+        e_phoff = (uint64_t)(h[28] | (h[29] << 8) | (h[30] << 16) | (h[31] << 24));
+        e_phentsize = (uint16_t)(h[42] | (h[43] << 8));
+        e_phnum = (uint16_t)(h[44] | (h[45] << 8));
     }
 
-    return 0;
+    if (phent != e_phentsize || phnum != e_phnum) return 0;
+    if ((phdr & 0xFFFULL) != (e_phoff & 0xFFFULL)) return 0;
+    return 1;
 }
 
 /* ============================================================
- * 综合检测（NAND 判定：全部触发才判定）
+ * 综合检测（AND 判定：maps/线程命中且 auxv 一致）
  * ============================================================ */
 static int detect_frida(void) {
     int maps = detect_maps_frida();
     int hook = detect_frida_threads();
     int auxv = detect_auxv_hook();
 
-    /* NAND：只有三路都触发才判定 Frida 存在 */
+    /* AND：Frida 指纹与运行时结构一致性全部成立才判定 */
     return maps && hook && auxv;
 }
 
@@ -155,12 +184,12 @@ static const char* compute_status(void) {
         "=== 暮雾锁听 ===\n"
         "maps特征:     %s\n"
         "线程指纹:     %s\n"
-        "auxv hook:    %s\n"
-        "综合判定(NAND): %s\n\n"
+        "auxv一致:     %s\n"
+        "综合判定(AND): %s\n\n"
         "标记A: %s\n标记B: %s",
         maps ? "检出" : "安全",
         hook ? "检出" : "安全",
-        auxv ? "检出" : "安全",
+        auxv ? "一致" : "异常",
         detect_frida() ? "检出" : "安全",
         REAL_MARK, FAKE_MARK);
     return buf;

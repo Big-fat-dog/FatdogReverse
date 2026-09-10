@@ -15,16 +15,16 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 /**
- * 扶桑树 KL25 暮雾锁听：三重检测 NAND 判定。
+ * 扶桑树 KL25 暮雾锁听：三重检测 AND 判定。
  * libmist.so 导出六个函数：
  *   int    nativeMapsFrida()    — maps 特征搜索
  *   int    nativeThreadFinger() — 线程指纹检测
- *   int    nativeAuxvHook()     — auxv hook 检测
- *   int    nativeFridaDetect()  — 综合检测（NAND）
+ *   int    nativeAuxvHook()     — auxv/ELF 一致性校验
+ *   int    nativeFridaDetect()  — 综合检测（AND）
  *   String nativeAnswer()       — 最终答案
  *   String nativeStatus()       — 检测详情
  *
- * 关键创新：NAND 判定（只有三路全部触发才判定）
+ * 关键点：AND 判定（Frida 指纹与运行时结构一致性全部成立）
  */
 public class g62Activity extends Activity {
 
@@ -37,7 +37,7 @@ public class g62Activity extends Activity {
         root.setPadding(Ui.dp(16), Ui.dp(20), Ui.dp(16), Ui.dp(12));
 
         TextView tv = new TextView(this);
-        tv.setText("KL25 · 暮雾锁听（★★★ NAND 判定）\n\n"
+        tv.setText("KL25 · 暮雾锁听（★★★ AND 判定）\n\n"
                 + "libmist.so 导出六个函数：\n"
                 + "  int    nativeMapsFrida()\n"
                 + "  int    nativeThreadFinger()\n"
@@ -45,10 +45,10 @@ public class g62Activity extends Activity {
                 + "  int    nativeFridaDetect()\n"
                 + "  String nativeAnswer()\n"
                 + "  String nativeStatus()\n\n"
-                + "NAND 判定（只有三路全部触发才判定）：\n"
+                + "AND 判定（条件全部成立才判定）：\n"
                 + "  ① maps frida 特征\n"
                 + "  ② 线程指纹检测\n"
-                + "  ③ auxv hook 检测\n\n"
+                + "  ③ auxv/ELF 一致性校验\n\n"
                 + "标记：两个标记一真一假，需仔细辨别");
         tv.setGravity(Gravity.CENTER);
         root.addView(tv, Ui.wrap(6));
@@ -105,15 +105,15 @@ public class g62Activity extends Activity {
             @Override public void onClick(View v) {
                 new AlertDialog.Builder(g62Activity.this)
                         .setTitle("提示")
-                        .setMessage("三重 NAND 判定：\n\n"
-                                + "只有三路全部触发才判定 Frida 存在\n"
-                                + "（与 OR/AND 不同——需要全部检测点同时命中）\n\n"
+                        .setMessage("三重 AND 判定：\n\n"
+                                + "Frida 指纹命中且运行时结构一致才判定\n"
+                                + "（与 OR 不同——需要全部条件同时成立）\n\n"
                                 + "① maps frida 特征搜索\n"
                                 + "② 线程指纹检测（gum-js-loop/gmain）\n"
-                                + "③ auxv hook 检测（AT_PHDR 篡改）\n\n"
+                                + "③ auxv/ELF 一致性校验（ABI 无关）\n\n"
                                 + "绕过路线：\n"
-                                + "  • 只需让任一路不触发即可\n"
-                                + "  • 混合绕过：满足部分但不满足全部\n\n"
+                                + "  • 只需让任一条结构校验失败即可\n"
+                                + "  • 也可以只处理 Frida 特征路\n\n"
                                 + "静态复刻：SEED = 20280719\n\n"
                                 + "注意两个标记中有一个是诱饵，仔细对比拼写差异。")
                         .setPositiveButton("知道了", null)

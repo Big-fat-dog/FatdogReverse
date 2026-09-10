@@ -18,7 +18,7 @@ import android.widget.Toast;
  * 扶桑树 KL28 雪落无痕：OR 判定。
  * libsnow.so 导出五个函数：
  *   int    nativeSignal()      — signal handler 自检
- *   int    nativePtrace()      — ptrace 反附加
+ *   int    nativePtrace()      — TracerPid 追踪检查
  *   int    nativeFridaDetect() — 综合检测（OR）
  *   String nativeAnswer()      — 最终答案
  *   String nativeStatus()      — 检测详情
@@ -43,7 +43,7 @@ public class j65Activity extends Activity {
                 + "  String nativeStatus()\n\n"
                 + "OR 判定（任一触发即判定）：\n"
                 + "  ① signal handler 注册检测\n"
-                + "  ② ptrace 反附加检测\n\n"
+                + "  ② TracerPid 追踪检查\n\n"
                 + "标记：两个标记一真一假，需仔细辨别");
         tv.setGravity(Gravity.CENTER);
         root.addView(tv, Ui.wrap(6));
@@ -100,13 +100,13 @@ public class j65Activity extends Activity {
             @Override public void onClick(View v) {
                 new AlertDialog.Builder(j65Activity.this)
                         .setTitle("提示")
-                        .setMessage("信号+ptrace 双重检测：\n\n"
+                        .setMessage("信号+TracerPid 双重检测：\n\n"
                                 + "① signal handler 注册检测\n"
-                                + "② ptrace 反附加检测\n\n"
+                                + "② TracerPid 追踪检查\n\n"
                                 + "OR 判定：任一触发即判定 Frida 存在\n\n"
                                 + "绕过路线：\n"
                                 + "  • 两路都需绕过\n"
-                                + "  • 挂钩 signal/ptrace 系统调用\n\n"
+                                + "  • 挂钩 signal 与 /proc/self/status 读取\n\n"
                                 + "静态复刻：SEED = 20280722\n\n"
                                 + "注意两个标记中有一个是诱饵，仔细对比拼写差异。")
                         .setPositiveButton("知道了", null)

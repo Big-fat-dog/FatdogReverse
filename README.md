@@ -1,668 +1,225 @@
-# FatdogReverse —— 按教程系列打造的 Android 逆向闯关靶场
+# FatdogReverse
 
-一个专为《pyteacher 逆向教程》系列配套的练习 App。第一季覆盖四块：
+FatdogReverse 是一个面向 Android 逆向工程练习的本地靶场。
 
-- **关卡 1-6** —— 教程 18《APK 结构与 jadx 静态分析入门》：纯静态分析，从 jadx 搜字符串到资源、Manifest、哈希校验；
-- **关卡 7-9** —— 教程 19《逆向 Java 基础与 smali》：smali 修改挑战，难度递增；
-- **关卡 10-14** —— 教程 20《Frida Hook 实战（Java 层）》：对参数做加/解密/哈希后验证结果的实战，难度递增；
-- **关卡 15-19** —— 网络取数系列（数据只在本地服务端）：HMAC / RC4 / 国密 / RSA+DES / AES+HMAC（L19 加密类经 R8 混淆）；
-- **关卡 20** —— 教程 19 的进阶：**万恶广告劫**（改 smali 关弹窗）——进去只有一个"点此领取 1 亿大礼包"按钮，点了就弹连环牛皮癣广告：× 前 5 秒不显示、显示了也瞬移、还弹嘲讽 Toast，正常操作永远关不掉；正解是 apktool 把广告开关关掉。
-- **关卡 21-26** —— 第二季 SSL 抓包系列（HTTPS + 自定义 TrustManager / OkHttp CertificatePinner / WebView 自签证书白屏 / 反 Hook 检测 + 内存换 pin / JNI native 校验 / 双向 TLS mTLS 客户端证书）。
-- **关卡 27** —— **万法归宗**：HTTPS 双闸门（TrustManager+CertificatePinner）+ 复合签名（AES 参数加密 + HMAC，响应加密，加密包 R8 混淆），抓到明文≠采集成功，复刻整条签名链才算通关。
-- **关卡 28 起** —— 第三季 Native 试炼系列（教程 22《Frida Hook 实战 Native 层》配套）：每关独立 so 防剧透，密钥标记弃用 fatdemo 改用 `Fatdog_<情绪词>`（情绪词用尽换动词）；大厅新增「Native 试炼」分区。
+项目包含 Java/DEX 静态分析、Smali 修改、Frida、Xposed、网络协议、密码学、HTTPS/mTLS、Native、反调试、代码完整性校验、脱壳、VMP 和签名校验对抗等内容。除本地 `server.py` 外不依赖在线服务，关卡数据、密钥和校验逻辑都可以在当前项目中完整复现。
 
-> 所有网络关（15-22、24-25）采用**分页加载**：顶部输入/翻页条（页码窗口、上一页/下一页、跳转到指定页），下方两排数字（10 个/页）。点页码窗口会自动左移 3 格——1 2 3 消失、多出后面 3 个页码，像手掌翻页一样。关卡 23 例外：它加载的是 HTTPS H5 页，没有分页——页面白屏本身就是题面。
+> 仅用于本地学习、研究和已授权设备。
 
-APK 结构刻意做得和真实 App 一致：图标（5 种密度）、XML 布局、strings 资源、resources.arsc、单个 classes.dex（**R8 混淆打包**，关卡 19 的 `o` 包与关卡 27 的 `p` 包被改名；无 classes2/classes3）、assets/config.json、双架构 so（关卡 25 的 JNI 校验在此）、META-INF 签名三件套。
+## 内容概览
 
-> **关于类名**：关卡 1-11 的类名是"表达功能含义"的名字（如 `VipSalonActivity`），关卡 12 开始**类名刻意变"难读"**（如 `b1Activity`、`k4Activity`、`z9Activity`、`s5Activity`），一个关卡的内容会**分散在多个类**里，还会混入**没人调用的诱饵工具类**（AesKit、Md5Tools、KeyFactory、TokenGen、DigestBox…）。"关卡 N 对应哪些类"必须靠交叉引用自己找，这本身就是逆向的一部分。
+当前共包含：
 
-> **关卡 19 小提示**：加密逻辑在 `com.fatdog.reverse.o` 包，构建时用 R8 混淆（keep 规则只放行该包重命名），算法名/路径/密钥均为异或加密字符串——jadx 里搜 `AES`、`/api/…` 都搜不到。别慌，找 `v9Activity` 的调用链即可顺藤摸瓜。
+| 编号 | 数量 | 内容 |
+|---|---:|---|
+| `L1-L53` | 53 关 | 基本关卡 |
+| `KL1-KL30` | 30 关 | 天地秘境 |
+| `KKL1-KKL5` | 5 关 | 太玄之初独立壳系列 |
+| 合计 | 88 关 | Java、Native、网络与壳对抗 |
 
-## 关卡总览
+主要能力覆盖：
 
-| 关卡 | 名称 | 考点 | 对应教程 |
-|---|---|---|---|
-| 1 | 明文藏宝 | flag 以明文写死在 dex 里，jadx 全文搜索 | 18 篇：字符串是静态分析的第一线索 |
-| 2 | Base64 马甲 | 以 `=` 结尾的编码串，先想到 Base64 | 08 篇：Base64 不是加密 |
-| 3 | 拼图游戏 | 字符串被拆散 + 字符异或运算 | 18 篇：拼接与运算混淆 |
-| 4 | MD5 验门 | 32 位哈希常量、输入与哈希比对 | 09 篇：MD5 摘要与在线查表 |
-| 5 | 资源藏宝 | flag 藏在 assets/config.json 的字段里 | 18 篇：APK 结构中的资源 |
-| 6 | 隐藏入口 | Manifest 里的 exported Activity，无 UI 入口 | 18 篇：四大组件与 Manifest |
-| 7 | VIP 检测（smali） | 修改 smali 去掉 isVip 检测 | 19 篇：smali 寄存器/指令/跳转 |
-| 8 | 激活码（smali） | smali 里的 fill-array-data 密文，改 checkKey 或还原激活码 | 19 篇：smali 字节数组与 fill-array-data |
-| 9 | 多重资格（smali） | 多重检查 + 诱饵 flag，需完整理解 smali 逻辑 | 19 篇：smali 短路与逻辑链 |
-| 10 | SHA-256 验门（Frida） | 口令种子分片异或藏在 HashSeed，还原后 SHA-256 校验 | 20 篇：Hook MessageDigest / 还原分片 |
-| 11 | HMAC 验签（Frida） | 密钥与明文分片异或藏在 HmacParts，还原后 HMAC 校验 | 20 篇：Hook Mac.init/doFinal / 还原分片 |
-| 12 | AES 密码库（Frida） | 输入密码，AES-CBC 解密密文比对（密钥/IV/密文分散在工具类） | 20 篇：Hook Cipher.doFinal + 类分散 |
-| 13 | 双重校验（Frida） | 账号分片异或藏 SignUtil、MD5 只做指纹；令牌为 KBox 的 AES 密文 | 20 篇：同时 Hook 多算法 / 还原分片 |
-| 14 | 三层链路（Frida） | license 过三层变换（2×AES + 异或）；deviceId 分片藏 PivotParts、MD5 只做指纹 | 20 篇：链式 Hook + 识别诱饵 |
-| 15 | 千数求和 | 1000 个数=100 页×10 个，请求带 HMAC 签名，数字只在本地服务端 | 20/07 篇：请求签名复刻 + 发包取数 |
-| 16 | 流密码暗河 | 请求参数整段加密（RC4）+ MD5 签名，响应体加密，60 页×8 个 | 20/13 篇：RC4 复刻 + 双向加解密取数 |
-| 17 | 玄门遁甲 | POST 表单 enc/sig/dog/ts 校验，请求参数加密（国密 SM4）+ 摘要（SM3），100 页×10 个 | 20+国密：SM4/SM3 复刻 + 表单取数 |
-| 18 | 乾坤密钥 | RSA 公钥加密请求参数 + DES 解密响应，密钥一半服务端下发、一半藏在 App | 20+RSA/DES：混合密钥复刻 + 发包取数 |
-| 19 | 雾里看花 | 请求参数加密（AES）+ HMAC 签名，响应体加密；**加密包被真 R8 混淆、字符串加密** | 20+R8：先认混淆再复刻 |
-| 20 | 万恶广告劫（smali） | 连环牛皮癣广告：switch(step) 状态机弹 8 条广告、× 瞬移 + 嘲讽 Toast、正常关不掉；正解 apktool 把 AdBox.a 开关改 0 | 19 篇：smali 字段/跳转/switch 状态机 |
-| 21 | 踏云寻踪 | HTTPS + 自定义信任（内置自签 CA），请求带 HMAC 签名，100 页×10 个 | 21 篇：TrustManager / 抓包对抗入门 |
-| 22 | 双锁封疆 | HTTPS + 证书锁定（SPKI 焊死）+ 自定义信任，双闸门 | 21 篇：OkHttp pinning / 双闸门绕过 |
-| 23 | 白屏迷雾 | WebView 加载 HTTPS H5，自签证书错误被 handler.cancel() 白屏；Hook onReceivedSslError → proceed() 拿 flag | 21 篇：WebView 证书错误处理 |
-| 24 | 换票迷局 | HTTPS + pin 校验带反 Hook 守卫（Hook 校验就异常），正解 Frida 内存换 pin；100 页×10 个求和 | 21 篇：反 Hook 检测 / 内存换值 |
-| 25 | 灵台证真 | HTTPS + JNI native 校验（verifyServer 门禁 + nativeSign 签名都在 libnative.so），Java Hook 无效 | 22 篇预告：native 逆向与 JNI |
-| 26 | 双符合璧 | 双向 TLS（mTLS）：服务端握手层强制验证客户端证书；APK 内置 mt_client.p12，密码拆两半藏在异或数组里 | 21 篇进阶：客户端证书提取、PKCS12、mTLS 复刻 |
-| 27 | 万法归宗 | HTTPS 双闸门 + 复合签名：AES 参数加密 + HMAC 签名 + 响应加密，加密包 R8 混淆；抓包→复刻全闭环 | 21+20 篇合卷：绕 pinning 抓密文 → 解混淆还原签名链 → 100 页取数 |
-| 28 | 缄默之钥 | 密钥 ^0x5C 藏进 libaxol.so 的 .rodata，strings 只有诱饵 Fatdog_silent；IDA 读解码循环或运行时内存搜明文，HMAC 复刻取数 | 22 篇：字符串加密只骗静态，内存必有明文 |
-| 29 | 隐姓埋名 | 真身经 JNI_OnLoad 动态注册（无名 static 函数）；导出表两个假 nativeSign 是坑，按名 Hook 不触发或拿错值 | 22 篇：RegisterNatives 抓映射 + spawn 抢时机 |
-| 30 | 无名剑冢 | 四个同形签名函数经函数指针表派发，只有一个是真身；密钥 UTF-16 藏匿（strings 盲区），服务器当裁判验真 | 22 篇：间接调用分析 + 候选对拍验真 |
-| 31 | 两界穿针 | 密钥跨层拼装（Java 改名 q 包持 Fatdog_ + so 持 lonely，native 回调取件）；RC4 参数加密 + HMAC；每页连发 4 个同形包辨真假 | 22 篇：JNIEnv 回调分析 + 响应内容甄别 |
-| 32 | 心魔哨兵 | 四路反检测哨兵（maps/端口/线程名/TracerPid）随 so 启动轮询；挂 Frida 即静默投毒一字节、签名全错，App 仅弹一次警告 | 22 篇 §14：反调试指纹与洗地对抗 |
-| 33 | 金刚不坏 | 可执行段 CRC32 自校验（基线建于 JNI_OnLoad）+ assertGuard 记账守卫；任何 inline hook 都被抓，三解全开（抢跑建基线/hook 校验器/改基线变量） | 22 篇：自完整性校验与时机对抗 |
-| 34 | 万法归墟 | 综合卷：动态注册 + 无名 Feistel8 参数加密 + HMAC + 四路哨兵 + CRC + 记账 + 响应 RC4（密钥派生）；官方路线 Frida/patch so/unidbg 三选一 | 22 篇合卷：三季所学一关收束 |
-| 35 | 双匣暗渡 | 手写 3DES+SM4 藏进满屏诱饵函数，认算法靠 S 盒魔数（14,4,13,1… / d6 90 e9 fe…）；双密文参数 + 动态 ts；每页三连包辨真假 | 13+15 篇：密码学指纹识别 |
-| 36 | 查表识君 | 手写 AES-128 沉底派发（S 盒 637c777b…）；钥匙藏在 .rodata 的 Base64 串里，解码即得——Base64 不是加密 | 02+12 篇：编码伪装与 AES 指纹 |
-| 37 | 雪崩之谜 | 手写 SHA-256 变体：K 表/压缩轮与标准一致但初始 IV 整组换血（SHA256(Fatdog_dodge+"|iv") 派生），摘要再叠 RC4（同法派生钥）→ hashlib 永远对不上；认骨架看 K 表、找改动看初始化 | 22 篇进阶：变体算法识别 |
-| 38 | 初探模块（Xposed） | findAndHookMethod + afterHookedMethod 改返回值：把 XpGate.check() 改成 true 即自动通关 | 第四季：Xposed 模块入门 |
-| 39 | 偷梁换柱（Xposed） | beforeHookedMethod 篡改入参：verifyDevice(deviceId) 的正确值藏在 FatdogXP 类里 | 第四季：参数篡改 |
-| 40 | 探囊取物（Xposed) | XposedHelpers.getStaticObjectField 读 SecretVault 私有静态字段，回传 reportStolenKey 校验即自动通关 | 第四季：字段读取 |
-| 41 | 斩关夺隘（Xposed） | XC_MethodReplacement 替换方法体：TripleGate 三重校验链 checkB 恒假 | 第四季：方法替换 |
-| 42 | 万剑归宗（Xposed） | 持久化验证：自毁进程→桌面重开→Hook 仍在（Frida 断线即失效，只有 Xposed 能做到） | 第四季：持久化 Hook |
-| KL1 | 山门 | unidbg 最小骨架：load→调导出函数 kl_gate（xorshift32 七轮） | 25 篇配套 |
-| KL2 | 引雷桩 | JNI_OnLoad 动态注册 + 同名诱饵导出，必须先触发 OnLoad | 25 篇：RegisterNatives 实战 |
-| KL3 | 渡鸦桥 | native 回调 Java halfA() 取前半密钥，unidbg 补 AbstractJni 桩 | 25 篇：CallStaticObjectMethod 拦截 |
-| KL4 | 冰裂缝 | 反模拟检测：读 /proc/self/maps 搜模拟器特征 + TracerPid 检查，环境干净返回通行令牌，否则冰面碎裂；unidbg IOResolver 喂假文件过反模拟 | 25 篇：IOResolver 喂假文件 |
-| KL5 | 登顶 | 综合卷：动态注册 + Java 回调 + XOR 解密；nativeClimb 回调 summitKey() 取 Fatdog_ 与 so 内 summit 拼合解密 flag | 全线：unidbg 综合实战 |
-| KL6 | 冰封之钥 | 流沙河首关：手写 AES-128 的 S 盒是标准的、轮常量 Rcon 三处换血——标准库解不开它自己的密文；真标记 UTF-16 藏匿（strings -el 可破），明文近亲 Fatdog_piece 是诱饵；网络取数求和模式 | 27 篇配套：魔改算法指纹识别 |
-| KL7 | 裂魂之匣 | 手写 DES 骨架可认（S1 开头 14,04,0d,01），但 IP 排列表首尾互换、FP 同步重算、S3 盒两值换位——逐表对比标准找全三处；3DES-EDE 三层全是魔改 DES；标记 Fatdog_shatter UTF-16 藏匿，明文近亲 Fatdog_scatter 是诱饵 | 27 篇配套：魔改算法指纹识别 |
-| KL8 | 幽泉之眼 | 流沙河第三关：手写 SM4 的 FK 与 S 盒都是标准的、轮常量 CK 最后 8 个值被换血——标准库解不开它自己的密文；真标记 UTF-16 藏匿，明文近亲 Fatdog_travel 是诱饵 | 27 篇配套：魔改算法指纹识别 |
-| KL9 | 天罡北斗 | 流沙河第四关：手写 RC4 双层魔改——KSA 初始 S 盒是查表加载的自定义置换（不是 S[i]=i）、PRGA 输出再过 16 字节循环 XOR 掩码；真标记 UTF-16 藏匿，明文近亲 Fatdog_vile 是诱饵 | 27 篇配套：魔改算法指纹识别 |
-| KL10 | 万象归一 | 流沙河收官卷：sign=魔改AES(魔改SHA256(payload)) 双层叠加——SHA256 的 K 表是标准的但初始 IV 整组换血+填充边界前移到 48；AES 的 S 盒是标准的但 MixColumns 系数 {2,3} 对调 {3,2}；认两层骨架、找两处改动点 | 27 篇配套：魔改算法指纹识别 |
-| KL29 | 暗流涌动 | 天机阁首关：libtide.so 自造 TLV 基准帧（独立烘焙基准逐字节比对）+ ptrace 反附加，patch 帧构建代码即检出；提交本地答案 | 天机阁：二进制协议逆向 |
-| KL30 | 天机织锦 | 天机阁 Protobuf 关：请求/响应均为手写 wire 编码，服务端 :8443 `/api/kl30` 返回 HMAC-SHA256(Fatdog_weave) 签名的二进制页，逆向协议后逐页取数，1000 数总和 = 50567 | 天机阁：Protobuf 抓包还原 |
-| 43 | 照妖之镜 | 签名校验对抗开卷：运行时 SigningInfo 取自身证书 DER→SHA-256 与基准比对（基准拆两半异或分藏两类）；校验通过才解锁提交框；标准 HMAC 取数 | 29 篇配套 |
-| 44 | 偷天换日 | 签名校验对抗：摘要计算与记账（ticks/verdict）全部下沉 libpearl.so——hook Java 摘要出口失效，整体替换 native 函数被 ticks 踏步抓包；正解内存换票/偏移 Hook/改基准 | 29 篇配套 |
-| 45 | 移形换影 | 签名校验对抗：不经 PackageManager——libcoral.so 自读 base.apk，扫 zip 中央目录找 META-INF/*.RSA、zlib 解压后手剥 ASN.1 取证书比对；PM 全链 Hook 失明 | 29 篇配套 |
-| 46 | 以签为钥 | 签名校验对抗主打：证书 DER 派生 HMAC 密钥（key=SHA256(certHash+marker)），没有 if 判断——重打包者证书不同→派生 key 不同→全部 403 零提示；正解 Frida 抓派生密钥或 unidbg 调 JNI 派生函数 | 29 篇配套 |
-| 47 | 幽冥合卷 | ★★★★★ | 四重防线：三点互验记账 + CRC 自校验 + certHash 密钥派生 + AES 加密响应 | L47 | POST /api/l47 |
-| KL11 | 偷梁换柱 | ★ | 字符串偏移：native_sign 偏移表被调换（20 个偏移逆序存储） | 偏移表逆序 + ASCII 回填 | pack | picker | libhelix.so |
-| KL12 | 移花接木 | ★★ | 哈希魔改：魔改 SHA-256（K 表/IV/轮函数均有改动） | 识别 4 处魔改点 → 复刻哈希 | door | godfather | libkraken.so |
-| KL13 | 声东击西 | ★★★ | CRC 自校验：guard→check 两阶段 CRC32 校验基线 | 绕过或还原 CRC 校验 | guard | gourd | libmantis.so |
-| KL14 | 偷天换日 | ★★★★ | 三 so 交叉调用：libnebula/opera/plume 通过 dlsym 跨 so 调用 | dlsym 路径分析 + 全链复刻 | mesh | mash | libnebula/opera/plume.so |
-| KL15 | 万法归宗 | ★★★★★ | 多阶段递进谜题：computeA→B→C→verify 四个独立入口 | 三阶段答案推导 + 三输入框提交 | pact | Fatdog_packed | libshale.so |
-| KL16 | 破壳新生 | ★ | 一代壳 DEX 静态加密：XOR+旋转+组内累积三轮解密 | 追踪解密入口 → 还原算法 → 提取种子 | pack | packer | libtaupe.so |
-| KL17 | 金蝉脱壳 | ★★ | 二代壳 DEX 热加载+反调试：ptrace/TracerPid/Frida端口三重检测 | 绕过反调试 → 分析解密逻辑 → 算出答案 | unpack | unpacker | libviola.so |
-| KL18 | 乾坤迷阵 | ★★★ | OLLVM 控制流平坦化：16 case 状态机 + 指令替换 + 字符串加密 | 识别状态机 → 标记真实/虚假 case → 还原算法 | unfold | folder | libblaze.so |
-| KL19 | 虚空造化 | ★★★★ | VMP 虚拟机保护：寄存器式 8 寄存器 + 25 条指令 + 轮转 XOR 加密 | 逆向 VM 解释器 → 提取字节码 → 逐指令翻译 | reverse | reverser | libbison.so |
-| KKL1 | 玄冥渊 | ★☆ | 壳系列开篇（C++17）：vtable 派发取抽取表 + 指令抽取回填 + 真标记 UTF-16 藏匿 | 认三张虚表找真身 → 还原抽取表 → 解密回填 → 提交 SHA-256(seed) | hallow | hollow | libkkl1.so |
-| KKL2 | 万剑冢 | ★★ | 真 DEX 加密埋 assets（假壳伴生）：JNI 动态注册解 dex + InMemoryDexClassLoader 内存加载 + HMAC 密钥 UTF-16 派生 | 还原解密链 / hook nativeUnseal → dump dex → 拿 key → HMAC 取 100 页求和 | tense | timid | libkkl2.so |
-| KKL3 | 断魂谷 | ★★★ | 四路哨兵（TracerPid/maps/端口/线程名）守取数签名：命中即 HMAC 密钥翻转 1 bit，服务端静默 403 | 绕哨兵取数 / 静态还原 UTF-16 真标记派生密钥 | quell | quiet | libkkl3.so |
-| KKL4 | 锁妖塔 | ★★★★ | 可执行段 CRC 自校验（读 maps 自算，四组导出窗口）+ 三点记账守卫（open/sign/native 回调互核）：patch 任一函数或 inline hook 校验器即密钥投毒，服务端静默 403 | 还原真标记派生密钥取数 / 完整重建记账与 CRC 链路 | grit | grim | libkkl4.so |
-| KKL5 | 诛仙台 | ★★★★★ | VMP 解释器 + onCreate 抽取还原（对标 360 native onCreate）+ AES-128-CBC + HMAC-SHA256 复合签名 + 三点记账 | 逆向 VM 字节码 → 还原真标记派生子钥 → 反复制 AES-CBC 签名 → 100 页求和 | ascend | ascent | libkkl5.so |
+- APK、DEX、资源、Manifest 与 Smali 静态分析
+- Frida Hook Java 层与 Native 层
+- Xposed 模块、参数篡改、字段读取和方法替换
+- HMAC、AES、RC4、RSA、DES/3DES、SM3、SM4 和自定义算法
+- HTTP、HTTPS、证书锁定、WebView 证书校验和 mTLS
+- JNI、动态注册、字符串加密、函数指针派发和多 SO 交叉调用
+- 反调试、反 Frida、CRC 自校验和记账守卫
+- DEX 静态加密、热加载、OLLVM、VMP 与 DEX 抽取还原
+- APK 签名校验和证书派生密钥
 
-每关的**解题思路分级提示**见下方折叠块；完整题解（含 Python 复刻代码与 Frida 脚本）在 `SOLUTIONS.md`（建议先自己练）。
+## 基本关卡
 
-## 通用流程
+| 分类 | 关卡 | 主要内容 |
+|---|---|---|
+| 静态分析 | `L1-L6` | 明文、编码、字符串还原、摘要、资源文件和隐藏 Activity |
+| Smali 挑战 | `L7-L9`、`L20` | Smali 跳转、数组、逻辑链、重打包和复杂状态机 |
+| Frida Hook（Java 层） | `L10-L14` | `MessageDigest`、`Mac`、`Cipher`、多层变换和诱饵类 |
+| 网络对抗 | `L15-L19` | HMAC 签名、RC4、国密、RSA/DES、AES 和 R8 混淆 |
+| SSL 抓包 | `L21-L27` | TrustManager、CertificatePinner、WebView、反 Hook、JNI 和 mTLS |
+| Native 试炼 | `L28-L37` | 字符串加密、动态注册、指针派发、跨层调用、反调试和自校验 |
+| Xposed 实战 | `L38-L42` | Hook 返回值、篡改参数、读取字段、替换方法和持久化 |
+| 签名校验对抗 | `L43-L47` | SigningInfo、Native 摘要、APK 自解析和证书派生密钥 |
+| Native大陆 | `L48-L53` | C++ name mangling、STL、vtable、模板、异常和魔改算法综合关 |
 
-**静态分析（1-6 关）**：`jadx` 打开 APK → 搜 `FLAG_18` → 逐关按提示走。
+部分网络关采用分页取数模式，需要取得服务端返回的全部数据并提交最终计算结果。数据只存在于本地服务端，不包含在 APK 资源中。
 
-**smali 修改（7-9、20 关）**：需要 apktool 解包/回编译 + zipalign/apksigner 重签名：
+## 天地秘境
 
-```
-apktool d FatdogReverse.apk -o out          # 单 classes.dex → out/smali/com/fatdog/reverse/...
-# 关卡 20：打开 out/smali/com/fatdog/reverse/AdBox.smali，
-#   .field public static a:I = 0x1  ← 把 0x1 改成 0x0（广告开关）
-#   （或把 showAd 门口 sget a:I + if-nez 反转为 if-eqz）
-# 编辑对应 .smali
-apktool b out -o rebuilt.apk
-zipalign -f 4 rebuilt.apk aligned.apk
-apksigner sign --ks keystore/debug.keystore --ks-key-alias androiddebugkey \
-        --ks-pass pass:android --key-pass pass:android --out FatdogReverse-patched.apk aligned.apk
+天地秘境需要完成全部 40 个基本关卡后进入，也可以在门禁处输入密令 `Fatdog` 进入。
 
-adb install -r FatdogReverse-patched.apk
+| 分区 | 关卡 | 主要内容 |
+|---|---|---|
+| 昆仑山 | `KL1-KL5` | Native 基础、动态注册、Java 回调、反模拟和综合入口 |
+| 流沙河 | `KL6-KL10` | 魔改 AES、DES、SM4、RC4、SHA-256 与复合算法 |
+| 幽冥海 | `KL11-KL15` | 字符串偏移、魔改哈希、CRC 自校验、多 SO 交叉调用和递进谜题 |
+| 太玄之初 | `KL16-KL20` | 一代壳、二代壳、OLLVM、VMP 和三代壳综合 |
+| 太玄之初追加卷 | `KKL1-KKL5` | C++ 壳零件、DEX 内存加载、反检测、CRC 和 VMP 签名链 |
+| 扶桑树 | `KL21-KL28` | 端口、fd、maps、auxv、ptrace、时序和反调试组合检测 |
+| 天机阁 | `KL29-KL30` | 自定义 TLV 与 Protobuf 二进制协议 |
+
+## 通关规则
+
+1. 每个关卡都有独立的输入、交互或网络协议，目标是通过真实分析得到结果或让检测链路正确通过。
+2. 检测类按钮只展示当前状态，不会直接增加通关数。反调试、CRC、记账和签名校验关卡需要实际处理对应链路。
+3. 网络关卡的数据由本地服务端生成，必须启动服务端后才能取数。
+4. 通关后，`PassLog` 会记录关卡编号，个人主页的境界和进度会同步更新。
+5. 卸载 App、更换签名、清除应用数据或重新打包后覆盖安装，可能丢失本地进度。
+6. 如果进度丢失，可在个人主页的“前世今生”页面输入密令 `Fatdog`，手动补回或撤销关卡记录。
+7. 标准练习方式是只分析 `FatdogReverse.apk`。直接查看本仓库源码会看到实现细节和部分答案。
+
+## 解题答案与剧透文件
+
+| 文件或目录 | 用途 | 是否剧透 |
+|---|---|---|
+| `SOLUTIONS.md` | 全部关卡的题解、flag、服务端取数结果、Python 复刻脚本和 Frida 思路 | 是 |
+| `server.py` | 网络关协议、密钥、种子和服务端数据生成逻辑 | 是 |
+| `app/src/` | App 的 Java 源码，包含关卡逻辑和部分校验链 | 是 |
+| `app/jni/` | 各关 C/C++ 源码、自定义算法和 Native 校验实现 | 是 |
+| `app/assets/` | 配置、壳 payload、加密 DEX 和 mTLS 客户端证书 | 部分关卡是 |
+| `FatdogReverse.apk` | 构建后的实际靶场 APK | 否 |
+
+如果准备自己练习，建议只阅读 README 的安装和启动部分，不要打开 `SOLUTIONS.md`、`server.py`、`app/src/` 和 `app/jni/`。
+
+## 网络关卡启动
+
+服务端共监听三个端口：
+
+| 端口 | 协议 | 适用关卡 |
+|---|---|---|
+| `8787` | HTTP | `L15-L19`、`KKL2-KKL5` |
+| `8443` | HTTPS | `L21-L25`、`L27-L37`、`L43-L53`、`KL6-KL10`、`KL30` |
+| `8444` | HTTPS + mTLS | `L26` |
+
+安装服务端依赖：
+
+```bash
+python -m pip install fastapi uvicorn python-multipart pycryptodome cryptography
 ```
 
-> 关卡 20 的广告是 Java 结构化的 switch 状态机（jadx 展开成巨型 switch + 一堆神秘数字），smali 里反而是清晰的 `packed-switch` 表 + 一眼可见的开关 `sget AdBox->a:I`——这关教的是"读 smali 比读反编译 Java 还顺"。
+如果 `certs/` 不存在，先生成 HTTPS 与 mTLS 证书：
 
-**个人主页（修仙境界）**：大厅最底部有"个人主页"按钮。每通过一关（在关卡里触发 flag）都会自动打点记录；主页根据**通关数量**定境界——炼气~元婴每 5 关一层；**化神起每 10 关为一个大境界，第 10 层为"圆满"**：
-
-| 通关数 | 境界 |
-|---|---|
-| 0 | 凡人 |
-| 1-5 | 炼气 一层~五层 |
-| 6-10 | 筑基 一层~五层 |
-| 11-15 | 金丹 一层~五层 |
-| 16-20 | 元婴 一层~五层 |
-| 21-30 | 化神 一层~九层、圆满 |
-| 31-40 | 洞虚 一层~九层、圆满 |
-| 41-50 | 归墟 一层~九层、圆满 |
-| 51-60 | 无量 一层~九层、圆满 |
-| 61+ | **独断万古**（终点，之后无论通关多少次都是它） |
-
-主页还显示当前境界的描述、进度条（█/░）和"再通 X 关迈入下一境界"的提示。**化神起境界徽章带柔和呼吸光晕**（低透明度慢节奏脉动，不刺眼）；终点"独断万古"独占深空鎏金渐变徽章与金色光晕。
-
-主页分类条共五个：基本情况 / 太古禁地 / 神念自察 / 昔日枷锁 / 前世今生。昔日枷锁是天地秘境通关故事的阅读器（按通关解锁）；前世今生是进度修复页：输入命令 Fatdog 进入后，L1-L47、KL1-KL30、KKL1-KKL4 逐关点选即可补回通关记录，再点一次可撤销。进入关卡仍走底部「天地秘境」页签，昆仑山五关已开放，流沙河分区已开篇（KL6 起，编号接续昆仑山）。
-
-天地秘境目前已开放六个分区：昆仑山（KL1-5）、流沙河（KL6-10）、幽冥海（KL11-15）、太玄之初（KL16-20）、扶桑树（KL21-28）、天机阁（KL29 起，编号接续扶桑树）。
-
----
-
-**Frida 动态 Hook（10-15 关）**：需要真机/模拟器 + frida-server（教程 20 有完整安装流程）。通用观察脚本长这样：
-
-```javascript
-// hook_crypto.js —— 通用加密原语 Hook：不管业务怎么藏，明文都要经过这里
-Java.perform(function () {
-    function bytesToHex(b) { var s = ''; for (var i = 0; i < b.length; i++) { var x = b[i] & 0xff; s += ('0' + x.toString(16)).slice(-2); } return s; }
-    var MD = Java.use('java.security.MessageDigest');
-    MD.update.overload('[B').implementation = function (d) { console.log('[digest] 输入:', bytesToHex(d)); return this.update(d); };
-    MD.digest.overload().implementation = function () { var r = this.digest(); console.log('[digest] 输出:', bytesToHex(r)); return r; };
-    var Mac = Java.use('javax.crypto.Mac');
-    Mac.doFinal.overload('[B').implementation = function (d) { console.log('[mac] 输入:', bytesToHex(d)); var r = this.doFinal(d); console.log('[mac] 输出:', bytesToHex(r)); return r; };
-    var C = Java.use('javax.crypto.Cipher');
-    C.doFinal.overload('[B').implementation = function (d) { console.log('[cipher] 输入:', bytesToHex(d)); var r = this.doFinal(d); console.log('[cipher] 输出:', bytesToHex(r)); return r; };
-});
+```bash
+python gen_certs.py
 ```
 
-**网络关卡（15-22、24-27 关统一分页加载 + 23 关 WebView H5 页）**：先启动本地服务端（FastAPI），再分析/复刻签名取数：
+启动服务端：
 
-```
-# 终端 1：启动模拟服务端（数字只在这里，APK 里没有）
-pip install fastapi uvicorn python-multipart pycryptodome   # 首次需要
-python server.py          # HTTP :8787（15-20） + HTTPS :8443（21-25，自签 CA） + HTTPS :8444（26，mTLS 强制客户端证书）
-
-# 模拟器：App 自动请求 http://10.0.2.2:8787（NetHost 识别到模拟器，默认即可）
-# 真机：  adb reverse tcp:8787 tcp:8787（地址自动切换，无需改 config.json）
-#        HTTPS 关（21-25）同理：adb reverse tcp:8443 tcp:8443（地址自动切换）
-#        L26 的 mTLS 端口：adb reverse tcp:8444 tcp:8444
-#        L23 的 H5 页只讲 HTTPS：https://…:8443/h5/v23（HTTP 访问直接 403）
+```bash
+python server.py
 ```
 
-地址自动切换：`config.json` 的 `api_base_url` 默认 `"AUTO"`——模拟器自动走 `10.0.2.2`、真机自动走 `127.0.0.1`（识别不出模拟器特征时按真机处理）；也可手动填 `http://局域网IP:8787` 覆盖，手机与电脑同一网络即可免 USB。
+### 模拟器
 
-各网络关要点：L15 HMAC 明文参数；L16 请求整段加密+MD5 签名、响应加密（RC4）；L17 表单 enc/sig/dog（国密 SM4+SM3，纯 Python 实现）；L18 RSA 加密请求参数 + DES 解密响应（密钥一半服务端下发）；L19 AES 加密参数 + HMAC 签名、响应加密（加密包 R8 混淆 + 字符串加密）；L21/L22 走 HTTPS + 自签 CA（TrustManager / CertificatePinner 双闸门）；L23 走 WebView 加载 https://…:8443/h5/v23（主机自动选择；仅 HTTPS，HTTP 直接 403）：自签证书不被信任 → App 在 onReceivedSslError 里 handler.cancel() → 白屏，Hook 放行后页面出现、自动通关。L24 走 HTTPS + 内置 CA + HostnameVerifier pin 校验（pin 无明文，XOR 数组藏在 Z24Core），校验链带反 Hook 守卫——Hook 校验函数直接放行会触发"完整性校验失败"，正解是 Hook Z24Core.realPin 内存换 pin（换票）。L25 走 HTTPS + JNI：发请求前调 Nx.verifyServer（native 主机白名单），签名 Nx.nativeSign 在 libnative.so 里算 HMAC-SHA256——密钥不在 Java（strings libnative.so 可见 fatdemo_jni_2026），Hook Mac/MessageDigest 无效，正路是静态逆向 so 复刻或 Frida 原生层调用。**L26 走双向 TLS（mTLS）**：`https://…:8444/api/mtls`，服务端握手层强制验证客户端证书（只信内置 CA 签发的）；App 从 `assets/mt_client.p12` 加载客户端证书+私钥（密码 `fatdemo_mt26` 拆在 Zt/Mc 的异或数组里），没这张证书连握手都过不去——先抠证书解密码，再带 client 证书复刻取数（加和 50814）。**L27 万法归宗**走 HTTPS :8443 的 `POST /api/l27` + 复合签名：`enc=AES(page=N&ts=T)`、`sign=HMAC(enc)`、响应 `{"d"}` 再过一层 AES；加密核心在 `com.fatdog.reverse.p` 包（构建时被 R8 改名 + 算法名/路径/密钥全是异或串），三把密钥各拆两半跨类拼装。抓包得先放倒 TrustManager + CertificatePinner 两道闸——而且抓到的也只是 enc 密文：从 c27Activity 的调用链摸进混淆包还原签名链，才能复刻取数（加和 50623）。L28 走 native 字符串加密：密钥 ^0x5C 藏 libaxol.so（strings 只见诱饵 Fatdog_silent），IDA 还原 Fatdog_unhappy 或 Frida 运行时搜明文，加和 49750；L29 走动态注册：导出表两个假 nativeSign 全是坑，真身无名靠 spawn+hook libart RegisterNatives 抓映射，密钥 Fatdog_angry 异或藏 .data，加和 50208。L30 走无名派发：四候选同形函数挂函数指针表、UTF-16 密钥躲过默认 strings（`strings -el` 可破），真钥 Fatdog_gloomy，加和 51127。L31 走跨层拼装：Fatdog_ 藏在 R8 改名的 q 包、lonely 是 so 里的 UTF-16 数组，native 回调 Java 取件；每页连发 1 真 + 3 干扰同形包（错位/废签/噪声），假包要么 403 要么 nums 为空，加和 50768。L32 走反检测：四路哨兵扫 maps/探端口/查线程名/盯 TracerPid，挂着 Frida 就静默投毒一字节（签名全错），App 只弹一次警告；静态复刻党全程免疫，动态党得先让哨兵闭嘴，加和 51745。L33 走自完整性校验：可执行段 CRC 基线 + 记账守卫，纯观察钩子也会被抓，三解全开（JNI_OnLoad 抢跑/hook 校验器/改基线），加和 49502。L34 万法归墟收官：Feistel8 参数加密让纯猜必死、响应再裹一层 RC4（密钥派生）、守卫全家桶伺候——Frida/patch so/unidbg 三路皆通，加和 49932。L35 手写 3DES+SM4 埋进诱饵堆里，靠 S 盒魔数认阵（strings -el 先拿 Fatdog_sneak 再派生双钥）；双密文参数 + 动态 ts + 三连包辨真假，加和 51217。L36 手写 AES-128 沉底，钥匙是 so 里那串 == 结尾的 Base64——解开就是 16 字节真钥，Python 复刻取数加和 49495。L37 收官卷：SHA-256 变体（IV 整组换血）叠 RC4，hashlib 永远对不上；strings -el 拿标记后按服务端同款逻辑复刻变体即可，加和 51242。天地秘境 KL1-KL5 已全部落地：KL1 xorshift32 直接调、KL2 动态注册+诱饵、KL3 跨层回调取钥、KL4 反模拟检测（IOResolver 喂假文件过检）——全部纯本地提交模式，入口通关 37 关或密令 Fatdog。提交答案分别为 -303563272 / -2146415444 / Fatdog_raven / Fatdog_glacier_unlocked。流沙河分区已开篇：KL6 冰封之钥走 HTTPS :8443 的 GET /api/kl6 取数求和——libember.so 手写 AES-128、轮常量 Rcon 三处换血（标准库解不开它自己的密文），strings -el 拿真标记 Fatdog_pierce 派生钥匙复刻取数，加和 51561。
+模拟器会自动使用 `10.0.2.2` 访问宿主机，不需要执行 `adb reverse`。
 
-## 环境准备
+### 真机
 
-构建只需要三样东西，**不需要 Android Studio / Gradle**：
+真机的 `127.0.0.1` 指向手机自身，因此需要通过 ADB 将电脑端口映射到手机：
 
-1. **JDK 17+** —— 任意 JDK 17+ 均可（官方 OpenJDK、IntelliJ/PyCharm 自带 JBR 都行）。命令里把 `<你的 JDK 根目录>` 换成实际路径（例如 `D:\JAVA`）。
-2. **Android SDK 的 build-tools 与 platforms**：
-   - 下载 [commandline-tools](https://dl.google.com/android/repository/commandlinetools-win-11076708_latest.zip)，解压到 SDK 根目录（目录结构：`<SDK 根目录>\cmdline-tools\latest\bin`，例如 `D:\Andorid\SDK`）。
-   - 设置环境变量 `ANDROID_SDK_ROOT` 指向 SDK 根目录（`build_apk.py` 也会自动探测 `%LOCALAPPDATA%\Android\Sdk` 等常见路径）。
-   - 运行：
-     ```
-     set JAVA_HOME=<你的 JDK 根目录>
-     <SDK 根目录>\cmdline-tools\latest\bin\sdkmanager.bat "platform-tools" "platforms;android-34" "build-tools;34.0.0"
-     ```
-3. **NDK（关卡 25 必需，其余关可选）**：
-   ```
-   <SDK 根目录>\cmdline-tools\latest\bin\sdkmanager.bat "ndk;26.1.10909125"
-   ```
-   不装 NDK 也能构建出 APK，但会缺 `lib/*.so`——关卡 25 的 native 校验（verifyServer/nativeSign）就在里面，缺了进不去。
-4. **关卡 7-9 需要 apktool**；**关卡 10-16 需要 Frida**（`pip install frida-tools` + 设备端 frida-server，版本必须一致）；**网络关 15-22、24-26 需要 Python 标准库（15/16）+ pycryptodome（17/18/19）+ cryptography（26 解 p12），关卡 23 无需额外依赖（curl -k 或 Frida）；真机玩 15-26 网络关需 `adb reverse`（或用局域网 IP 覆盖）**；服务端需要 `pip install fastapi uvicorn python-multipart pycryptodome`。
-
-## 构建与安装
-
+```bash
+adb reverse tcp:8787 tcp:8787
+adb reverse tcp:8443 tcp:8443
+adb reverse tcp:8444 tcp:8444
 ```
-cd /d <你的项目目录>
+
+确认映射：
+
+```bash
+adb reverse --list
+```
+
+端口映射会在拔掉 USB、重启手机、重启 ADB 或重启电脑后失效，需要重新执行。三个映射可以同时存在。
+
+App 的地址选择逻辑位于 `NetHost.java`：
+
+- `NetHost.httpBase()` 使用 `8787`
+- `NetHost.httpsBase()` 使用 `8443`
+- `NetHost.mtlsBase()` 使用 `8444`
+- `app/assets/config.json` 的 `api_base_url` 默认为 `AUTO`
+
+也可以将 `api_base_url` 改成电脑的局域网地址，让手机通过同一 Wi-Fi 访问。该方式需要手机和电脑处于同一网络，并允许本机防火墙放行对应端口。
+
+## 构建
+
+构建不依赖 Android Studio 或 Gradle。
+
+需要：
+
+- JDK 17 或更高版本
+- Android SDK Platform 34
+- Android Build Tools 34.0.0
+- NDK 26.1.10909125
+- Python 3
+
+构建：
+
+```bash
 python build_apk.py
+```
 
+输出文件：
+
+```text
+FatdogReverse.apk
+```
+
+安装：
+
+```bash
 adb install -r FatdogReverse.apk
 ```
 
-构建产物 `FatdogReverse.apk` 就是你的靶子（桌面图标为胖狗），启动后显示"胖狗逆向靶场"：用 jadx 打开它，开始闯关。
+如果设备中已经安装的 APK 使用了不同签名，需要先卸载旧版本，但卸载会清除本地通关进度。
+
+部分关卡会另外使用以下工具，是否安装取决于准备练习的关卡和所选解法：
+
+- `jadx`
+- `apktool`
+- `frida` / `frida-server`
+- Xposed 或 LSPosed
+- `mitmproxy`
+- IDA、Ghidra 或 unidbg
 
 ## 项目结构
 
-```
+```text
 FatdogReverse/
-├── build_apk.py            # 一键构建（aapt2 + javac + R8 混淆打包 + 可选 smali 汇编 classes3 + 可选 ndk-build + apksigner）
-├── r8.pro                  # R8 keep 规则：只放行 com.fatdog.reverse.o 包改名，其余全部保留原名可读
-├── gen_certs.py            # 关卡 21-25 的 HTTPS 证书生成（自签 CA + 服务器证书）
-├── certs/                  # 生成的证书（ca.crt / server.crt / server.key，不入 APK）
-├── libs/                   # OkHttp/Okio/Kotlin 依赖 jar + 注解 jar
-├── server.py               # 关卡 15-25 本地模拟服务端（FastAPI，数字/页面只在这里）
-├── FatdogReverse.apk             # 构建产物
-├── README.md               # 本文件
-├── SOLUTIONS.md            # 完整题解（先看别看！）
-├── PLANNED.md              # 开发规划与状态（15-25 已全部落地）
-├── tools/                  # smali/baksmali 等 jar
-└── app/
-    ├── AndroidManifest.xml # 关卡 6 的关键线索藏在这里
-    ├── assets/config.json  # 关卡 5 的宝藏；关卡 15 的 API 地址也在里面
-    ├── jni/                # libnative.so 源码（关卡 25 的 native 门禁 + HMAC 签名在此）
-    ├── res/
-    │   ├── layout/activity_main.xml   # 大厅布局（14 个按钮，没有关卡 6）
-    │   ├── values/strings.xml         # 字符串资源
-    │   └── mipmap-*/                  # 5 种密度的 launcher 图标
-    └── src/com/fatdog/reverse/
-        ├── MainActivity.java          # 关卡大厅
-        ├── TokenVaultActivity.java    # 关卡 1
-        ├── NoteKeeperActivity.java    # 关卡 2
-        ├── PuzzleBoxActivity.java     # 关卡 3
-        ├── GateKeeperActivity.java    # 关卡 4（classes.dex）
-        ├── ConfigCenterActivity.java  # 关卡 5（classes.dex）
-        ├── VipSalonActivity.java      # 关卡 7（smali，classes.dex）
-        ├── ActivationRoomActivity.java# 关卡 8（smali，classes.dex）
-        ├── ProWorkshopActivity.java   # 关卡 9（smali，classes.dex）
-        ├── HashCheckActivity.java + HashSeed.java  # 关卡 10（Frida）
-        ├── MsgAuthActivity.java + HmacParts.java   # 关卡 11（Frida）
-        ├── b1Activity.java + SBox.java# 关卡 12（Frida，内容分散；Md5Wrap/MiscCrypt 是诱饵）
-        ├── k4Activity.java + SignUtil.java + KBox.java  # 关卡 13（Frida；账号种子异或藏 SignUtil，HashFactory 是诱饵）
-        ├── z9Activity.java + XBox.java + Mux.java + PivotParts.java  # 关卡 14（Frida；deviceId 种子异或藏 PivotParts，AesKit/Md5Tools/KeyFactory 是诱饵）
-        ├── s5Activity.java + Sg.java + Kx.java          # 关卡 15（网络；TokenGen/DigestBox 诱饵）
-        ├── t6Activity.java + C16.java + Rc4Core.java + Jk.java          # 关卡 16（网络；B64Kit/TokenGen/DigestBox 诱饵）
-        ├── u7Activity.java + Fl.java + Kt.java + Sm4Core.java + Sm3Core.java  # 关卡 17（网络/国密；NetPacker 诱饵）
-        ├── v8Activity.java + Rs.java + Pk.java                            # 关卡 18（网络/RSA+DES；RsaKit 诱饵）
-        ├── v9Activity.java + o/*                                         # 关卡 19（网络/AES+HMAC，加密包 R8 混淆）
-        ├── a20Activity.java + AdBox.java + Sx.java + PhantomAd.java   # 关卡 20（smali/连环广告；PhantomAd 假开关诱饵）
-        ├── w1Activity.java + Tm.java + Km.java                            # 关卡 21（HTTPS/自定义信任；CertBox 诱饵）
-        ├── x2Activity.java + Pn.java + Kp.java                            # 关卡 22（HTTPS/证书锁定；Pim 诱饵）
-        ├── NetHost.java              # 全局环境探测：模拟器 10.0.2.2 / 真机 127.0.0.1（默认真机）
-        ├── y3Activity.java + Hq.java + WvKit.java        # 关卡 23（WebView/自签证书白屏；WvKit 诱饵）
-        ├── z24Activity.java + Aw.java + Tk.java + Z24Core.java   # 关卡 24（HTTPS/pin + 反 Hook 守卫；Gp 诱饵）
-        ├── a25Activity.java + Nx.java + By.java + libnative.so   # 关卡 25（JNI native 校验；Rj 诱饵）
-        ├── b26Activity.java + Vd.java + Mc.java + Zt.java        # 关卡 26（mTLS/双向 TLS + PKCS12；MtlsKit 诱饵）
-        ├── c27Activity.java                                      # 关卡 27（万法归宗；入口保持可读，调用链通向 p 包）
-        ├── p/Wire.java + Gate.java + Cpt.java + Mk.java + Tail.java   # 关卡 27 加密/网络核心（R8 改名；Gh 是包内诱饵）
-        ├── EndKit.java                                           # 关卡 27 根包诱饵（假密钥假端点）
-        ├── ProfileActivity.java    # 个人主页：修仙境界（顶部传送带分类：基本情况/太古禁地/神念自察/昔日枷锁/前世今生）
-        ├── PastLifePage.java       # 前世今生进度修复页（密令进入，点选/撤销通关记录）
-        ├── PassLog.java            # 通关进度记录（各关触发 flag 时自动打点）
-        └── RewardActivity.java     # 关卡 6（大厅里没有入口）
-    # APK 只有单个 classes.dex（R8 打包全部关卡，无 classes2/classes3）
+├── app/
+│   ├── assets/                 # 配置、壳 payload、加密 DEX、mTLS 证书
+│   ├── jni/                    # Native 关卡源码与 Android.mk
+│   ├── res/                    # 布局、图片、字符串等资源
+│   └── src/com/fatdog/reverse/ # Java 关卡源码
+├── certs/                      # 本地 TLS 与 mTLS 证书
+├── keystore/                   # APK 签名密钥
+├── libs/                       # OkHttp、Okio、Kotlin 等依赖
+├── tools/                      # 打包与 Smali 工具
+├── build_apk.py                # 一键构建 APK
+├── gen_certs.py                # 生成服务端、CA 和客户端证书
+├── server.py                   # 本地网络关卡服务端
+├── SOLUTIONS.md                # 完整题解
+└── README.md                   # 项目说明
 ```
 
-## 分级提示（按需展开）
+## 常见问题
 
-<details>
-<summary>关卡 1 · 轻度提示</summary>
+### 网络关没有数字
 
-jadx 全文搜索 `FLAG_18`。
+按顺序检查：
 
-</details>
+1. `python server.py` 是否正在运行。
+2. 真机是否执行了对应端口的 `adb reverse`。
+3. `adb reverse --list` 是否能看见端口映射。
+4. 服务端是否出现对应请求日志。
+5. 返回 `403` 时检查签名、密钥、时间戳和反篡改状态。
+6. `8443` 关卡需要处理自签证书或证书锁定。
+7. `8444` 关卡必须携带 APK 内置的 mTLS 客户端证书。
 
-<details>
-<summary>关卡 2 · 轻度提示</summary>
+### 安装时提示签名不一致
 
-那串以 `=` 结尾的字符串，用 Python `base64.b64decode(...)` 解码。
+说明当前设备中的 APK 与待安装 APK 使用了不同签名。只能卸载旧版本后安装，或者使用与旧版本相同的签名重新构建。卸载会清除应用本地数据，包括通关进度。
 
-</details>
+### 重新打包后关卡行为异常
 
-<details>
-<summary>关卡 3 · 轻度提示</summary>
-
-jadx 里是一堆 `(char) ('y' ^ 1)` 表达式。异或的逆运算就是它自己。提示：`'y' ^ 1 = 'x'`。
-
-</details>
-
-<details>
-<summary>关卡 4 · 轻度提示</summary>
-
-代码里有一个 32 位十六进制串。到 cmd5.com 这类在线查表站查一下；查不到就写几行 Python 爆破纯数字密码。
-
-</details>
-
-<details>
-<summary>关卡 5 · 重度提示</summary>
-
-APK 就是个 zip。改后缀解压，打开 `assets/config.json`，找一个不太对劲的字段。
-
-</details>
-
-<details>
-<summary>关卡 6 · 重度提示</summary>
-
-看 `AndroidManifest.xml` 里声明的所有 Activity，找一个大厅没引用、但 `exported="true"` 的：
-
-```
-adb shell am start -n com.fatdog.reverse/.RewardActivity
-```
-
-</details>
-
-<details>
-<summary>关卡 7 · 轻度提示</summary>
-
-apktool 解包，打开 `smali/.../VipSalonActivity.smali`，找到 `isVip()Z`：`const/4 v0, 0x0` 后面 `return v0` 就是"恒不是 VIP"。把 `0x0` 改成 `0x1`，回编译重签名重装。或者把按钮回调里的 `if-eqz` 反过来。
-
-</details>
-
-<details>
-<summary>关卡 8 · 中度提示</summary>
-
-期望的激活码在 smali 里是一段 `.array-data` 字节（`buildKey()` 里，`fill-array-data` 后面）。把每个字节 `^ 0x2A` 还原成字符串，直接输入即可；或者更暴力一点——把 `checkKey()` 的方法体整体改成 `const/4 v0, 0x1` + `return v0`。
-
-</details>
-
-<details>
-<summary>关卡 9 · 重度提示</summary>
-
-`checkStatus()` 是 `isVip() && isActivated()` 两个检查的短路与。只改一个，会走进 else 分支——**注意：那里弹出的字符串也以 `FLAG_18_L9{...}` 开头，那是诱饵**。把 `checkStatus()` 整体改成返回 true，或两个检查都改成返回 true。
-
-</details>
-
-<details>
-<summary>关卡 10 · 中度提示</summary>
-
-正确口令（种子）不在外部知识里：`HashCheckActivity.verify` 只留了 SHA-256 指纹，完整种子被 `HashSeed` 切成多段异或存放。沿组装函数把所有分片还原即可；SHA-256 不可逆，别对着 64 位 hex 反推。
-
-</details>
-
-<details>
-<summary>关卡 11 · 中度提示</summary>
-
-密钥和待验口令都被 `HmacParts` 按字节分片异或藏起来了。先分别还原 `hmacKey()` 与 `passPhrase()`，再用 HMAC-SHA256 对拍 Activity 里的指纹；HMAC 是校验手段，不是靠外部知识猜口令。
-
-</details>
-
-<details>
-<summary>关卡 12 · 重度提示</summary>
-
-密钥、IV、密文都在 `SBox` 里（`FATDEMO_KEY_12AB` / `0001020304050607` / `Grg3J5v8Lh0r9KyE0Py0zw==`），`b1Activity` 只是调用它。用 Python 做一次 AES-CBC 解密就得到密码。注意旁边 `Md5Wrap`、`MiscCrypt` 是没人调用的诱饵。
-
-</details>
-
-<details>
-<summary>关卡 13 · 重度提示</summary>
-
-两个输入对应两段逻辑：账号种子在 `SignUtil` 的异或分片里，`accountSeed()` 还原后与 `fingerprint()`（即 `ACCOUNT_HASH`）的 MD5 指纹对得上；令牌在 `KBox` 里用 AES-ECB 解 `TOKEN_ENC`。两个都对才过。`HashFactory` 是诱饵，别对着摘要猜。
-
-</details>
-
-<details>
-<summary>关卡 14 · 重度提示</summary>
-
-license 链路：`base64 → AES解密(密钥A在XBox) → AES解密(密钥B在Mux) → 异或0x5A → 目标明文`。要用 Python 反向把明文一层层加密回去得到 license。deviceId 种子在 `PivotParts` 里分片异或存放，还原后与它的 MD5 指纹对得上，别对着摘要猜。`AesKit`、`Md5Tools`、`KeyFactory` 都是诱饵——尤其是 `KeyFactory` 里的假密钥，别拿它去算。
-
-</details>
-
-<details>
-<summary>关卡 15 · 重度提示</summary>
-
-1. 先跑 `python server.py`，再在 App 里输入页号 1 点"请求该页"看响应——签名参数 `sign` 由 `Sg`/`Kx` 拼出的密钥算 `HMAC-SHA256("page=N&ts=T")`。
-2. 密钥拆成两段异或字节数组：`Kx.PA`（`^0x3C`）→ `fatdemo_`，`Sg.PB`（`^0x3C`）→ `page_key_2026`，拼起来就是完整密钥。
-3. 用 Python 复刻签名，把 100 页全部取回求和（`TokenGen`/`DigestBox` 是诱饵，别管）。
-4. 也可以 Frida 在 App 发包瞬间 Hook `Sg.sign`/`Mac.doFinal`/`java.net.URL` 看参数和 URL。
-
-</details>
-
-<details>
-<summary>关卡 23 · 中度提示</summary>
-
-1. 大厅点进去是**白屏**，不是坏了：页面是 `https://…:8443/h5/v23`（仅 HTTPS；主机由 NetHost 自动选：模拟器 `10.0.2.2` / 真机 `127.0.0.1`），服务端证书自签、没进系统信任库，App 在 `onReceivedSslError` 里 `handler.cancel()` 了。
-2. 路径不在 config.json：`Hq` 类里有一段异或 `0x2F` 的字节数组，还原出来是 `/h5/v23`，主机由 `NetHost` 按环境拼。
-3. 静态抄近道：`python server.py` 后 `curl -k https://127.0.0.1:8443/h5/v23`，页面 `#flag` 里就是 flag。
-4. 动态正解：Frida Hook `com.fatdog.reverse.y3Activity$WvClient.onReceivedSslError`，调 `handler.proceed()` 放行——页面出现后 App 自动读 `#flag` 通关打点。
-
-</details>
-
-<details>
-<summary>关卡 24 · 重度提示</summary>
-
-1. 服务端 `python server.py` 后走 HTTPS:8443 的 `GET /api/swap`（主机由 NetHost 自动选）。HMAC 密钥两段：`Tk.PA`（^0x3C → `fatdemo_`）+ `Aw.KB`（^0x3C → `swap_key`），拼出 `fatdemo_swap_key`。
-2. pin 没明文：`Z24Core.PINX` 异或 0x5A 还原出 `sha256/Tix1…`（和 L22 同一个服务器指纹）。注意 `Gp.FAKE_PIN` 是诱饵，别拿来换。
-3. 反 Hook 守卫：`verify → Z24Core.checkPin`（guardTicks+1、记结论），响应前 `assertGuard()` 检查计数与结论——直接把 verify/checkPin Hook 掉放行，会抛"完整性校验失败"。
-4. 正解（script E，内存换票）：第一关同 L21 换 TrustManager；第二关 Hook `Z24Core.realPin`，把返回值换成 mitmproxy 证书的 SPKI pin——校验链照常走完，计数正常、pin 也匹配。
-5. 静态抄近道：还原 pin + HMAC 密钥后用 Python 带 `certs/ca.crt` 复刻请求（pinning 只保护 App 客户端，不拦 Python），100 页求和 = 50225。
-
-</details>
-
-<details>
-<summary>关卡 25 · 中度提示</summary>
-
-1. jadx 里只有声明：`Nx.verifyServer` / `Nx.nativeSign` 都是 `native` 方法，逻辑在 `libnative.so` 里（Java Hook 无用）。
-2. 把 APK 里的 `lib/arm64-v8a/libnative.so` 解出来（APK 就是 zip），`strings libnative.so | grep fatdemo` → 密钥 `fatdemo_jni_2026`（本关特意放明文，native 逆向入门）。
-3. 静态复刻：Python 带 `certs/ca.crt` 请求 `GET https://…:8443/api/native?page=N&ts=T&sign=HMAC-SHA256(fatdemo_jni_2026, "page=N&ts=T")`，100 页求和 = 52674。
-4. 动态：Frida 原生层——`Interceptor.attach` 观察 `Java_com_fatdog_reverse_Nx_nativeSign` 的返回值，或用 `NativeFunction` 直接调它拿签名。
-5. 注意 `Rj.FAKE_KEY` 是诱饵；`verifyServer` 只放行 10.0.2.2 / 127.0.0.1 / localhost。
-
-</details>
-
-<details>
-<summary>关卡 20 · 重度提示</summary>
-
-1. 进入关卡只有「点此领取 1 亿大礼包」——点了就弹**连环广告**：`switch(step)` 状态机一轮 8 条（5 张图循环复用），× 前 5 秒不显示、显示了点击瞬移四个角 + 嘲讽 Toast，连点 3 次出现「看完关闭」，点了进下一条……正常操作永远关不完。
-2. 广告机在 `AdBox`：所有的文案都是异或 0x4D 的神秘数字，别去解文案；**真正要动的是开关字段 `a`**：
-3. 正解：`apktool d FatdogReverse.apk -o out` → `out/smali/com/fatdog/reverse/AdBox.smali` → 把 `.field public static a:I = 0x1` 的 `0x1` 改成 `0x0`（或把 `showAd` 开头的 `sget v0, …->a:I` + `if-nez v0, :cond_?` 反转为 `if-eqz`）→ 回编译重签名重装 → 点按钮不再弹广告，页面出现「我已关掉广告」→ 礼花 + flag。
-4. Frida 双解：`Java.use('com.fatdog.reverse.AdBox').a.value = 0;` 一跑，广告即断。
-5. 注意 `PhantomAd.enabled` 是**诱饵假开关**：改它一点用没有——它的名字带 ad 但 AdBox 从不读它。
-
-</details>
-
-<details>
-<summary>关卡 26 · 重度提示</summary>
-
-1. 服务端 `python server.py` 后走 **HTTPS :8444** 的 `GET /api/mtls`（主机由 NetHost 自动选；8787/8443 上没有这个路由，绕不过去）。HMAC 密钥两段：`Zt.PA`（^0x3C → `fatdemo_`）+ `Vd.KB`（^0x3C → `mtls_key`），拼出 `fatdemo_mtls_key`。
-2. 握手要**出示客户端证书**：APK 解开拿走 `assets/mt_client.p12`；打开密码拆在两个类——`Zt.PXA`（^0x37 → `fatdemo_`）+ `Mc.PXB`（^0x5B → `mt26`），拼出 `fatdemo_mt26`。注意 `MtlsKit.FAKE_PASS` 是诱饵，别拿来开 p12。
-3. Python 复刻：用 cryptography 从 p12 里导出 client 证书+私钥，`ssl.create_default_context(cafile='certs/ca.crt')` + `load_cert_chain(crt, key)`，100 页求和 = **50814**。完整脚本见 SOLUTIONS.md 关卡 26。
-4. 动态：Frida 调 `Mc.buildPassword()` 直接倒出 p12 密码，再用 mitmproxy 挂上客户端证书抓包。
-5. 服务端证书由 `gen_certs.py` 重新生成时，App 内置的 CA/pin 会一起重烘焙（Tm/Pn/Z24Core 同步更新）。
-
-</details>
-
-<details>
-<summary>关卡 27 · 重度提示</summary>
-
-1. 入口 `c27Activity` 是全关唯一可读的类——跟进它的调用链会进到 `com.fatdog.reverse.p` 包，jadx 里这包已被 R8 改成 a/b/c 之类的短名：先靠交叉引用认出"加密原语/素材库/TLS 客户端/网络核心"四个角色。
-2. 三把密钥各拆两半跨类拼装（全部 ^0x3C）：前缀 `fatdemo_` 在素材库 A，后缀 `aeskey27` / `fin_hmac` / `rspkey27` 在素材库 B；路径 `/api/l27` 是 ^0x25 数组，pin 是 ^0x27 数组（无明文 sha256/）。
-3. 请求是 POST 表单：`enc=hex(AES-ECB(page=N&ts=T))`、`sign=HMAC-SHA256(enc)`，另有 client/chan/ver/dev 噪声字段；响应 `{"d": hex}` 用第三把 AES 密钥解密得 `page=N|nums=…`。
-4. 抓包路线：Frida 同时放倒 TrustManager + CertificatePinner（或 objection 全家桶）——但 mitmproxy 里看到的仍是 enc 密文，想懂明文还得解密钥。
-5. 静态正解：还原三把密钥后用 Python 带 `certs/ca.crt` 直接复刻 100 页取数求和 = **50623**。注意包内的 Gh 和根包的 EndKit 都是诱饵（假密钥假 pin），别拿来算。
-
-</details>
-
-<details>
-<summary>关卡 28 · 中度提示</summary>
-
-1. jadx 只有 `Zk.nativeSign` 声明；解包 APK 取 `lib/arm64-v8a/libaxol.so`。
-2. `strings libaxol.so` 只见诱饵 `Fatdog_silent`——真密钥被 ^0x5C 存成字在数组 `KEY28_KX`（IDA 里读 `Zk_nativeSign` 的解码循环即还原 `Fatdog_unhappy`）。
-3. 静态抄近道：Python 带 `certs/ca.crt` 复刻 HMAC 取 100 页求和 = 49750；动态：Frida 三联单看返回值对拍，或 `Memory.scanSync` 在运行时搜明文。
-
-</details>
-
-<details>
-<summary>关卡 29 · 中度提示</summary>
-
-1. 导出表的 `Java_com_fatdog_reverse_Wq_nativeSign` 是同名诱饵（假密钥 `Fatdog_lazy`，已被动态注册覆盖，Hook 它不会触发）；`Wq_sign` 返回废值。`Yd.FAKE_KEY` 也是假货。
-2. 正解 spawn 注入：hook libart 的 `RegisterNatives`（`_ZN3art3JNI15RegisterNativesEP7_JNIEnvP7_jclassPK15JNINativeMethodi`）打印映射，拿到真身地址 → 减模块基址得偏移 → Interceptor.attach 三联单。
-3. 静态路线：IDA 从 `JNI_OnLoad` 的 RegisterNatives 参数找到无名真身与 `KEY29_KX`（^0x69 → `Fatdog_angry`），Python 复刻取数求和 = 50208。
-
-</details>
-
-<details>
-<summary>关卡 30 · 中度提示</summary>
-
-1. 导出表只有一个 `Java_com_fatdog_reverse_Vn_nativeSign`，内部经函数指针表派发到四个同形函数——IDA 里跟一次间接调用，找到 `K30_TABLE` 的四个槽位。
-2. 四把密钥全是 UTF-16LE 码元数组（`unsigned short`）：`strings` 默认看不见；`strings -el libmica.so` 或在 IDA 数据窗按 16 位查看即现形。候选：gloomy(真)/pale/sour/mute，`Xk.FAKE_KEY=Fatdog_mute` 就是槽 3 假钥匙。
-3. 静态抄近道：还原 `Fatdog_gloomy` 后 Python 复刻 HMAC 取数求和 = 51127；动态路线：按偏移 Hook 四候选逐个喂服务器验真（错的一律 403）。
-
-</details>
-
-<details>
-<summary>关卡 31 · 中度提示</summary>
-
-1. jadx 里搜不到 q.Ke——它被 R8 改名了。去 q 包里找带 `int[]` 码点表的类（{0x46,0x61,...} 就是 "Fatdog_"）；方法名 partA 因 native 回调被保留。
-2. 抓包/hook 会看到每页 4 个同形 POST：只有响应里 nums 非空的是真包；错位包页号差 1、废签包签名是摆设、噪声包 enc 全零。Pw.FAKE_KEY=Fatdog_lovely 是一字之差陷阱。
-3. 静态抄近道：拼出 Fatdog_lonely 后 Python 复刻 RC4+HMAC，只发真包取数求和 = 50768；动态：hook Zr.nativeEnc/nativeSign 直接拿现成参数。
-
-</details>
-
-<details>
-<summary>关卡 37 · 中度提示</summary>
-
-1. 症状：拿 hashlib.sha256(payload) 对拍一万次也不相等——不是算错，是这个 SHA-256 被"换过血"。
-2. 认骨架：IDA 里 K 表开头 0x428a2f98（以字形态查看）说明压缩逻辑是标准 SHA-256；找改动点看初始化——h[] 来自派生值而非教科书常量。
-3. 两处改动都要还原：IV = SHA256(Fatdog_dodge+"|iv")（整组 32 字节）；sign 外层再叠 RC4，钥 = SHA256(Fatdog_dodge+"|rc4")[:16]。strings -el 拿 Fatdog_dodge 后照 server.py 的 sha37_iv/rc4_37 抄即可。
-4. 静态抄近道：Python 复刻变体取数求和 = 51242。Sc.FAKE_KEY=Fatdog_drift 是动词陷阱。
-
-</details>
-
-<details>
-<summary>关卡 36 · 中度提示</summary>
-
-1. strings libvigor.so 找到 24 字符、以 == 结尾的 Base64 串（tE5zEyf1b+fe49uJN4cY7w==）——它就是藏宝图：base64 解码即得 16 字节 AES-128 钥匙。
-2. IDA 认算法看 S 盒开头 63 7c 77 7b；真身 k36_ecb 经指针表派发在文件底部，前面 k36_fake_* 全是无人调用的诱饵。
-3. 协议：enc=hex(AES-ECB(key,"page=N&ts=T" 零填充))、sign=HMAC-SHA256(mac,enc)，mac 由 Fatdog_break+"|mac" 运行时派生。Oo.FAKE_KEY=Fatdog_bluff 是一字之差陷阱。
-4. 静态抄近道：Python 用 pycryptodome AES-ECB 复刻取数求和 = 49495。
-
-</details>
-
-<details>
-<summary>关卡 35 · 中度提示</summary>
-
-1. strings -el libumbra.so 先拿到标记 Fatdog_sneak（UTF-16 存放）；两把钥匙都由它派生：SHA256("Fatdog_sneak|sm4")[:16] 与 SHA256("Fatdog_sneak|3des")[:24]。Kq.FAKE_KEY=Fatdog_skulk 是一字之差陷阱（命中即 403）。
-2. IDA 认算法看魔数：DES 的 S1 盒开头 14,04,0d,01 与 PC1/PC2 表；SM4 的 S 盒开头 d6,90,e9,fe 与 FK a3b1bac6。真身 k35_sm4_ecb/k35_des3_ecb 经函数指针表派发，前面一堆 fake_*/junk_* 全是无人调用的诱饵（它们反而被导出了，正好当噪音）。
-3. 协议：e1=hex(SM4(key,"page=N&ts=T" 零填充))、e2=hex(3DES(key,大端 ts))、sign=HMAC(Fatdog_sneak, e1+"|"+e2)。每页三连包只有响应 nums 非空的是真包。
-4. 静态抄近道：Python 复刻双算法取数求和 = 51217（服务端 sm4_decrypt 与 pycryptodome DES3 可直接对照）。
-
-</details>
-
-<details>
-<summary>关卡 34 · 重度提示</summary>
-
-1. jadx：Yh 五个方法全是声明（真身动态注册）；导出表只有 JNI_OnLoad + 两个废诱饵 + K34_ZONE 锚点。strings -el 只见 UTF-16 的 Fatdog_grumpy——但光有它不够：参数走 Feistel8、响应是 RC4 密文。
-2. 算法三件套（IDA 从 k34_pack/k34_sign/k34_unwrap 读）：enc=hex(Feistel8(key,payload))、sign=HMAC(key,enc)、响应 rsp_key=SHA256(key+"|rsp")[:16] 再 RC4。Feistel 轮函数 F_i=SHA256(sub_i||x)[:4]，sub_i=SHA256(key+str(i))[:4]，8 轮、零填充到 8 字节倍数。
-3. 路线一（Frida）：spawn 下 hook JNI_OnLoad onEnter 抢先装钩子 → libart RegisterNatives 抓映射 → 偏移观察三联单拿现成 enc/sign/d 解包结果 → 复刻或直接转发。
-4. 路线二（patch）：定位 k34_scan_once/k34_crc_ok 改字节废守卫。路线三（unidbg）：so 不回调 Java，补环境最省——离线喂 page/ts 直接收 enc/sign。
-5. Python 全复刻参考 SOLUTIONS 关卡 34；100 页求和 = 49932。Ak.FAKE_KEY=Fatdog_sore 是一字之差陷阱。
-
-</details>
-
-<details>
-<summary>关卡 33 · 中度提示</summary>
-
-1. 症状：任何 Frida 钩子一挂（哪怕只 attach 观察不出手），签名立刻全错、App 报"完整性校验失败"——so 在给自己做 CRC 体检。
-2. 线索：libsable.so 导出表里有两个空函数 `K33_ZONE_START/K33_ZONE_END`——它们之间的区间被排除在 CRC 外（校验器 k33_check 就住里面，这就是能安全 hook 它的原因）。
-3. 三条正解任选其一：① spawn 下 hook JNI_OnLoad 的 onEnter 先装完所有钩子再放行（基线带钩建立，永远一致，最优雅）；② 偏移 hook k33_check 恒返回 1；③ Memory.scanSync 找 g_baseline 四字节写当前实值。整体替换 nativeSign 会被 assertGuard 记账抓包（ticks 踏步）。
-4. 静态抄近道：strings -el 拿 Fatdog_jealous 直接 Python 复刻取数求和 = 49502。
-
-</details>
-
-<details>
-<summary>关卡 32 · 中度提示</summary>
-
-1. 症状：一挂 Frida 就所有页请求失败，且 App 弹过一次"环境异常警告"——这是 native 哨兵在投毒（密钥被改一个字节），不是网络问题。
-2. 四路哨兵：maps 搜 frida/gadget、试连 27042/27043、线程名 gum-js-loop/gmain/gdbus、TracerPid 非 0。ptrace 占坑只挡 gdb。
-3. 拆法任选：frida-server 改名换端口 + strongR-frida 洗指纹；或 IDA 找扫描函数按偏移 hook 成空操作；或 hook fopen/fgets 给 maps/status 洗地。
-4. 静态抄近道：完全不碰运行时——strings -el 拿到 Fatdog_anxious 后 Python 复刻 HMAC 取数求和 = 51745。
-
-</details>
-
-<details>
-<summary>KL6 · 冰封之钥（流沙河）中度提示</summary>
-
-1. S 盒开头 63 7c 77 7b 认出手写 AES-128；可 pycryptodome 解不开抓来的 enc——骨架没坏，坏的是轮常量 Rcon。
-2. strings -el libember.so 找 UTF-16 藏着的真标记 Fatdog_pierce；明文躺着的 Fatdog_piece 是一字之差诱饵（命中即 403），so 里 m1_decoy_seal 返回的也是假密文。
-3. aes 钥=SHA256(Fatdog_pierce+"|aes")[:16]、mac=SHA256(Fatdog_pierce+"|mac")；对比标准 Rcon {01,02,04,08,10,20,40,80,1b,36}——第 3/6/9 位被换成 9e/77/d4，Python 照抄这三处再复刻取数，加和 51561。
-
-</details>
-
-<details>
-<summary>KL8 · 幽泉之眼（流沙河）中度提示</summary>
-
-1. S 盒开头 d6 90 e9 fe 认出手写 SM4、FK 开头 a3b1bac6——骨架全是标准的；可标准 SM4 解不开抓来的 enc。
-2. strings -el libivory.so 找 UTF-16 藏着的真标记 Fatdog_unravel；明文躺着的 Fatdog_travel 是一字之差诱饵（命中即 403），m3_decoy_seal 返回的是假密文。
-3. sm4 钥=SHA256(Fatdog_unravel+"|sm4")[:16]、mac=SHA256(标记+"|mac")；对比标准 CK 表——最后 8 个值（idx24~31）被换成 sha256(标记+"|ck") 派生的 8 个字，Python 照抄再复刻取数，加和 51217。
-
-</details>
-
-<details>
-<summary>KL9 · 天罡北斗（流沙河）中度提示</summary>
-
-1. 认出 RC4 骨架只是开始：标准库怎么算都对不上——KSA 循环前的初始 S 盒不是清零递增，而是查表加载的自定义置换。
-2. strings -el libjade.so 找 UTF-16 藏着的真标记 Fatdog_veil；明文的 Fatdog_vile 是一字之差诱饵（命中即 403），m4_decoy_seal 是假密文。
-3. 两层都要还原：rc4 钥=SHA256(标记+"|rc4")[:16]、KSA 初排由 sha256(标记+"|ksa") 确定性 Fisher-Yates 派生、PRGA 输出后再 XOR 掩码 sha256(标记+"|mask")[:16]。照 gen_kl9.py 抄即可，加和 49319。
-
-</details>
-
-<details>
-<summary>KL10 · 万象归一（流沙河收官）重度提示</summary>
-
-1. 双层叠加签名：sign = hex(魔改AES(aes_key, 魔改SHA256("page=N&ts=T")))。K 表开头 428a2f98 认出 SHA256、S 盒开头 637c777b 认出 AES——两层骨架都标准，改动点各自藏在别处。
-2. strings -el libonyx.so 找 UTF-16 藏着的真标记 Fatdog_eclipse；明文的 Fatdog_ellipse 是一字之差诱饵（命中即 403），m5_decoy_seal 是假密文。
-3. 第一层改动：IV = SHA256(Fatdog_eclipse+"|iv") 整组换血 + 填充边界从 56 前移到 48；第二层改动：MixColumns 系数 {2,3} 对调为 {3,2}。aes_key = SHA256(标记+"|key")[:16]。照 gen_kl10.py 抄即可，POST /api/kl10 提交 page/ts/sign，加和 51136。
-
-</details>
-
-<details>
-<summary>关卡 43 · 照妖之镜（签名校验对抗）中度提示</summary>
-
-1. App 启动时 Wi.audit() 用 SigningInfo（API28+）或 GET_SIGNATURES 取自身证书 DER 做 SHA-256，与拆两半异或的基准比对——通过才解锁提交框，失败静默不弹窗。
-2. jadx 从 s48Activity 的 Wi.audit 顺藤摸瓜：Wi.PA(^0x3C)+Vk.PB(^0x5A) 拼出信任基准，Wi.KA+Vk.KB 拼出 HMAC 标记 Fatdog_scan。
-3. 三条路：①还原基准后 patch 判定；②Frida hook getPackageInfo 返回原签名字节；③MT 类杀校验工具。静态复刻党不受门禁影响：HMAC 直连取数即可。Tg.FAKE_KEY=Fatdog_span 一字之差陷阱。加和 52236。
-
-</details>
-
-<details>
-<summary>关卡 44 · 偷天换日（签名校验对抗）中度提示</summary>
-
-1. 本关门禁在 libpearl.so 里：passCert 把证书 DER 递进 so，SHA-256、基准比对、ticks/verdict 记账全在 native——hook Java 摘要出口彻底失效。
-2. 发包前 assertGuard(1) 三连核账：整体替换 passCert 会让 ticks 踏步返回 -2；重打包则 verdict=-3。HMAC 标记 Fatdog_forge 两半异或分藏 Wk/Xh。
-3. 三条正解：①内存换票——hook 取签名出口把 DER 换成原包字节；②IDA 定位比较点偏移 Hook；③Memory 找 ^0x66 解出的基准数组改成当前指纹。Yk.FAKE_KEY=Fatdog_forgo 一字之差陷阱。加和 49328。
-
-</details>
-
-<details>
-<summary>关卡 45 · 移形换影（签名校验对抗）中度提示</summary>
-
-1. 本关门禁在 libcoral.so：拿到 sourceDir 后自己 open 文件→扫 EOCD→遍历中央目录找 META-INF/*.RSA→zlib 解压→ASN.1 剥出 X.509 证书→SHA-256 比对。PackageManager 的任何 Hook 一概无效。
-2. HMAC 标记 Fatdog_lurk 两半异或分藏 Wn/Yb；发包前 assertGuard(1) 三连核账（同 L44）。
-3. 三条正解：①IO 重定向——hook libc open 把 base.apk 指向攻击者留存的原始包副本；②IDA 定位 memcmp 比较点偏移 Hook；③Memory 改解出的基准数组。Xv.FAKE_KEY=Fatdog_lark 一字之差陷阱。加和 49906。
-
-</details>
-
-<details>
-<summary>关卡 46 · 以签为钥（签名校验对抗主打）中度提示</summary>
-
-1. 本关没有 if 判断签名对错——key 由证书 DER 派生：`key = SHA256(certHash ‖ b"Fatdog_bind")`，然后 HMAC-SHA256 整个表单。重打包者的证书不同→派生 key 不同→全部 403 零提示。
-2. 运行时拿到证书 DER（和 L43 一样从 SigningInfo 取），或者直接 IDA 读 m8.c 里 `BENCH_X` 数组（异或后的 SHA-256 基准）。
-3. 三条正解：①Frida hook Wg.nativeSign() 抓派生密钥后 Python 复刻；②unidbg 调 JNI 派生函数拿 32 字节 key；③IDA 还原 BENCH_X → XOR 0x66 还原原始 SHA-256 → Python 算派生 key → HMAC 取数。加和 51008。
-
-</details>
-
-<details>
-<summary>关卡 47 · 幽冥合卷（签名校验对抗收官）重度提示</summary>
-
-1. 本关四重防线叠加：三点互验记账（ticks 三路交叉核账）+ CRC 可执行段自校验 + certHash 密钥派生 + AES 加密响应。单独过任何一道都不够，必须全部绕过或绕过关键组合。
-2. 端点 POST /api/l47，参数 page/ts/sign/enc——响应不再是明文 nums，而是 AES 加密的 `{"d": hex(AES(nums))}`。
-3. 密钥派生：key = SHA256(certDER ‖ "Fatdog_seal")，其中 hmac_key = 完整 32 字节，aes_key = 前 16 字节。注意标记是 **Fatdog_seal**——诱饵 Fatdog_steal 一字之差（命中即 403）。
-4. 三条正解：① Frida spawn 抢跑 + 三点伪造 + 摘要出口拦截；② patch so（废 CRC + 改比较点）；③ 重打包完整复刻。SEED52=20280426，加和 52437。
-5. 诱饵多重：Fatdog_steal（一字之差）、CRC 校验器里的假基线、记账 ticks 的虚假计数。识别诱饵是本关的核心。
-
-</details>
-
-<details>
-<summary>关卡 38-42 · 中度提示（Xposed 实战）</summary>
-
-1. 前置：设备装好 Magisk + Zygisk + LSPosed；用模板新建一个模块，作用域勾选「胖狗逆向靶场」，激活后重启手机。
-2. L38：`findAndHookMethod("com.fatdog.reverse.XpGate", lpparam.classLoader, "check", new XC_MethodHook() { afterHookedMethod 里 param.setResult(true); })`——打开关卡页即自动通关。
-3. L39：jadx 搜 `FatdogXP` 拿到正确 deviceId `fatdog_xp_2026`，在 `beforeHookedMethod` 里 `args[0] = "fatdog_xp_2026"`。
-4. L40：`XposedHelpers.getStaticObjectField(SecretVault类, "s_hiddenKey")` 读出私钥后，`callStaticMethod` 调 `SecretVault.reportStolenKey(私钥)` 回传——哈希对上自动通关。
-5. L41：`XC_MethodReplacement.returnConstant(true)` 替换 `TripleGate.checkB`（checkA/checkC 本来就真，只有 checkB 恒假）。
-6. L42：Hook `Kl42Gate.coldStartCheck` 返回 true。先点「自毁进程」杀掉应用，再从桌面重开——Hook 还在才算通关（Frida 断线即失效，这就是本关的教学点）。
-
-</details>
-
-<details>
-<summary>KL7 · 裂魂之匣（流沙河）中度提示</summary>
-
-1. S1 盒开头 14 04 0d 01 认出手写 DES；可 pycryptodome 解不开抓来的 enc——骨架没坏，坏的是表。
-2. strings -el libfrost.so 找 UTF-16 藏着的真标记 Fatdog_shatter；明文躺着的 Fatdog_scatter 是一字之差诱饵（命中即 403），so 里 m2_decoy_seal 返回的也是假密文。
-3. des 钥=SHA256(Fatdog_shatter+"|des")[:24]（3DES-EDE）、mac=SHA256(Fatdog_shatter+"|mac")；对比标准 DES 逐表排查——IP 首尾互换（58<->57）、FP 同步重算、S3 第 18/19 位两值互换（9<->0），Python 照抄这三处再取数，加和 48865。
-
-</details>
-
-## 路线图
-
-- 第一季：教程 18 静态分析 6 关 + 教程 19 smali 4 关（7/8/9/20）+ 教程 20 Frida 5 关（10-14）+ 网络取数 5 关（15-19）
-- 第二季：SSL / 抓包对抗系列 21-27（已全部落地，规划见 `PLANNED.md`）
-- 第三季：native 层系列 L28-37 十关已全部落地；大厅新增「Native 试炼」分区
-- 天地秘境·流沙河分区：KL6 冰封之钥、KL7 裂魂之匣已落地（魔改算法五连关 KL6-KL10，编号接续昆仑山，入口在天地秘境「流沙河」页签；后续规划见 PLANNED.md）
-- **标记变更（自 L28 起）**：密钥/口令等标记弃用 `fatdemo_` 前缀，改用 `Fatdog_<情绪词>`（情绪词用尽换动词，如 `Fatdog_unhappy` / `Fatdog_sneak`）；L1-27 保持不变，完整规范见 `SKILL.md` §四
-- 天地秘境·幽冥海分区：KL11-KL15 五关已落地（SO patch 对抗五连关，入口在天地秘境「幽冥海」页签；后续太玄之初规划见 PLANNED.md）
-- 天地秘境·太玄之初分区：KL16-KL20 已落地（一代壳+二代壳+OLLVM+VMP+三代壳综合收官卷，入口在天地秘境「太玄之初」页签）
-- 天地秘境·太玄之初分区（C++ 壳系列）：KKL1 玄冥渊已落地（vtable 派发 + 指令抽取回填，`libkkl1.so` + `libc++_shared.so`；KKL2-KKL5 万剑冢/断魂谷/锁妖塔/诛仙台也已落地，全五关收官）
-- 天地秘境·太玄之初分区（C++ 壳系列）：KKL2 万剑冢已落地（真 DEX 加密埋 assets → `libkkl2.so` 动态注册解 dex → `InMemoryDexClassLoader` 内存加载 → `/api/kkl2` 验 HMAC 取数，100 页求和 49755）
-- 天地秘境·太玄之初分区（C++ 壳系列）：KKL3 断魂谷已落地（四路哨兵守取数签名 → `libkkl3.so` 命中即静默投毒 → `/api/kkl3` 403 断数，真标记 UTF-16 藏匿，100 页求和 52219）
-- 天地秘境·太玄之初分区（C++ 壳系列）：KKL4 锁妖塔已落地（`libkkl4.so` 读 `/proc/self/maps` 做四组导出窗口 CRC 自校验 + open/sign/native 回调三点记账，任一被 patch/inline hook 即密钥投毒 → `/api/kkl4` 403 断数，真标记 UTF-16 藏匿，100 页求和 51434）
-
-- 天地秘境·太玄之初分区（C++ 壳系列）：KKL5 诛仙台已落地（`libkkl5.so` 用自定义 VM 字节码还原 onCreate 门禁，AES-128-CBC + HMAC-SHA256 取数，`/api/kkl5` 100 页求和 53011）
-- 天地秘境·天机阁分区：KL29 暗流涌动、KL30 天机织锦已落地（二进制协议逆向两连关，入口在天地秘境「天机阁」页签；KL31-35 规划见 PLANNED.md）
+部分关卡会校验 APK 签名、代码段 CRC、Native 指令或响应签名。重新打包、修改 Smali、Patch SO 或 Hook 校验器后，关卡可能主动失败或静默返回错误，这属于靶场逻辑的一部分。

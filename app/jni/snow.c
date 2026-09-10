@@ -1,6 +1,6 @@
 /**
  * snow.c — 扶桑树 KL28 雪落无痕
- * 双重检测：Signal handler 注册 + ptrace 反附加
+ * 双重检测：Signal handler 注册 + TracerPid 追踪检查
  * 判定逻辑：OR（任一触发即判定）
  * SEED = 20280722
  * Flag: FLAG_18_KL28{snow_leaves_no_trace}
@@ -12,7 +12,6 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <signal.h>
-#include <sys/ptrace.h>
 
 /* ============================================================
  * 诱饵标记：Fatdog_snow（真）/ Fatdog_snow（假·少 n）
@@ -50,20 +49,24 @@ static int detect_signal_handler(void) {
 }
 
 /* ============================================================
- * 检测②：ptrace 反附加
+ * 检测②：TracerPid 追踪检查
  * ============================================================ */
 static int detect_ptrace(void) {
-    /* 尝试 ptrace 自己 */
-    long result = ptrace(PTRACE_TRACEME, 0, NULL, NULL);
+    FILE *f = fopen("/proc/self/status", "r");
+    if (!f) return 0;
 
-    if (result == -1) {
-        /* ptrace 失败可能意味着已经被附加 */
-        return 1;
+    char line[256];
+    int tracer_pid = 0;
+    while (fgets(line, sizeof(line), f)) {
+        if (strncmp(line, "TracerPid:", 10) == 0) {
+            tracer_pid = atoi(line + 10);
+            break;
+        }
     }
+    fclose(f);
 
-    /* 如果成功，解除跟踪并返回安全 */
-    ptrace(PTRACE_DETACH, 0, NULL, NULL);
-    return 0;
+    /* 仅真实存在的 tracer 判检出；EPERM/SELinux/seccomp 拒绝不能算阳性。 */
+    return tracer_pid != 0;
 }
 
 /* ============================================================
@@ -106,7 +109,7 @@ static const char* compute_status(void) {
     snprintf(buf, sizeof(buf),
         "=== 雪落无痕 ===\n"
         "signal检测:   %s\n"
-        "ptrace检测:   %s\n"
+        "TracerPid检测: %s\n"
         "综合判定(OR): %s\n\n"
         "标记A: %s\n标记B: %s",
         sig ? "检出" : "安全",

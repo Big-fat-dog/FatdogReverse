@@ -4328,12 +4328,12 @@ print(hashlib.sha256(str(total).encode()).hexdigest())
 |---|---|---|---|---|---|---|
 | KL21 | 枯叶听风 | OR | 端口 27042-27044 + D-Bus 指纹 | 20280715 | `509b85ba58729bb4934d5467a7c01c508f82f09ea2f660d703591cc233bb172b` | `FLAG_18_KL21{leaf_hears_the_wind}` |
 | KL22 | 落影寻痕 | OR | fd memfd + maps 关键词 | 20280716 | `7ece99ec50816dca8130a166dff30227d8ef546fbf97f5370a1ff5fc2caff2c6` | `FLAG_18_KL22{shadow_leaves_no_trace}` |
-| KL23 | 照妖显形 | AND | maps 特征字节 + DT_DEBUG + auxv | 20280717 | `7553ec6d375135f8fb11dcf5a0a6f50060c6a68a05a9147f88f8771db5083bbb` | `FLAG_18_KL23{mirror_shows_true_face}` |
+| KL23 | 照妖显形 | AND | maps 特征字节 + 运行时 DT_DEBUG + auxv 一致性 | 20280717 | `7553ec6d375135f8fb11dcf5a0a6f50060c6a68a05a9147f88f8771db5083bbb` | `FLAG_18_KL23{mirror_shows_true_face}` |
 | KL24 | 冰鉴悬镜 | OR | TracerPid + State | 20280718 | `83abc5a60bf846a88404c66b0cf24701` | `FLAG_18_KL24{ice_mirror_catches_all}` |
-| KL25 | 暮雾锁听 | NAND | maps + 线程指纹 + auxv | 20280719 | `c8c20ef9499a87f1c94e0fc64ab1886c` | `FLAG_18_KL25{mist_locks_the_ears}` |
+| KL25 | 暮雾锁听 | AND | Frida maps/线程指纹 + auxv 一致性 | 20280719 | `c8c20ef9499a87f1c94e0fc64ab1886c` | `FLAG_18_KL25{mist_locks_the_ears}` |
 | KL26 | 暮霭沉沉 | XOR | timing + 版本嗅探 | 20280720 | `8ac8cc07027b4d6d8bf9cd8003454e71` | `FLAG_18_KL26{dusk_hides_the_truth}` |
 | KL27 | 轻纱覆影 | OR | 线程上下文 + 时序交叉 | 20280721 | `4cc08a01cc4402bc4da28b32cdcd0386` | `FLAG_18_KL27{veil_conceals_all}` |
-| KL28 | 雪落无痕 | OR | signal handler + ptrace | 20280722 | `8399c59f0bec469884fec6510ce347fc` | `FLAG_18_KL28{snow_leaves_no_trace}` |
+| KL28 | 雪落无痕 | OR | signal handler + TracerPid | 20280722 | `8399c59f0bec469884fec6510ce347fc` | `FLAG_18_KL28{snow_leaves_no_trace}` |
 
 通用复刻脚本（真值对拍用）：
 
@@ -4379,10 +4379,10 @@ def lcg_ans(seed):                      # KL24-30：libice 之后统一 LCG 伪 
 ### KL23：照妖显形（libsun.so · 三路 AND）
 
 - **子路①maps hex**：在 `/proc/self/maps` 的 r-xp 段里搜 frida 特征字节模式；
-- **子路②DT_DEBUG**：解析自身 ELF `PT_DYNAMIC`，`DT_DEBUG` 值异常（>0xFFFFFFFF）即中——Frida 注入会改写它；
-- **子路③auxv**：读 `/proc/self/auxv` 与磁盘 ELF 头交叉校验；
-- **判定 AND**：三路全中才算检出——所以**破一路即安全**（与 KL21/22 的 OR 正好相反，是"判定逻辑"教学点）。
-- **绕过**：hook `nativeFridaDetect`→0；或挑软柿子：hook maps 读取、拦截 ELF 头读取、拦 auxv 三者之一。
+- **子路②运行时 DT_DEBUG**：通过 `dl_iterate_phdr` 和 `AT_PHDR` 定位主程序动态段，读取链接器写入内存的 `DT_DEBUG`；磁盘值为 0，不能离线读取判定；
+- **子路③auxv**：读 `/proc/self/auxv` 与磁盘 ELF 头交叉校验，作为 ABI 无关的一致性守卫；
+- **判定 AND**：maps 命中且两条运行时结构校验成立才算检出——任一校验失败即安全（与 KL21/22 的 OR 正好相反）。
+- **绕过**：hook `nativeFridaDetect`→0；或破坏 maps 特征路、`dl_iterate_phdr` 路径、auxv/ELF 一致性中的任意一条。
 - **静态**：seed `20280717` → `7553ec6d…b5083bbb`。flag `FLAG_18_KL23{mirror_shows_true_face}`。真标记 `Fatdog_gleam` / 诱饵 `Fatdog_glint`。
 
 ### KL24：冰鉴悬镜（libice.so · 进程状态）
@@ -4393,11 +4393,11 @@ def lcg_ans(seed):                      # KL24-30：libice 之后统一 LCG 伪 
 - **绕过**：hook `nativeFridaDetect`→0；hook `fopen`/`fgets` 拦截 status 文件（喂 `TracerPid: 0`、`State: S (sleeping)`）；spawn 模式下注意别让检测发生在 tracer 挂上时。
 - **静态**：seed `20280718` → LCG → `83abc5a6…cf24701`。flag `FLAG_18_KL24{ice_mirror_catches_all}`。真标记 `Fatdog_siren` / 诱饵 `Fatdog_sren`。
 
-### KL25：暮雾锁听（libmist.so · 三路 NAND）
+### KL25：暮雾锁听（libmist.so · 三路 AND）
 
-- **子路**：maps frida 特征、线程指纹（`gum-js-loop`/`gmain` 线程名）、auxv hook（`AT_PHDR` 被篡改）；
-- **判定 NAND**：三路**全部**触发才算检出。因此绕过目标是让至少一路不触发；反过来，如果你用 Frida 却想测试"检出"，把三路全点亮它才会报检出——这是和 AND 最烧脑的区分点。
-- **绕过**：hook `nativeFridaDetect`→0；或只处理一路（如改名 gum-js-loop 线程）。反检测代码喜欢把 NAND 当 AND 写错，逆向时先认判定再动手。
+- **子路**：maps frida 特征、线程指纹（`gum-js-loop`/`gmain` 线程名）、auxv/ELF 一致性（`AT_PHDR`/`AT_PHENT`/`AT_PHNUM` 与磁盘头对齐）；
+- **判定 AND**：Frida maps/线程指纹命中，且 auxv/ELF 一致性成立，才判定检出；标准 Frida 注入会保留正常 auxv，因此三路可以同时成立。
+- **绕过**：hook `nativeFridaDetect`→0；或处理 maps 特征、线程名、auxv 校验中的任意一路。
 - **静态**：seed `20280719` → `c8c20ef9…b1886c`。flag `FLAG_18_KL25{mist_locks_the_ears}`。真标记 `Fatdog_gloom` / 诱饵 `Fatdog_glom`。
 
 ### KL26：暮霭沉沉（libdusk.so · XOR 判定）
@@ -4416,12 +4416,12 @@ def lcg_ans(seed):                      # KL24-30：libice 之后统一 LCG 伪 
 - **绕过**：hook 线程名读取 + hook 计时源（`clock_gettime`/`gettimeofday`）喂恒定时延；hook `nativeFridaDetect`→0 照旧可用。
 - **静态**：seed `20280721` → `4cc08a01…cd0386`。flag `FLAG_18_KL27{veil_conceals_all}`。真标记 `Fatdog_gauze` / 诱饵 `Fatdog_gauz`。
 
-### KL28：雪落无痕（libsnow.so · signal + ptrace）
+### KL28：雪落无痕（libsnow.so · signal + TracerPid）
 
 - **子路①signal**：检查自身 signal handler 是否被劫持（frida 常驻 handler 特征）；
-- **子路②ptrace**：`ptrace(PTRACE_TRACEME)` 探测是否已被附加；
+- **子路②TracerPid**：读 `/proc/self/status`，只有真实非零 tracer 才算检出；SELinux/seccomp 拒绝不再误报；
 - **判定 OR**，两路都得绕。
-- **绕过**：hook `signal`/`sigaction` 与 `ptrace` 系统调用层（inline hook 或 seccomp 过滤）；注意 ptrace 反附加与 frida attach 模式天然冲突，spawn + early hook 更稳。
+- **绕过**：hook `signal`/`sigaction` 与 `/proc/self/status` 读取；spawn + early hook 更稳。
 - **静态**：seed `20280722` → `8399c59f…e347fc`。flag `FLAG_18_KL28{snow_leaves_no_trace}`。真标记 `Fatdog_snow` / 诱饵 `Fatdog_sow`。
 
 ## 天地秘境 · 天机阁（KL29-30）
@@ -4435,12 +4435,12 @@ def lcg_ans(seed):                      # KL24-30：libice 之后统一 LCG 伪 
 **考点**：把"内存指纹"换成**自造 TLV 帧**做基准比对。`libtide.so`（桥 `Ak29`）导出：
 
 - `nativeTlvMagic()`：把运行期构建的 TLV 帧与内置基准比对（魔数 + 长度域），**patch 帧构建代码即失效**；
-- `nativePtrace()`：ptrace 反附加；
+- `nativePtrace()`：TracerPid 追踪检查（仅真实非零 tracer 判检出）；
 - `nativeFridaDetect()`：两路 OR 综合判定；
-- `nativeAnswer()` / `nativeStatus()`：答案与详情（status 输出 `TLV帧基准 / ptrace检测 / combined` 三行）。
+- `nativeAnswer()` / `nativeStatus()`：答案与详情（status 输出 `TLV帧基准 / TracerPid检测 / combined` 三行）。
 
 **解法**：
-1. **检测侧**：hook `nativeFridaDetect`→0（省事）；教学路线是 hook TLV 基准校验入口 + `ptrace` 系统调用，或 hook `nativeTlvMagic`/`nativePtrace` 出口都改 0；
+1. **检测侧**：hook `nativeFridaDetect`→0（省事）；教学路线是 hook TLV 基准校验入口 + `/proc/self/status` 读取，或 hook `nativeTlvMagic`/`nativePtrace` 出口都改 0；
 2. **答案侧**：IDA 看 `compute_answer()`——LCG 伪随机 hex，种子 `20280723` 与 kl24 同构（同一份 `compute_answer` 代码 + seed 不同）；
 3. Python 复刻用扶桑树通用脚本的 `lcg_ans(20280723)`。
 

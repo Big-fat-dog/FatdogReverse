@@ -1,11 +1,10 @@
 /*
- * 扶桑树 KL23：照妖显形——内存指纹三重校验（AND 判定）。
+ * 扶桑树 KL23：照妖显形——运行时 ELF 三路校验（AND 判定）。
  *
- * 与 KL21/22 的 OR 判定不同：本关三路 AND——必须全部通过才判定安全。
- * 任一检出即判定 Frida 存在。
+ * 与 KL21/22 的 OR 判定不同：本关要求三路条件同时成立才判定检出。
  *
  *   ① maps hex pattern：解析 /proc/self/maps，搜索 r-xp 段中的 frida 特征字节
- *   ② DT_DEBUG 检查：读 ELF 头的 PT_DYNAMIC 段，Frida 注入会修改 DT_DEBUG
+ *   ② 运行时 DT_DEBUG：通过 dl_iterate_phdr 读取主程序链接器写入的运行时值
  *   ③ auxv 校验：读 /proc/self/auxv，按 ELF class 解析并与磁盘 ELF 头交叉校验
  *
  * 标记（真）：Fatdog_gleam — UTF-16 码元。
@@ -19,6 +18,8 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <elf.h>
+#include <link.h>
+#include <sys/auxv.h>
 
 /* --- 真标记：Fatdog_gleam（UTF-16LE） --- */
 static const jchar MARKER[] = {
@@ -141,112 +142,51 @@ static int detect_maps_hex(void) {
 }
 
 /* ============================================================
- * 检测②：DT_DEBUG 检查（读 ELF 头检查 DT_DEBUG 段）
+ * 检测②：运行时 DT_DEBUG 校验
+ *
+ * 磁盘 ELF 中的 DT_DEBUG 固定为 0，不能直接拿来判断。
+ * 这里用 AT_PHDR 定位主程序，再通过 dl_iterate_phdr 读取链接器
+ * 已写入运行时内存的 PT_DYNAMIC，确认 DT_DEBUG 已初始化。
  * ============================================================ */
+typedef struct {
+    uintptr_t phdr_addr;
+    int found;
+} dt_debug_ctx_t;
+
+static int inspect_runtime_dt_debug(struct dl_phdr_info *info, size_t size, void *data) {
+    (void)size;
+    dt_debug_ctx_t *ctx = (dt_debug_ctx_t *)data;
+    if (ctx->found || info == NULL || info->dlpi_phdr == NULL) return 0;
+
+    uintptr_t phdr_start = (uintptr_t)info->dlpi_phdr;
+    uintptr_t phdr_end = phdr_start + (uintptr_t)info->dlpi_phnum * sizeof(ElfW(Phdr));
+    if (ctx->phdr_addr < phdr_start || ctx->phdr_addr >= phdr_end) return 0;
+
+    for (unsigned i = 0; i < info->dlpi_phnum; i++) {
+        const ElfW(Phdr) *ph = &info->dlpi_phdr[i];
+        if (ph->p_type != PT_DYNAMIC) continue;
+
+        ElfW(Dyn) *dyn = (ElfW(Dyn) *)((uintptr_t)info->dlpi_addr + (uintptr_t)ph->p_vaddr);
+        size_t count = (size_t)(ph->p_memsz / sizeof(ElfW(Dyn)));
+        for (size_t j = 0; j < count; j++) {
+            if (dyn[j].d_tag == DT_NULL) break;
+            if (dyn[j].d_tag == DT_DEBUG && dyn[j].d_un.d_ptr != 0) {
+                ctx->found = 1;
+                break;
+            }
+        }
+        break;
+    }
+    return 0;
+}
+
 static int detect_dt_debug(void) {
-    /* 读取自身 ELF 的 PT_DYNAMIC 段 */
-    char self_path[64];
-    snprintf(self_path, sizeof(self_path), "/proc/self/exe");
+    uintptr_t at_phdr = (uintptr_t)getauxval(AT_PHDR);
+    if (at_phdr == 0) return 0;
 
-    int fd = open(self_path, O_RDONLY);
-    if (fd < 0) return 0;
-
-    /* 读 ELF 头 */
-    uint8_t ehdr[64]; /* ELF64 header minimum */
-    if (read(fd, ehdr, 16) != 16) { close(fd); return 0; }
-
-    /* 检查 ELF 魔数 */
-    uint8_t magic[4] = {0x7f, 'E', 'L', 'F'};
-    if (memcmp(ehdr, magic, 4) != 0) { close(fd); return 0; }
-
-    int is_64 = (ehdr[4] == 2);
-    int is_le = (ehdr[5] == 1);
-    uint16_t phnum = 0;
-    uint64_t phoff = 0;
-
-    if (is_64 && is_le) {
-        if (read(fd, ehdr + 16, 48) != 48) { close(fd); return 0; }
-        phnum = ehdr[56] | (ehdr[57] << 8);
-        phoff = (uint64_t)ehdr[32] | ((uint64_t)ehdr[33] << 8) |
-                ((uint64_t)ehdr[34] << 16) | ((uint64_t)ehdr[35] << 24) |
-                ((uint64_t)ehdr[36] << 32) | ((uint64_t)ehdr[37] << 40) |
-                ((uint64_t)ehdr[38] << 48) | ((uint64_t)ehdr[39] << 56);
-    } else if (!is_64 && is_le) {
-        if (read(fd, ehdr + 16, 36) != 36) { close(fd); return 0; }
-        phnum = ehdr[42] | (ehdr[43] << 8);
-        phoff = ehdr[28] | (ehdr[29] << 8) | (ehdr[30] << 16) | (ehdr[31] << 24);
-    } else {
-        close(fd);
-        return 0;
-    }
-
-    /* 扫描 Program Headers 找 PT_DYNAMIC */
-    int found = 0;
-    for (int i = 0; i < phnum; i++) {
-        uint8_t phdr[56]; /* max PHDR64 size */
-        lseek(fd, phoff + i * (is_64 ? 56 : 32), SEEK_SET);
-        int sz = is_64 ? 56 : 32;
-        if (read(fd, phdr, sz) != sz) break;
-
-        uint32_t p_type;
-        if (is_64) {
-            p_type = phdr[0] | (phdr[1] << 8) | (phdr[2] << 16) | (phdr[3] << 24);
-        } else {
-            p_type = phdr[0] | (phdr[1] << 8) | (phdr[2] << 16) | (phdr[3] << 24);
-        }
-
-        if (p_type == 2) { /* PT_DYNAMIC */
-            uint64_t d_off;
-            if (is_64) {
-                d_off = (uint64_t)phdr[8] | ((uint64_t)phdr[9] << 8) |
-                        ((uint64_t)phdr[10] << 16) | ((uint64_t)phdr[11] << 24) |
-                        ((uint64_t)phdr[12] << 32) | ((uint64_t)phdr[13] << 40) |
-                        ((uint64_t)phdr[14] << 48) | ((uint64_t)phdr[15] << 56);
-            } else {
-                d_off = phdr[4] | (phdr[5] << 8) | (phdr[6] << 16) | (phdr[7] << 24);
-            }
-
-            /* 扫描 Dynamic Entries 找 DT_DEBUG (tag=21) */
-            for (int j = 0; j < 64; j++) {
-                uint8_t dyn[16];
-                lseek(fd, d_off + j * (is_64 ? 16 : 8), SEEK_SET);
-                int dsz = is_64 ? 16 : 8;
-                if (read(fd, dyn, dsz) != dsz) break;
-
-                uint64_t d_tag;
-                if (is_64) {
-                    d_tag = (uint64_t)dyn[0] | ((uint64_t)dyn[1] << 8) |
-                            ((uint64_t)dyn[2] << 16) | ((uint64_t)dyn[3] << 24) |
-                            ((uint64_t)dyn[4] << 32) | ((uint64_t)dyn[5] << 40) |
-                            ((uint64_t)dyn[6] << 48) | ((uint64_t)dyn[7] << 56);
-                } else {
-                    d_tag = dyn[0] | (dyn[1] << 8) | (dyn[2] << 16) | (dyn[3] << 24);
-                }
-
-                if (d_tag == 0) break; /* DT_NULL */
-                if (d_tag == 21) { /* DT_DEBUG */
-                    /* Frida 注入会修改 DT_DEBUG 指向非标准地址 */
-                    uint64_t d_val;
-                    if (is_64) {
-                        d_val = (uint64_t)dyn[8] | ((uint64_t)dyn[9] << 8) |
-                                ((uint64_t)dyn[10] << 16) | ((uint64_t)dyn[11] << 24) |
-                                ((uint64_t)dyn[12] << 32) | ((uint64_t)dyn[13] << 40) |
-                                ((uint64_t)dyn[14] << 48) | ((uint64_t)dyn[15] << 56);
-                    } else {
-                        d_val = dyn[4] | (dyn[5] << 8) | (dyn[6] << 16) | (dyn[7] << 24);
-                    }
-                    /* 正常 DT_DEBUG 值为 0 或合理地址；Frida 注入后通常为异常值 */
-                    if (d_val != 0 && d_val > 0xFFFFFFFFUL) {
-                        found = 1;
-                    }
-                    break;
-                }
-            }
-            break;
-        }
-    }
-    close(fd);
-    return found;
+    dt_debug_ctx_t ctx = { at_phdr, 0 };
+    dl_iterate_phdr(inspect_runtime_dt_debug, &ctx);
+    return ctx.found;
 }
 
 /* ============================================================
@@ -298,10 +238,11 @@ static uint32_t rd_le32(const uint8_t *p) {
 }
 
 /* ============================================================
- * 检测③：辅助向量校验（读 /proc/self/auxv，与磁盘 ELF 头交叉比对）
+ * 校验③：辅助向量一致性（读 /proc/self/auxv，与磁盘 ELF 头交叉比对）
  * 64 位设备上 auxv 条目是 16 字节（Elf64_auxv_t：type+value 各 8 字节），
  * 32 位是 8 字节。旧实现按 32 位解析会把 AT_PHDR 的值读到 type 的高 32 位
  * （恒为 0）造成 64 位设备误报，这里按 ELF class 取正确宽度。
+ * 返回 1 表示元数据一致；该结果作为 AND 判定中的运行时环境守卫。
  * ============================================================ */
 static int detect_auxv(void) {
     int is_64 = 0;
@@ -338,13 +279,13 @@ static int detect_auxv(void) {
     }
 
     /* AT_PHDR 低 12 位应等于 e_phoff 低 12 位（load_bias 页对齐），
-     * PHENT/PHNUM 必须与磁盘 ELF 头一致；任一缺失或异常即视为被篡改。 */
-    if (!has_phdr || !has_phent || !has_phnum) return 1;
-    if (at_phdr == 0) return 1;
-    if (at_phent != elf_phentsize) return 1;
-    if (at_phnum != elf_phnum) return 1;
-    if ((at_phdr & 0xFFFULL) != (elf_phoff & 0xFFFULL)) return 1;
-    return 0;
+     * PHENT/PHNUM 必须与磁盘 ELF 头一致。 */
+    if (!has_phdr || !has_phent || !has_phnum) return 0;
+    if (at_phdr == 0) return 0;
+    if (at_phent != elf_phentsize) return 0;
+    if (at_phnum != elf_phnum) return 0;
+    if ((at_phdr & 0xFFFULL) != (elf_phoff & 0xFFFULL)) return 0;
+    return 1;
 }
 
 /* ============================================================
@@ -369,7 +310,7 @@ Java_com_fatdog_reverse_Ok_nativeFridaDetect(JNIEnv *env, jclass clazz) {
     g_hex_result = detect_maps_hex();
     g_dt_result = detect_dt_debug();
     g_auxv_result = detect_auxv();
-    /* 三路 AND：全部检出才判定（任一通过 = 安全） */
+    /* 三路 AND：maps 命中且两路运行时结构校验成立才判定检出 */
     return (g_hex_result && g_dt_result && g_auxv_result) ? 1 : 0;
 }
 
@@ -416,8 +357,8 @@ Java_com_fatdog_reverse_Ok_nativeStatus(JNIEnv *env, jclass clazz) {
     char buf[256];
     snprintf(buf, sizeof(buf),
         "maps_hex = %d (frida bytes in r-xp)\n"
-        "dt_debug = %d (ELF DT_DEBUG)\n"
-        "auxv     = %d (auxv vs ELF header)\n"
+        "dt_debug = %d (runtime DT_DEBUG)\n"
+        "auxv     = %d (auxv/ELF consistent)\n"
         "combined = %d (3-way AND)",
         g_hex_result, g_dt_result, g_auxv_result,
         (g_hex_result && g_dt_result && g_auxv_result) ? 1 : 0);

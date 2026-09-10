@@ -1,6 +1,6 @@
 /**
  * tide.c — 天机阁 KL29 暗流涌动（TLV 二进制协议）
- * 双重检测：TLV 帧 magic 校验 + ptrace 反附加
+ * 双重检测：TLV 帧 magic 校验 + TracerPid 追踪检查
  * 判定逻辑：OR（任一触发即判定）
  * SEED = 20280723
  * Flag: FLAG_18_KL29{surging_undercurrents}
@@ -12,7 +12,6 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <signal.h>
-#include <sys/ptrace.h>
 #include "kl29_tlv_reference.h"
 
 /* 编译期烘焙的“好帧”基准：独立于构建逻辑，patch 帧构建代码即可检出 */
@@ -81,15 +80,24 @@ static int detect_tlv_magic(void) {
 }
 
 /* ============================================================
- * 检测②：ptrace 反附加
+ * 检测②：TracerPid 追踪检查
  * ============================================================ */
 static int detect_ptrace(void) {
-    long result = ptrace(PTRACE_TRACEME, 0, NULL, NULL);
-    if (result == -1) {
-        return 1;
+    FILE *f = fopen("/proc/self/status", "r");
+    if (!f) return 0;
+
+    char line[256];
+    int tracer_pid = 0;
+    while (fgets(line, sizeof(line), f)) {
+        if (strncmp(line, "TracerPid:", 10) == 0) {
+            tracer_pid = atoi(line + 10);
+            break;
+        }
     }
-    ptrace(PTRACE_DETACH, 0, NULL, NULL);
-    return 0;
+    fclose(f);
+
+    /* 仅真实存在的 tracer 判检出；EPERM/SELinux/seccomp 拒绝不能算阳性。 */
+    return tracer_pid != 0;
 }
 
 /* ============================================================
@@ -132,7 +140,7 @@ static const char* compute_status(void) {
     snprintf(buf, sizeof(buf),
         "=== 暗流涌动 ===\n"
         "TLV帧基准:    %s\n"
-        "ptrace检测:   %s\n"
+        "TracerPid检测: %s\n"
         "综合判定(OR): %s\n\n"
         "标记A: %s\n标记B: %s",
         tlv ? "异常" : "正常",

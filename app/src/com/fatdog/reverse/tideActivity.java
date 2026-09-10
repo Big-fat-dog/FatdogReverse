@@ -18,7 +18,7 @@ import android.widget.Toast;
  * 天机阁 KL29 暗流涌动：TLV 二进制协议——OR 判定。
  * libtide.so 导出五个函数：
  *   int    nativeTlvMagic()     — TLV 帧基准比对
- *   int    nativePtrace()       — ptrace 反附加
+ *   int    nativePtrace()       — TracerPid 追踪检查
  *   int    nativeFridaDetect()  — 综合检测（OR）
  *   String nativeAnswer()       — 最终答案
  *   String nativeStatus()       — 检测详情
@@ -43,7 +43,7 @@ public class tideActivity extends Activity {
                 + "  String nativeStatus()\n\n"
                 + "OR 判定（任一触发即判定）：\n"
                 + "  ① TLV 帧与内置基准比对\n"
-                + "  ② ptrace 反附加检测\n\n"
+                + "  ② TracerPid 追踪检查\n\n"
                 + "标记：两个标记一真一假，需仔细辨别");
         tv.setGravity(Gravity.CENTER);
         root.addView(tv, Ui.wrap(6));
@@ -102,11 +102,11 @@ public class tideActivity extends Activity {
                         .setTitle("提示")
                         .setMessage("TLV 二进制协议检测：\n\n"
                                 + "① TLV 帧与内置基准比对（patch 帧构建代码即失效）\n"
-                                + "② ptrace 反附加检测\n\n"
+                                + "② TracerPid 追踪检查\n\n"
                                 + "OR 判定：任一触发即判定 Frida 存在\n\n"
                                 + "绕过路线：\n"
                                 + "  • 两路都需绕过\n"
-                                + "  • 挂钩 TLV magic 校验 + ptrace 系统调用\n\n"
+                                + "  • 挂钩 TLV magic 校验 + /proc/self/status 读取\n\n"
                                 + "静态复刻：SEED = 20280723\n\n"
                                 + "注意两个标记中有一个是诱饵，仔细对比拼写差异。")
                         .setPositiveButton("知道了", null)
