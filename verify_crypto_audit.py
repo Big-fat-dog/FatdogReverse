@@ -746,6 +746,18 @@ try:
     _l51_src = _server_funcs.get("api_l51", "")
     check("L51 binds encrypted timestamp to query timestamp",
           "int(m.group(2))" in _l51_src and "if payload_ts != ts" in _l51_src)
+    _l53_src = _server_funcs.get("api_l53", "")
+    check("L53 validates independent AES variant ciphertext",
+          "expected_aes = _aes_variant53_encrypt(payload).hex()" in _l53_src
+          and "if aes != expected_aes" in _l53_src)
+    _native53_src = pathlib.Path("app/jni/native53.cpp").read_text(encoding="utf-8")
+    _native53c_src = pathlib.Path("app/jni/native53c.cpp").read_text(encoding="utf-8")
+    check("L53 native dispatch has separate algo=1/algo=2 paths",
+          "if (algo_id == 1) return new FeistelEngine();" in _native53_src
+          and "if (algo_id == 2) return new AesVariantEngine();" in _native53_src)
+    check("L53 native exports independent modified AES variant",
+          "int k53AesVariantEncrypt(" in _native53c_src
+          and "return aes_variant_encrypt(data, aes_key);" in _native53c_src)
     _des3_src = "\n".join(_server_funcs.get(name, "") for name in (
         "_des3_ecb_encrypt_py", "_des3_ecb_decrypt_py"))
     check("L35 3DES helpers use _DES.new",

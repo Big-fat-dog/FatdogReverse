@@ -25,6 +25,7 @@
 typedef const uint8_t* (*get_key_func)();
 typedef int (*feistel_core_fn)(const uint8_t*, int, uint8_t*, int, int*);
 typedef int (*rc4_core_fn)(const uint8_t*, int, uint8_t*, int, int*);
+typedef int (*aes_variant_core_fn)(const uint8_t*, int, uint8_t*, int, int*);
 
 // ==================== 异常控制流：ErrorHandler ====================
 class ErrorHandler {
@@ -99,14 +100,22 @@ public:
 };
 
 static std::string core_feistel_encrypt(const std::string& data);
+static std::string core_aes_variant_encrypt(const std::string& data);
 
-// 真加密器：还原 ErrorHandler 的 XOR 掩码后调用 libnative53c.so 的 Feistel 核心
-class AesFeistelEngine : public ICipher {
+// Feistel 主路径：处理 ErrorHandler 输出的掩码数据
+class FeistelEngine : public ICipher {
 public:
     std::string encrypt(const std::string& data) override {
-        std::string plain = data;
-        for (size_t i = 0; i < plain.size(); i++) plain[i] ^= 0x5A;
-        return core_feistel_encrypt(plain);
+        return core_feistel_encrypt(data);
+    }
+    std::string name() const override { return "feistel53"; }
+};
+
+// 独立魔改 AES 分组路径：与 Feistel 使用同一掩码输入，但轮结构完全不同
+class AesVariantEngine : public ICipher {
+public:
+    std::string encrypt(const std::string& data) override {
+        return core_aes_variant_encrypt(data);
     }
     std::string name() const override { return "aes53"; }
 };
@@ -115,7 +124,8 @@ class CipherFactory {
 public:
     // 根据 algo_id 创建加密器——vtable 分发
     static ICipher* create(int algo_id) {
-        if (algo_id == 1 || algo_id == 2) return new AesFeistelEngine();
+        if (algo_id == 1) return new FeistelEngine();
+        if (algo_id == 2) return new AesVariantEngine();
         // fallback：返回诱饵
         switch (algo_id) {
             case 0: return new NullCipher();
@@ -206,6 +216,7 @@ static std::string get_hmac_key_local() {
 
 static void* g_53c_handle = nullptr;
 static feistel_core_fn g_feistel_fn = nullptr;
+static aes_variant_core_fn g_aes_variant_fn = nullptr;
 static rc4_core_fn g_rc4_fn = nullptr;
 
 static void ensure53cCore() {
@@ -213,6 +224,7 @@ static void ensure53cCore() {
     g_53c_handle = dlopen("libnative53c.so", RTLD_NOW);
     if (!g_53c_handle) return;
     g_feistel_fn = (feistel_core_fn)dlsym(g_53c_handle, "k53FeistelEncrypt");
+    g_aes_variant_fn = (aes_variant_core_fn)dlsym(g_53c_handle, "k53AesVariantEncrypt");
     g_rc4_fn = (rc4_core_fn)dlsym(g_53c_handle, "k53Rc4Crypt");
 }
 
@@ -223,6 +235,17 @@ static std::string core_feistel_encrypt(const std::string& data) {
     int outLen = 0;
     if (g_feistel_fn((const uint8_t*)data.data(), (int)data.size(),
                      out.data(), (int)out.size(), &outLen) != 0 || outLen <= 0)
+        return "";
+    return std::string((const char*)out.data(), outLen);
+}
+
+static std::string core_aes_variant_encrypt(const std::string& data) {
+    ensure53cCore();
+    if (!g_aes_variant_fn) return "";
+    std::vector<uint8_t> out(data.size() + 32);
+    int outLen = 0;
+    if (g_aes_variant_fn((const uint8_t*)data.data(), (int)data.size(),
+                         out.data(), (int)out.size(), &outLen) != 0 || outLen <= 0)
         return "";
     return std::string((const char*)out.data(), outLen);
 }

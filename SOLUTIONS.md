@@ -3107,16 +3107,16 @@ Java.perform(function () {
 
 ### L53：焚天火域（★★★★★ 魔改 AES + Feistel 轮函数 + 异常控制流 · 3 SO 分离 · 最终关）
 
-**加密**：魔改 AES（S盒4处替换 0x3A/0x7F/0xB2/0xE8 + FK异或 + 密钥扩展3变体）+ Feistel 轮函数（8轮×3子密钥）+ HMAC-SHA256 签名 + RC4 响应加密
+**加密**：Feistel（32 字节分组，8轮×3子密钥）+ 独立魔改 AES（16 字节分组，S盒4处替换 0x3A/0x7F/0xB2/0xE8 + FK异或 + 密钥扩展3变体 + 变体列混合）+ HMAC-SHA256 签名 + RC4 响应加密
 
-**协议**：`POST /api/l53` 表单 `page=1&ts=T&enc=hex(Feistel)&aes=hex(AES)&sign=HMAC`
+**协议**：`POST /api/l53` 表单 `page=1&ts=T&enc=hex(Feistel)&aes=hex(AES变体)&sign=HMAC`
 响应：`{"d": hex(RC4_enc(json))}`
 
 **SO 架构**：native53（调度+异常控制流）+ native53c（加密核心+密钥）+ native53b（22类业务干扰 ~1500+ 行）
 
 **静态解法**：IDA 分析 3 个 SO：
-1. native53：`k53_dispatch` → `ErrorHandler::process`（try/catch 藏真逻辑，XOR 0x5A 变换）→ `CipherFactory::create`（vtable 分发）
-2. native53c：魔改 S 盒 + FK 异或（`0x5254465F, 0x4C33335F, 0x46495245, 0x5F4D4B35`）+ 3 变体密钥扩展 + Feistel 轮函数
+1. native53：`k53_dispatch` → `ErrorHandler::process`（try/catch 藏真逻辑，先对输入 XOR 0x5A）→ `CipherFactory::create`（vtable 分发：algo=1 Feistel，algo=2 独立魔改 AES）
+2. native53c：魔改 S 盒 + FK 异或（`0x5254465F, 0x4C33335F, 0x46495245, 0x5F4D4B35`）+ 共用密钥扩展；`k53FeistelEncrypt` 和 `k53AesVariantEncrypt` 分别实现两条轮结构
 3. 密钥：混淆数组 A/B/C 各 XOR 0x3C → AES key / HMAC key / RC4 key
 4. native53b：22 个业务类（ScoringService, LeaderboardService, TournamentService, CacheManager, RateLimiter, CircuitBreaker, HealthMonitor, MetricsCollector, TelemetryEngine, AnalyticsPipeline, ResourceManager, QueueProcessor, JobScheduler, RetryPolicy, FallbackHandler, LoadBalancer, ServiceRegistry, ConfigManager, SecretRotator, AuditLogger, AlertManager, IncidentTracker），纯干扰
 
@@ -3151,11 +3151,11 @@ SBOX[0x63] = 0x3A; SBOX[0x7C] = 0x7F; SBOX[0x77] = 0xB2; SBOX[0x7B] = 0xE8
 FK_XOR = [0x5254465F, 0x4C33335F, 0x46495245, 0x5F4D4B35]
 
 # 密钥（XOR 0x3C 还原）
-AES_KEY  = bytes([b ^ 0x3C for b in b'\x42\x62\x71\x64\x6E\x66\x52\x45\x4F\x70\x67\x4E\x69\x66\x41\x70'])
-HMAC_KEY = bytes([b ^ 0x3C for b in b'\x42\x62\x71\x64\x6E\x66\x57\x41\x4C\x70\x67\x00\x00\x00\x00\x00'])
-RC4_KEY  = bytes([b ^ 0x3C for b in b'\x42\x62\x71\x64\x6E\x66\x55\x41\x4D\x70\x67\x00\x00\x00\x00\x00'])
+AES_KEY  = b"Fatdog_aes_key_\x00"
+HMAC_KEY = b"Fatdog_hmac_k53\x00"
+RC4_KEY  = b"Fatdog_rc4_k53\x00\x00"
 
-# Feistel 加密 + HMAC-SHA256 + RC4（复刻 native53c 逻辑）
+# Feistel + AES 变体 + HMAC-SHA256 + RC4（复刻 native53c 两条加密分支）
 # ...
 
 # 批量取数
@@ -3163,21 +3163,22 @@ import requests
 total = 0
 for page in range(1, 101):
     payload = f"page={page}&ts={ts}"
-    enc = feistel_encrypt(payload, aes_key).hex()
-    aes = enc  # 本关 enc 和 aes 相同
-    sign = hmac.new(hmac_key, payload.encode(), hashlib.sha256).hexdigest()
+    masked = bytes(b ^ 0x5A for b in payload.encode())
+    enc = feistel_encrypt(masked, AES_KEY).hex()
+    aes = aes_variant_encrypt(masked, AES_KEY).hex()  # 独立 16 字节分组路径
+    sign = hmac.new(HMAC_KEY, payload.encode(), hashlib.sha256).hexdigest()
     resp = requests.post("http://host:5000/api/l53",
                          data={"page": page, "ts": ts, "enc": enc, "aes": aes, "sign": sign})
     d = resp.json()["d"]
     nums = json.loads(rc4_decrypt(RC4_KEY, bytes.fromhex(d)))["nums"]
     total += sum(nums)
-print(total)  # 51016
+print(total)  # 50446
 ```
 
 **坑位提醒**：
 - 异常控制流：`ErrorHandler::process` 的 try 块是空的，真逻辑藏在 catch 块里——IDA 跟 catch 分支
 - Feistel 轮函数每 3 轮用不同子密钥（variant 0/1/2），密钥扩展也有 3 个变体
-- native53c 的 `aesEncrypt` 和 `rc4Encrypt` 是 C++ 函数，不在 `extern "C"` 里——IDA 搜索时注意 C++ name mangling
+- native53c 对外用 `k53FeistelEncrypt` / `k53AesVariantEncrypt` / `k53Rc4Crypt` 三个 C 导出；内部 `aesEncrypt`、`rc4Encrypt` 仍是 C++ mangled 名
 - 22 个业务类（ScoringService 到 IncidentTracker）约 1500+ 行纯干扰代码
 
 答案：加和 `50446`；flag `FLAG_18_L53{scorched_fireland}`

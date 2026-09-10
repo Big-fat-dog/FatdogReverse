@@ -38,15 +38,15 @@ import okhttp3.RequestBody;
 import okhttp3.Response;
 
 /**
- * Native大陆 L53 焚天火域（★★★★★ 魔改 AES + Feistel · 3 SO 分离 · 最终关）
+ * Native大陆 L53 焚天火域（★★★★★ Feistel + 魔改 AES 双算法 · 3 SO 分离 · 最终关）
  *
  * libnative53.so  — 调度 + 异常控制流
- * libnative53c.so — 魔改 AES + Feistel + 密钥
+ * libnative53c.so — Feistel + 魔改 AES 双算法 + 密钥
  * libnative53b.so — 22类业务代码干扰（dlopen 加载）
  *
  * 破解路线：
- *   ① IDA 分析 3 个 SO，识别魔改 AES（S盒4处替换 + FK异或 + 密钥扩展3变体）
- *   ② 识别 Feistel 轮函数（8轮×3子密钥）
+ *   ① IDA 分析 3 个 SO，识别 Feistel 与独立魔改 AES 两条分支
+ *   ② 还原魔改 S 盒、FK 异或、密钥扩展和两种轮结构
  *   ③ Frida hook Bk53.nativeSign/nativeEnc 拿明文 payload 对拍
  *   ④ Python 复刻全部加密 + HMAC 签名 + RC4 解密响应
  *
@@ -80,11 +80,11 @@ public class x53Activity extends Activity {
         box.setPadding(Ui.dp(16), Ui.dp(14), Ui.dp(16), Ui.dp(12));
 
         TextView tv = new TextView(this);
-        tv.setText("L53 · 焚天火域（★★★★★ 魔改 AES + Feistel · 最终关）\n"
+        tv.setText("L53 · 焚天火域（★★★★★ Feistel + 魔改 AES 双算法 · 最终关）\n"
                 + "libnative53.so  — 调度 + 异常控制流\n"
-                + "libnative53c.so — 魔改 AES + Feistel + 密钥\n"
+                + "libnative53c.so — Feistel + 魔改 AES 双算法 + 密钥\n"
                 + "libnative53b.so — 22类业务代码干扰\n"
-                + "魔改 AES + Feistel + HMAC-SHA256 + RC4");
+                + "Feistel + 魔改 AES + HMAC-SHA256 + RC4");
         tv.setGravity(Gravity.CENTER);
         box.addView(tv, Ui.wrap(4));
 
@@ -189,15 +189,15 @@ public class x53Activity extends Activity {
             @Override public void onClick(View v) {
                 new AlertDialog.Builder(x53Activity.this)
                         .setTitle("提示")
-                        .setMessage("魔改 AES + Feistel + 3 SO 分离：\n\n"
-                                + "libnative53c.so 里有魔改 AES（S盒4处替换 + FK异或 + 密钥扩展3变体）+ Feistel 轮函数（8轮×3子密钥）\n"
-                                + "libnative53.so 里有异常控制流（try/catch 藏真逻辑）+ HMAC-SHA256 签名\n"
+                        .setMessage("Feistel + 魔改 AES 双算法 + 3 SO 分离：\n\n"
+                                + "libnative53c.so 的 algo=1 走 Feistel 轮函数（8轮×3子密钥），algo=2 走独立魔改 AES 分组路径（S盒替换 + ShiftRows + 变体列混合）\n"
+                                + "两条分支共用魔改 S 盒、FK 异或和密钥扩展；libnative53.so 里的 try/catch 先对输入做 XOR 掩码\n"
                                 + "libnative53b.so 里是 22 类业务代码干扰\n\n"
                                 + "Frida 训练：\n"
                                 + "  • Hook Bk53.nativeSign / nativeEnc 拿明文 payload\n"
                                 + "  • 异常控制流：注意 try/catch 块里藏真逻辑\n"
                                 + "  • 响应 RC4 解密：hook nativeRc4Decrypt\n\n"
-                                + "Python 复刻：魔改 AES + Feistel + HMAC + RC4 解密响应。")
+                                + "Python 复刻：分别复刻 Feistel 与魔改 AES，再做 HMAC 与 RC4 解密响应。")
                         .setPositiveButton("知道了", null)
                         .show();
             }

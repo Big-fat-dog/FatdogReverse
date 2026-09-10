@@ -7,7 +7,7 @@ package com.fatdog.reverse;
  *
  * 导出：
  *   String nativeSign(String data) — HMAC-SHA256 签名（返回 hex）
- *   String nativeEnc(String data, int algo) — 魔改 AES + Feistel 加密（返回 hex）
+ *   String nativeEnc(String data, int algo) — algo=1 Feistel，algo=2 魔改 AES（返回 hex）
  *   static String nativeGetServiceInfo() — 业务信息（干扰）
  *   static int nativeBusinessOp(int op, int arg) — 业务操作（干扰）
  */

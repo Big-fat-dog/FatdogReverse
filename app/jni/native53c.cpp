@@ -116,8 +116,8 @@ static void feistel_round(uint8_t* left, uint8_t* right, const uint8_t* subkey) 
     for (int i = 0; i < 16; i++) left[i] ^= (shifted[i] ^ subkey[i]);
 }
 
-// 生成 Feistel 子密钥（从 16 字节主密钥扩展出 8×3×16 字节）
-static void feistel_expand_keys(const uint8_t master[16], uint8_t keys[8][3][16]) {
+// 生成两套算法共用的轮子密钥（从 16 字节主密钥扩展出 8×3×16 字节）
+static void expand_round_keys(const uint8_t master[16], uint8_t keys[8][3][16]) {
     uint32_t w[4];
     w[0] = (master[0]<<24)|(master[1]<<16)|(master[2]<<8)|master[3];
     w[1] = (master[4]<<24)|(master[5]<<16)|(master[6]<<8)|master[7];
@@ -164,7 +164,7 @@ static std::string feistel_encrypt(const std::string& data, const uint8_t key[16
     while (padded.size() % 32 != 0) padded += '\0';
 
     uint8_t keys[FEISTEL_ROUNDS][3][16];
-    feistel_expand_keys(key, keys);
+    expand_round_keys(key, keys);
 
     std::string result = padded;
     for (size_t blk = 0; blk < padded.size(); blk += 32) {
@@ -193,6 +193,59 @@ static std::string feistel_encrypt(const std::string& data, const uint8_t key[16
 
         memcpy(result.data() + blk, left, 16);
         memcpy(result.data() + blk + 16, right, 16);
+    }
+    return result;
+}
+
+// ==================== 独立魔改 AES 分组路径 ====================
+static uint8_t rotl8(uint8_t v, int n) {
+    return (uint8_t)((v << n) | (v >> (8 - n)));
+}
+
+static void mix_columns_variant(uint8_t state[16]) {
+    for (int c = 0; c < 4; c++) {
+        uint8_t a0 = state[c * 4 + 0];
+        uint8_t a1 = state[c * 4 + 1];
+        uint8_t a2 = state[c * 4 + 2];
+        uint8_t a3 = state[c * 4 + 3];
+        state[c * 4 + 0] = (uint8_t)(a0 ^ a1 ^ a2);
+        state[c * 4 + 1] = (uint8_t)(a1 ^ a2 ^ a3);
+        state[c * 4 + 2] = (uint8_t)(a2 ^ a3 ^ a0);
+        state[c * 4 + 3] = (uint8_t)(a3 ^ a0 ^ a1 ^ rotl8(a0, 1));
+    }
+}
+
+static void aes_variant_encrypt_block(uint8_t state[16], uint8_t keys[8][3][16]) {
+    for (int i = 0; i < 16; i++) state[i] ^= keys[0][0][i];
+    for (int r = 0; r < FEISTEL_ROUNDS; r++) {
+        for (int i = 0; i < 16; i++) state[i] = sbox_sub(state[i]);
+
+        uint8_t shifted[16];
+        shifted[0] = state[0]; shifted[1] = state[5]; shifted[2] = state[10]; shifted[3] = state[15];
+        shifted[4] = state[4]; shifted[5] = state[9]; shifted[6] = state[14]; shifted[7] = state[3];
+        shifted[8] = state[8]; shifted[9] = state[13]; shifted[10] = state[2]; shifted[11] = state[7];
+        shifted[12] = state[12]; shifted[13] = state[1]; shifted[14] = state[6]; shifted[15] = state[11];
+        memcpy(state, shifted, 16);
+
+        mix_columns_variant(state);
+        const uint8_t* round_key = keys[r][(r + 1) % 3];
+        for (int i = 0; i < 16; i++) state[i] ^= round_key[i];
+    }
+}
+
+static std::string aes_variant_encrypt(const std::string& data, const uint8_t key[16]) {
+    std::string padded = data;
+    while (padded.size() % 16 != 0) padded += '\0';
+
+    uint8_t keys[FEISTEL_ROUNDS][3][16];
+    expand_round_keys(key, keys);
+
+    std::string result = padded;
+    for (size_t blk = 0; blk < padded.size(); blk += 16) {
+        uint8_t state[16];
+        memcpy(state, padded.c_str() + blk, 16);
+        aes_variant_encrypt_block(state, keys);
+        memcpy(result.data() + blk, state, 16);
     }
     return result;
 }
@@ -290,11 +343,11 @@ static void build_feistel_key(uint8_t aes_key[16]) {
     }
 }
 
-// 魔改 AES 加密（AES S盒替换 + FK 异或 + Feistel）
+// 魔改 AES 加密（SubBytes + ShiftRows + 变体列混合 + 轮密钥异或）
 std::string aesEncrypt(const std::string& data) {
     uint8_t aes_key[16];
     build_feistel_key(aes_key);
-    return feistel_encrypt(data, aes_key);
+    return aes_variant_encrypt(data, aes_key);
 }
 
 // RC4 响应加密
@@ -331,6 +384,19 @@ int k53FeistelEncrypt(const uint8_t* in, int inLen, uint8_t* out, int outCap, in
     build_feistel_key(aes_key);
     std::string raw(inLen > 0 ? (const char*)in : "", inLen > 0 ? inLen : 0);
     std::string enc = feistel_encrypt(raw, aes_key);
+    if ((int)enc.size() > outCap) return -2;
+    memcpy(out, enc.data(), enc.size());
+    *outLen = (int)enc.size();
+    return 0;
+}
+
+int k53AesVariantEncrypt(const uint8_t* in, int inLen, uint8_t* out, int outCap, int* outLen) {
+    ensure_keys();
+    if (!out || !outLen || inLen < 0) return -1;
+    uint8_t aes_key[16];
+    build_feistel_key(aes_key);
+    std::string raw(inLen > 0 ? (const char*)in : "", inLen > 0 ? inLen : 0);
+    std::string enc = aes_variant_encrypt(raw, aes_key);
     if ((int)enc.size() > outCap) return -2;
     memcpy(out, enc.data(), enc.size());
     *outLen = (int)enc.size();

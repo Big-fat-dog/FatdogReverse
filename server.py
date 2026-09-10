@@ -2274,9 +2274,13 @@ def _feistel_encrypt53(data, key):
 
 
 def _feistel53_encrypt(plaintext):
-    """魔改 AES (Feistel) 加密（服务端重加密比对）"""
+    """Feistel 主路径：ErrorHandler 输出按 0x5A 掩码后再加密"""
+    masked = bytes(b ^ 0x5A for b in plaintext)
+    return _feistel_encrypt53(masked, _derive_fk53_key())
+
+
+def _derive_fk53_key():
     key = bytearray(KEY53_AES)
-    # FK 异或
     for i in range(4):
         val = (key[i*4] << 24) | (key[i*4+1] << 16) | (key[i*4+2] << 8) | key[i*4+3]
         val ^= FK_XOR_53[i]
@@ -2284,7 +2288,56 @@ def _feistel53_encrypt(plaintext):
         key[i*4+1] = (val >> 16) & 0xFF
         key[i*4+2] = (val >> 8) & 0xFF
         key[i*4+3] = val & 0xFF
-    return _feistel_encrypt53(plaintext, bytes(key))
+    return bytes(key)
+
+
+def _rotl8_53(v, n):
+    return ((v << n) | (v >> (8 - n))) & 0xFF
+
+
+def _mix_columns_variant53(state):
+    for c in range(4):
+        i = c * 4
+        a0, a1, a2, a3 = state[i], state[i + 1], state[i + 2], state[i + 3]
+        state[i] = (a0 ^ a1 ^ a2) & 0xFF
+        state[i + 1] = (a1 ^ a2 ^ a3) & 0xFF
+        state[i + 2] = (a2 ^ a3 ^ a0) & 0xFF
+        state[i + 3] = (a3 ^ a0 ^ a1 ^ _rotl8_53(a0, 1)) & 0xFF
+
+
+def _aes_variant_encrypt_block53(block, keys):
+    state = bytearray(block)
+    for i in range(16):
+        state[i] ^= keys[0][0][i]
+    for r in range(8):
+        for i in range(16):
+            state[i] = _s53(state[i])
+        shifted = bytearray(16)
+        shifted[0] = state[0]; shifted[1] = state[5]; shifted[2] = state[10]; shifted[3] = state[15]
+        shifted[4] = state[4]; shifted[5] = state[9]; shifted[6] = state[14]; shifted[7] = state[3]
+        shifted[8] = state[8]; shifted[9] = state[13]; shifted[10] = state[2]; shifted[11] = state[7]
+        shifted[12] = state[12]; shifted[13] = state[1]; shifted[14] = state[6]; shifted[15] = state[11]
+        state = shifted
+        _mix_columns_variant53(state)
+        round_key = keys[r][(r + 1) % 3]
+        for i in range(16):
+            state[i] ^= round_key[i]
+    return bytes(state)
+
+
+def _aes_variant_encrypt53(data, key):
+    padded = data + b'\0' * ((-len(data)) % 16)
+    keys = _key_expand53(key)
+    result = bytearray()
+    for blk in range(0, len(padded), 16):
+        result += _aes_variant_encrypt_block53(padded[blk:blk + 16], keys)
+    return bytes(result)
+
+
+def _aes_variant53_encrypt(plaintext):
+    """独立魔改 AES 分组路径：先应用与 native ErrorHandler 相同的输入掩码"""
+    masked = bytes(b ^ 0x5A for b in plaintext)
+    return _aes_variant_encrypt53(masked, _derive_fk53_key())
 
 
 def _rc4_53(key, data):
@@ -2315,10 +2368,10 @@ def api_l53(page: int = Form(...), ts: int = Form(...),
     payload = f"page={page}&ts={ts}".encode()
     try:
         expected_enc = _feistel53_encrypt(payload).hex()
+        expected_aes = _aes_variant53_encrypt(payload).hex()
         if enc != expected_enc:
             raise HTTPException(status_code=403, detail="enc mismatch")
-        # aes 在 native53c 中与 enc 使用相同密钥和算法，验证方式相同
-        if aes != expected_enc:
+        if aes != expected_aes:
             raise HTTPException(status_code=403, detail="aes mismatch")
     except HTTPException:
         raise
