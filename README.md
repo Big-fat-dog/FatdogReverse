@@ -82,15 +82,29 @@ FatdogReverse 是一个面向 Android 逆向工程练习的本地靶场。
 
 如果准备自己练习，建议只阅读 README 的安装和启动部分，不要打开 `SOLUTIONS.md`、`server.py`、`app/src/` 和 `app/jni/`。
 
-## 网络关卡启动
+## 网络关卡配置与抓包
 
 服务端共监听三个端口：
+
+HTTP 关卡不使用 TLS；HTTPS 与 mTLS 关卡使用 `certs/ca.crt` 对应的项目自签 CA。
+
+> `L21-L27` 的题解主线是通过 Frida Hook/绕过 App 的 TLS 校验。直接导入仓库提供的 `certs/ca.crt` 和 `certs/ca.key`，让 Charles 冒充项目 CA 签发叶证书，只适用于当前开卷实验室，属于抓包捷径，不代表 APK-only 或真实环境下的解题思路。`L26` 是例外：它必须在握手层提取并使用 APK 内的客户端证书，但仅导入服务端 CA 仍不足。
 
 | 端口 | 协议 | 适用关卡 |
 |---|---|---|
 | `8787` | HTTP | `L15-L19`、`KKL2-KKL5` |
 | `8443` | HTTPS | `L21-L25`、`L27-L37`、`L43-L53`、`KL6-KL10`、`KL30` |
 | `8444` | HTTPS + mTLS | `L26` |
+
+证书分工如下：
+
+- `certs/ca.crt` / `certs/ca.key`：项目 CA。`8443` 的大部分 TLS 客户端把这张 CA 编进 App，只信它签发的证书。
+- `certs/server.crt` / `certs/server.key`：本地服务端证书，由项目 CA 签发，SAN 覆盖 `localhost`、`127.0.0.1` 和 `10.0.2.2`。
+- `certs/client.crt` / `certs/client.key` / `certs/client.p12`：`L26` 的客户端证书。PKCS#12 密码为 `fatdemo_mt26`，同一文件也会复制到 `app/assets/mt_client.p12` 并打入 APK。
+
+`certs/ca.crt` 与 `certs/ca.key` 必须和当前安装的 APK 匹配。重新运行 `python gen_certs.py` 后，应同时重新构建并安装 APK；否则服务端换成了新 CA，App 内仍是旧 CA，HTTPS 关卡会握手失败。
+
+注意：APK 内只嵌入了 CA 公钥（`Tm.CAA`，异或 `0x5A`），并不包含 `certs/ca.key`。只拿到 APK 时可以还原 `ca.crt`，但无法用这张 CA 给 Charles 签发叶证书；这时要么用服务端仓库中匹配的 `ca.key`，要么走 Frida 绕过 TrustManager（以及关卡自己的 pin 校验）。
 
 安装服务端依赖：
 
@@ -110,13 +124,15 @@ python gen_certs.py
 python server.py
 ```
 
-### 模拟器
+### 模拟器直连
 
 模拟器会自动使用 `10.0.2.2` 访问宿主机，不需要执行 `adb reverse`。
 
-### 真机
+### 真机直连
 
 真机的 `127.0.0.1` 指向手机自身，因此需要通过 ADB 将电脑端口映射到手机：
+
+只解题、不抓包时，把服务端三个端口直接映射到真机的同名端口：
 
 ```bash
 adb reverse tcp:8787 tcp:8787
@@ -131,6 +147,49 @@ adb reverse --list
 ```
 
 端口映射会在拔掉 USB、重启手机、重启 ADB 或重启电脑后失效，需要重新执行。三个映射可以同时存在。
+
+### 真机 Charles 抓包
+
+App 在真机上固定访问 `127.0.0.1`。要让 Charles 同时看到请求和上游 TLS，推荐使用 Charles Reverse Proxies，而不是给小黄鸟或手机 Wi-Fi 配普通正向代理。
+
+拓扑如下：
+
+| App 请求 | `adb reverse` | Charles 本地端口 | Charles 上游 |
+|---|---:|---:|---|
+| `http://127.0.0.1:8787` | `tcp:8787 tcp:18787` | `18787` | `127.0.0.1:8787` |
+| `https://127.0.0.1:8443` | `tcp:8443 tcp:18443` | `18443` | `127.0.0.1:8443` |
+| `https://127.0.0.1:8444` | `tcp:8444 tcp:18444` | `18444` | `127.0.0.1:8444` |
+
+配置步骤：
+
+1. 启动 `python server.py`，保持服务端只作为 Charles 的上游。
+2. 打开 Charles 的 `Proxy -> Reverse Proxies`，分别添加三条映射并勾选启用总开关：
+   - `18787 -> 127.0.0.1:8787`
+   - `18443 -> 127.0.0.1:8443`
+   - `18444 -> 127.0.0.1:8444`
+3. 执行 `Proxy -> Start SSL Proxying`，并在 `Proxy -> SSL Proxying Settings` 中允许 `127.0.0.1:8443`、`127.0.0.1:8444`（也可用 `*:*` 临时调试）。
+4. **开卷捷径**：在 `SSL Proxying Settings -> Root Certificate` 导入 `certs/ca.crt` 与 `certs/ca.key`。这样 Charles 会用项目 CA 给 `127.0.0.1` 换发叶证书。该步骤只解决抓包环境，不替代 `SOLUTIONS.md` 中的 Hook 题解主线。
+5. 在 `Client Certificates` 中添加 `127.0.0.1:8444`，导入 `certs/client.p12`（或 `app/assets/mt_client.p12`），密码 `fatdemo_mt26`，并设为 Enabled。该项只服务于 `L26` 的 mTLS。
+6. 在电脑上建立反向映射：
+
+先移除真机直连时建立的同名映射（`adb reverse --remove tcp:8787` 等，或 `adb reverse --remove-all`），再执行：
+
+```bash
+adb reverse tcp:8787 tcp:18787
+adb reverse tcp:8443 tcp:18443
+adb reverse tcp:8444 tcp:18444
+
+adb reverse --list
+```
+
+7. 从 App 进入网络关；Charles 的 Reverse Proxy 记录中应能看到对应端口的请求。
+
+注意事项：
+
+- 只把 Charles 自己的根证书装到手机上，不能解决 App 的 `CertificatePinner`，也不一定能解决只信任内嵌项目 CA 的 `TrustManager`。若走当前仓库的开卷捷径，抓 `8443` 时应让 Charles 使用项目 CA 作为签发根证书；题解主线仍按 `SOLUTIONS.md` 做 Hook。
+- `L22`、`L24`、`L27` 还有 SPKI pin。Charles 叶证书与本地服务端证书的公钥不同，必须按 `SOLUTIONS.md` 中的 Frida 方案换 pin 或绕过 pin 校验。
+- `L23` 是 WebView 的 SSL 错误分支。导入项目 CA 不能替代关卡要求的 `onReceivedSslError -> handler.proceed()` 处理。
+- `L15-L19` 是纯 HTTP，不需要导入任何 CA。反向代理建立后即可直接查看请求和响应。
 
 App 的地址选择逻辑位于 `NetHost.java`：
 
@@ -180,6 +239,7 @@ adb install -r FatdogReverse.apk
 - `frida` / `frida-server`
 - Xposed 或 LSPosed
 - `mitmproxy`
+- Charles Proxy（Windows/macOS 均可）
 - IDA、Ghidra 或 unidbg
 
 ## 项目结构

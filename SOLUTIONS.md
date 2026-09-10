@@ -630,6 +630,43 @@ Java.perform(function () {
 
 ## 网络对抗（L15-19）
 
+### 网络关通用配置与 Charles 对应表
+
+证书规则先说清楚：`8787` 是纯 HTTP，不需要 CA；`8443` 与 `8444` 才走 TLS。`8443` 的多数客户端把 `certs/ca.crt` 编进 App，只信这张 CA 签发的证书；`8444` 在同样信任链上额外要求客户端出示 `certs/client.p12`（口令 `fatdemo_mt26`）。这些证书必须与当前 APK 内嵌证书同源，重跑 `gen_certs.py` 后要重编 APK。
+
+还有一个关键区别：APK 里拿到的是 CA **公钥**，不是 CA 私钥。只分析 APK 可以还原 `certs/ca.crt`，但不能拿它去让 Charles 签发新叶证书；要配置 Charles Root Certificate，需要使用服务端仓库里配套的 `certs/ca.key`。如果练习条件只有 APK，就应改走 Frida：绕过自定义 TrustManager，有 pin 的关卡再做换 pin 或 pin 校验绕过。
+
+> **题解主次必须分清**：`L21-L27` 的主线是 Frida Hook/绕过 App 内的 TLS 校验。把仓库自带的 `ca.crt + ca.key` 导入 Charles 后直接抓包，只因为当前是开卷靶场才成立，属于捷径；真实场景没有服务端 CA 私钥，不能把它写成标准答案。下面的“Charles 配置”主要告诉你怎么搭抓包环境，具体绕校验以各关的“题解主线”为准。`L26` 是例外：必须提取并使用 APK 内的客户端证书完成 mTLS。
+
+直连模式（不抓包）：模拟器直接访问 `10.0.2.2`；真机通过 `adb reverse tcp:8787 tcp:8787`、`adb reverse tcp:8443 tcp:8443`、`adb reverse tcp:8444 tcp:8444` 映射到本地服务端。
+
+Charles 抓包模式使用 Reverse Proxies，端口要错开，否则会与本地服务端抢占同一监听端口：
+
+| App 请求 | `adb reverse` | Charles 本地监听 | Charles 上游 |
+|---|---:|---:|---|
+| `8787` HTTP | `tcp:8787 tcp:18787` | `18787` | `127.0.0.1:8787` |
+| `8443` HTTPS | `tcp:8443 tcp:18443` | `18443` | `127.0.0.1:8443` |
+| `8444` mTLS | `tcp:8444 tcp:18444` | `18444` | `127.0.0.1:8444` |
+
+在 `Proxy -> Reverse Proxies` 建立三条映射并启用。下面这段 Root Certificate 配置只是在演示本仓库的**开卷捷径**：`Proxy -> SSL Proxying Settings -> Root Certificate` 导入 `certs/ca.crt` / `certs/ca.key`，再允许 `127.0.0.1:8443`、`127.0.0.1:8444`。只给手机安装 Charles 自己的 CA 不够：自定义 `TrustManager` 不读系统信任库，Charles 必须直接用项目 CA 给 `127.0.0.1` 签发叶证书。L26 还要在 `Client Certificates` 为 `127.0.0.1:8444` 导入 `certs/client.p12`，密码 `fatdemo_mt26`，并启用该客户端证书。
+
+切换直连与抓包模式前先清掉同名映射：`adb reverse --remove tcp:8787`、`adb reverse --remove tcp:8443`、`adb reverse --remove tcp:8444`，否则旧映射会继续把流量直接送回本地服务端。
+
+逐关的抓包配置如下：
+
+| 关卡 | 题解主线 | 开卷捷径 / Charles 配置 |
+|---|---|---|
+| `L15-L19` | HTTP 协议与签名复刻 | 不需要 CA；只需 `18787 -> 127.0.0.1:8787` |
+| `L21` | Frida Hook `SSLContext.init` / `TrustManager` | 导入项目 CA 的 `ca.crt + ca.key`，让 Charles 直接签发叶证书 |
+| `L22` | Frida Hook TrustManager + `CertificatePinner.check` | 项目 CA 只能过信任闸；静态 Python 也不经过 App pin |
+| `L23` | Frida Hook `onReceivedSslError` 并 `handler.proceed()` | 项目 CA 不是本关题解；`curl -k` 只能算静态抄近道 |
+| `L24` | 保留真实校验链，Hook `Z24Core.realPin` 换 pin | 静态 Python 带 CA 直接取数是开卷捷径 |
+| `L25` | Frida 原生层复用/Hook `nativeSign` | 静态提取密钥并带 CA 复刻是开卷捷径 |
+| `L26` | 提取 `mt_client.p12`，配置客户端证书完成 mTLS | CA 只验服务端；还需 `Client Certificates` 绑定 `127.0.0.1:8444` |
+| `L27` | Frida 放倒 pin，或换 pin 后继续跟踪签名链 | 静态解出三把密钥并带 CA 复刻是开卷捷径 |
+
+`L28-L53`、`KL6-KL10`、`KL30`、`KKL2-KKL5` 中凡使用 `8443` 的请求，也复用同一套反向代理和项目 CA。若对应关卡还有 pin、守卫或 native 校验，以该关卡正文为准。
+
 
 ### 关卡 15：千数求和（网络关，数据只能发包拿）
 
@@ -638,10 +675,12 @@ Java.perform(function () {
 **环境**：先启动本地模拟服务端：
 
 ```
-python server.py           # 监听 127.0.0.1:8787
+python server.py           # HTTP 8787 / HTTPS 8443 / mTLS 8444
 ```
 
 App 端地址由 `NetHost` 自动切换：模拟器走 `http://10.0.2.2:8787`（宿主机回环），真机走 `http://127.0.0.1:8787`（需 `adb reverse tcp:8787 tcp:8787`），无需改 config.json。
+
+Charles 抓包时不要再用上面的同名端口直连，改用 `adb reverse tcp:8787 tcp:18787`，具体拓扑见本节开头的“网络关通用配置与 Charles 对应表”。
 
 **玩法**：1000 个数字 = 100 页 × 每页 10 个。每页请求 `GET /api/page?page=N&ts=T&sign=S`，服务端验签通过才返回该页数字。取满 100 页求和（= 49580），把加和填进 App 提交，App 用内置 SHA-256 校验后给出 flag。
 
@@ -1097,6 +1136,8 @@ Java.perform(function () {
 
 **类在哪**：`w1Activity` → `Tm.fetchPage`。CA 证书的 DER 字节藏在 `Tm.CAA`（异或 0x5A）；HMAC 密钥一半在 `Km`（`fatdemo_`）、一半在 `Tm.TB`（`ssl_hmac`）。诱饵 `CertBox`。
 
+**Charles 配置**：使用 `18443 -> 127.0.0.1:8443`。把 `certs/ca.crt` / `certs/ca.key` 导入 Charles 的 Root Certificate 属于**开卷捷径**；题解主线是下面的 Frida TrustManager 绕过。
+
 **先读懂流程**：
 
 ```text
@@ -1105,7 +1146,9 @@ GET https://…:8443/api/tls?page=N&ts=T&sign=…
 响应 {"page":N,"nums":[…]}        ← 明文！这关的难点全在 TLS 握手，不在加解密
 ```
 
-**解法 A：带 CA 复刻（最正，推荐先走这条）**。项目 `certs/ca.crt` 就是 App 内置的那张自签 CA。Python 用它当信任锚，直接复刻签名取数：
+> 题解主线是路线 3（Hook TrustManager）；路线 1、2 都是利用仓库提供了项目 CA 私钥的开卷捷径。
+
+**路线 1：带项目 CA 静态复刻（开卷捷径）**。项目 `certs/ca.crt` 就是 App 内置的那张自签 CA。Python 用它当信任锚，直接复刻签名取数；这条路线不经过 App 的 TrustManager，所以不能代替 Hook 训练：
 
 ```python
 import hmac, hashlib, json, ssl, time, urllib.request
@@ -1128,9 +1171,9 @@ for p in range(1, 101):
 print(total)          # 51496
 ```
 
-**解法 B：带 CA 抓包**。把 `certs/ca.crt` 导入 Fiddler/mitmproxy/Charles 当中间人证书（或直接让它作为代理的 CA），App 就会信任代理签的证书——因为那"同一个 CA"本身就是它信任的锚。然后像 L15 一样抓包看 URL 和参数。
+**路线 2：带项目 CA 抓包（开卷捷径）**。把与 APK 匹配的 `certs/ca.crt` / `certs/ca.key` 交给 Charles/Fiddler/mitmproxy 当 Root Certificate，代理签发的叶证书会通过 App 的自定义 TrustManager。该路线依赖仓库直接给出了 CA 私钥，真实场景通常不成立。
 
-**解法 C：Frida 拆信任校验（无脑流）**。经典万能脚本：把所有 `SSLContext.init` 传入的 TrustManager 换成什么都不检查的假货：
+**路线 3：Frida 拆信任校验（题解主线，推荐）**。经典做法是把所有 `SSLContext.init` 传入的 TrustManager 换成什么都不检查的假货，让 App 继续走真实业务逻辑：
 
 ```javascript
 Java.perform(function () {
@@ -1166,9 +1209,11 @@ Java.perform(function () {
 
 **类在哪**：`x2Activity` → `Pn.fetchPage`。`Pn.PIN` 就是 SPKI 指纹（明文字符串，可以直接看到）；HMAC 密钥 `Kp`（`fatdemo_`）+ `Pn.KB`（`pin_key`）。CA 复用 `Tm.caDer()`。诱饵 `Pim`。
 
+**Charles 配置**：同样使用 `18443`。导入项目 CA 只能解决第一道 TrustManager，属于环境捷径；Charles 叶证书的 SPKI 与原服务端证书不同，题解主线仍要 Hook `CertificatePinner.check`。
+
 **先读懂流程**：和 L21 一样，端点换成 `GET https://…:8443/api/pin`，密钥换 `fatdemo_pin_key`，响应明文 JSON。
 
-**解法 A：静态复刻（推荐，最省事）**。pinner 只影响 OkHttp 客户端，你用 Python 带 CA 取数根本不经过它：
+**路线 1：带项目 CA 静态复刻（开卷捷径；题解主线见路线 2）**。pinner 只影响 OkHttp 客户端，用 Python 带 `certs/ca.crt` 取数不会经过它；这条路线绕开了关卡重点：
 
 ```python
 import hmac, hashlib, json, ssl, time, urllib.request
@@ -1191,7 +1236,7 @@ for p in range(1, 101):
 print(total)          # 50384
 ```
 
-**解法 B：Frida 拆双闸门**。第一道同 L21（换掉 TrustManager），第二道 Hook `okhttp3.CertificatePinner.check` 让它空跑：
+**路线 2：Frida 拆双闸门（题解主线，推荐）**。第一道同 L21（换掉 TrustManager），第二道 Hook `okhttp3.CertificatePinner.check` 让它空跑：
 
 ```javascript
 Java.perform(function () {
@@ -1232,6 +1277,8 @@ Java.perform(function () {
 
 **类在哪**：`y3Activity` + 具名内部类 `WvClient`；页面路径 `/h5/v23` 在 `Hq` 里异或 0x2F 藏着（主机由 `NetHost` 自动选）。诱饵 `WvKit`。**flag 不在 APK**，在服务端 H5 页面的 `<span id="flag">` 里。
 
+**Charles 配置**：`18443 -> 127.0.0.1:8443` 可以看到请求，但 WebView 走系统信任校验，项目 CA 不会自动替代本关的 `handler.cancel()` 逻辑。要在 App 内通过，仍按下面的 Frida 方案调用 `handler.proceed()`。
+
 **先读懂流程**：
 
 ```text
@@ -1240,14 +1287,14 @@ web.loadUrl("https://…:8443/h5/v23")            # 仅 HTTPS，HTTP 访问 403
 → （Hook 放行后）onPageFinished → evaluateJavascript 读 #flag → 庆祝 + 通关打点
 ```
 
-**解法 A：静态抄近道**。电脑上无视证书错误直接看页面（`-k` 就等价于"proceed"）：
+**路线 1：静态抄近道（开卷捷径）**。电脑上无视证书错误直接看页面（`-k` 就等价于"proceed"），不涉及 App 的 SSL 错误回调：
 
 ```bash
 python server.py
 curl -k https://127.0.0.1:8443/h5/v23     # 页面里 #flag 就是答案
 ```
 
-**解法 B：Frida 正解**。Hook `com.fatdog.reverse.y3Activity$WvClient.onReceivedSslError`，把 `cancel` 换成 `proceed`：
+**路线 2：Frida 正解（题解主线，推荐）**。Hook `com.fatdog.reverse.y3Activity$WvClient.onReceivedSslError`，把 `cancel` 换成 `proceed`：
 
 ```javascript
 Java.perform(function () {
@@ -1261,7 +1308,7 @@ Java.perform(function () {
 
 放行后页面出现，App 自动读 `#flag` 并触发庆祝 + 打点。
 
-**解法 C：读懂原理版**。`SslErrorHandler` 只有两个选择：`proceed()`（无视错误继续加载）和 `cancel()`（终止加载）。真实 App 常在这里做白名单（只对自己域名 proceed），所以逆向时要重点看它判断域名的那段逻辑——哪些域名被放行、哪些被砍掉。
+**补充：原理页**。`SslErrorHandler` 只有两个选择：`proceed()`（无视错误继续加载）和 `cancel()`（终止加载）。真实 App 常在这里做白名单（只对自己域名 proceed），所以逆向时要重点看它判断域名的那段逻辑——哪些域名被放行、哪些被砍掉。
 
 **答案**：flag `FLAG_18_L23{webview_ssl_error}`（这关没有求和要求，flag 只在服务端页面里）
 
@@ -1279,6 +1326,8 @@ Java.perform(function () {
 - `Z24Core`：pin 常量（XOR `^0x5A` 数组，无明文）+ `checkPin`/`assertGuard` 反 Hook 守卫。
 - `Tk`：HMAC 密钥前半段 `fatdemo_`；`Aw.KB` 是后半段 `swap_key`，拼出 `fatdemo_swap_key`。
 - 诱饵 `Gp`：一个"假 pin + 假放行"的工具类，没有任何人调用它——最先翻到它的人最容易掉坑。
+
+**Charles 配置**：使用 `18443`。导入项目 CA 只是解决信任链的开卷捷径；题解主线是保留真实校验路径，Hook `Z24Core.realPin`，返回抓包代理为 `127.0.0.1` 签发叶证书的 SPKI pin。
 
 **先读懂流程**：
 
@@ -1299,7 +1348,7 @@ loadPage → Aw.fetchPage(base, page)
 - 就算 Hook `checkPin` 时先调了原函数、再强行 return true（配合 mitmproxy）→ 原函数里 `lastVerdict` 是 false（假证书指纹对不上真 pin）→ `assertGuard` 照样抛。
 - 正确姿势：**别动校验逻辑，只换"对比的标准"**——Hook `Z24Core.realPin` 的返回值，换成 mitmproxy 证书自己的 SPKI pin。校验链照常走完：计数正常、结论为真。
 
-**解法 A：静态复刻（最省事）**。pin 只保护 App 的 OkHttp 客户端，你用 Python 带 CA 取数根本不经过它：
+**路线 1：带项目 CA 静态复刻（开卷捷径；题解主线见路线 2）**。pin 只保护 App 的 OkHttp 客户端，用 Python 带 `certs/ca.crt` 取数不会经过它，因此会跳过 guard 与换 pin 训练：
 
 ```python
 import hmac, hashlib, json, ssl, time, urllib.request
@@ -1324,7 +1373,7 @@ print(total)          # 50225
 
 （密钥还原：`Tk.PA` 每字节 `^0x3C` → `fatdemo_`，`Aw.KB` 每字节 `^0x3C` → `swap_key`。）
 
-**解法 B：Frida script E——内存换票（本关正解，配合 mitmproxy）**：
+**路线 2：Frida script E——内存换票（题解主线，推荐）**：
 
 第一步，先拿到 mitmproxy 证书自己的 SPKI pin：
 
@@ -1414,6 +1463,8 @@ Java.perform(function () {
 - `Rj`：诱饵（假密钥 `fatdemo_fake_key_java`，没人调用）。
 - 真身：APK 里的 `lib/arm64-v8a/libnative.so`、`lib/armeabi-v7a/libnative.so`（源码 `app/jni/native.c`）。
 
+**Charles 配置**：使用 `18443 -> 127.0.0.1:8443`。把项目 CA 交给 Charles 属于开卷捷径；本关题解主线是在 native 层观察或复用 `nativeSign`，而不是只靠服务端 CA 绕过。
+
 **先读懂流程**：
 
 ```text
@@ -1425,7 +1476,7 @@ loadPage → By.fetchPage
 
 **为什么 Java Hook 无效**：`Mac`/`MessageDigest` 的 Hook 一个都不会触发（HMAC 在 C 里实现）；jadx 里也没有密钥。要动它，要么静态读 so，要么 Frida 上原生层。
 
-**解法 A：静态（推荐，本关入门难度）**。APK 就是个 zip：
+**路线 1：静态提取 + Python 复刻（开卷捷径；题解主线见路线 2）**。APK 就是个 zip：
 
 ```bash
 # 解出 so（Windows 上改后缀 .zip 直接解压，或用 unzip）
@@ -1460,7 +1511,7 @@ for p in range(1, 101):
 print(total)          # 52674
 ```
 
-**解法 B：Frida 原生层**。Java 层不管用，就上 `Interceptor` / `NativeFunction`：
+**路线 2：Frida 原生层（题解主线，推荐）**。Java 层不管用，就上 `Interceptor` / `NativeFunction`：
 
 ```javascript
 // l25_native.js
@@ -1494,9 +1545,9 @@ Java.perform(function () {
 // 控制台里：rpc.exports.sign(1, 123) → 92bf819c0e889a884493c891b6701334032762a1d2309b1795bd555f682bf712
 ```
 
-拿到签名后，和解法 A 一样拼 URL 取满 100 页。
+拿到签名后，和路线 1 一样拼 URL 取满 100 页。
 
-**解法 C：改返回值 / patch so**。`Interceptor.attach(verifyServer)` 的 `onLeave` 里 `retval.replace(1)` 可以放行白名单外的主机（比如把 config.json 指到局域网 IP 时用）；直接把 so 里的白名单字符串 patch 掉也一样。真机上改 so 记得重打包重签名。
+**路线 3：改返回值 / patch so**。`Interceptor.attach(verifyServer)` 的 `onLeave` 里 `retval.replace(1)` 可以放行白名单外的主机（比如把 config.json 指到局域网 IP 时用）；直接把 so 里的白名单字符串 patch 掉也一样。真机上改 so 记得重打包重签名。
 
 **防坑提醒**：
 
@@ -1557,6 +1608,8 @@ Java.perform(function () {
 - `MtlsKit`：**诱饵**（假密码 `client_secret_26`、假别名，无人调用）。
 - 服务端：`:8444` 独立 app 实例 + `ssl_cert_reqs=CERT_REQUIRED`（信任 `certs/ca.crt` 签发的客户端证书）。注意 `/api/mtls` **不在** 8787/8443 上——想不带证书从老端口绕过是死路（404）。
 
+**Charles 配置**：使用 `18444 -> 127.0.0.1:8444`。`L26` 是 SSL 组里的例外：不能靠 Hook HTTP 层代替客户端证书。题解主线是从 APK 提取 `assets/mt_client.p12` 和密码，再到 Charles 的 `Client Certificates` 中给 `127.0.0.1:8444` 绑定该证书；Root Certificate 仍用项目 CA 只负责验证服务端。
+
 **调用链路**：
 
 ```text
@@ -1567,7 +1620,7 @@ loadPage → Vd.fetchPage
   └─ GET https://…:8444/api/mtls?page=N&ts=T&sign=HMAC-SHA256(Zt.pa()+Vd.kb(), "page=N&ts=T")
 ```
 
-**解法 A：静态提取 + Python 复刻（推荐，零依赖设备）**：
+**路线 1：静态提取 + Python 复刻（题解主线，推荐）**：
 
 1. 解出两组 XOR 数组：`Zt.PA`(^0x3C→`fatdemo_`) + `Vd.KB`(^0x3C→`mtls_key`) = HMAC 密钥 `fatdemo_mtls_key`；`Zt.PXA`(^0x37→`fatdemo_`) + `Mc.PXB`(^0x5B→`mt26`) = p12 密码 `fatdemo_mt26`。
 2. 把 APK 当 zip 解开，拿走 `assets/mt_client.p12`（也可 `keytool -list -v -keystore mt_client.p12 -storetype PKCS12` 查看别名）。
@@ -1607,7 +1660,7 @@ print(total)   # 50814
 
 > 真机环境把 `127.0.0.1` 换成 `adb reverse tcp:8444 tcp:8444` 后的地址即可。
 
-**解法 B：Frida 动态拿密码 / 抓包**：
+**路线 2：Frida 动态拿密码 / 抓包**：
 
 ```javascript
 // 在发包瞬间把 p12 密码整个倒出来
@@ -1643,6 +1696,8 @@ Java.perform(function () {
 - 诱饵双份：包内 `p/Gh`（假密钥假 pin，跟着一起被混淆）+ 根包 `EndKit`（假密钥 `fatdemo_end_fake_ky`、假端点 `/api/end`）。
 - 服务端：`POST https://…:8443/api/l27`，验 ts → 验 HMAC → AES 解 enc 核对 page/ts → 返回 AES 加密的 body。
 
+**Charles 配置**：使用 `18443`。导入项目 CA 属于开卷捷径，而且只能解决信任闸；内置 SPKI pin 仍会让 Charles 叶证书失配，题解主线是按本关 Frida 方案处理 pin。
+
 **调用链路**：
 
 ```text
@@ -1656,7 +1711,7 @@ loadPage → p.Wire.fetchPage
        ← {"d": hex} → Cpt.aesDecode(d, Mk.pre()+Tail.T_RSP) # "fatdemo_rspkey27"
 ```
 
-**解法 A：静态还原 + Python 复刻（推荐）**：
+**路线 1：静态还原 + Python 复刻（开卷捷径；题解主线见路线 2）**：
 
 1. jadx 打开 APK，从可读的 `c27Activity` 找到对混淆包的调用，交叉引用认出 Wire/Gate/Cpt/Mk/Tail 五个角色。
 2. 解出三组 XOR 数组并拼装密钥：`Mk.S_PRE`^0x3C + `Tail.T_REQ`^0x3C = `fatdemo_aeskey27`；同法得 `fatdemo_fin_hmac`、`fatdemo_rspkey27`；路径 `Mk.S_PATH`^0x25 = `/api/l27`。
@@ -1695,7 +1750,7 @@ print(total)   # 50623
 
 > 真机环境把 `127.0.0.1` 换成 `adb reverse tcp:8443 tcp:8443` 后的地址即可。
 
-**解法 B：Frida 放倒双闸门抓包（体会"抓到明文≠采集成功"）**：
+**路线 2：Frida 放倒双闸门抓包（题解主线，推荐）**：
 
 ```javascript
 Java.perform(function () {

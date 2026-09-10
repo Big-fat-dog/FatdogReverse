@@ -1,7 +1,0 @@
-rg: .*22|class: 文件名、目录名或卷标语法不正确。 (os error 123)
-rg: .*26|class: 文件名、目录名或卷标语法不正确。 (os error 123)
-rg: .*27|Activity|nativeFd|nativeMaps|nativeTiming|nativeVersion|nativeFridaDetect": 文件名、目录名或卷标语法不正确。 (os error 123)
-rg: app/src/com/fatdog/reverse/owl*: 文件名、目录名或卷标语法不正确。 (os error 123)
-rg: app/src/com/fatdog/reverse/dusk*: 文件名、目录名或卷标语法不正确。 (os error 123)
-rg: app/src/com/fatdog/reverse/veil*: 文件名、目录名或卷标语法不正确。 (os error 123)
-rg: app/src/com/fatdog/reverse/*Activity.java: 文件名、目录名或卷标语法不正确。 (os error 123)
