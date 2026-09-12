@@ -289,6 +289,23 @@ include $(CLEAR_VARS)
 LOCAL_MODULE := loom
 LOCAL_SRC_FILES := loom.c
 include $(BUILD_SHARED_LIBRARY)
+
+# KL36
+include $(CLEAR_VARS)
+LOCAL_MODULE := flutterbridge
+LOCAL_SRC_FILES := kl36.cpp
+LOCAL_CPPFLAGS := -std=c++17 -fexceptions -frtti
+LOCAL_LDLIBS := -llog
+include $(BUILD_SHARED_LIBRARY)
+
+# KL37
+include $(CLEAR_VARS)
+LOCAL_MODULE := fluttercore
+LOCAL_SRC_FILES := kl37.cpp
+LOCAL_CPPFLAGS := -std=c++17 -fexceptions -frtti
+LOCAL_LDLIBS := -llog
+include $(BUILD_SHARED_LIBRARY)
+
 # KKL1
 include $(CLEAR_VARS)
 LOCAL_MODULE := kkl1

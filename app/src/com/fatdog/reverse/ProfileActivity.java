@@ -34,21 +34,22 @@ import java.util.ArrayList;
 // 个人主页：顶部"传送带"式分类条（基本情况 / 太古禁地 / 神念自察 / 昔日枷锁 / 前世今生），可横向滑动；
 // 下方内容随分类切换。基本情况 = 头像 + 境界 + 修仙进度；右上角昼夜切换；背景图。
 public class ProfileActivity extends Activity {
-    private static final int TOTAL_LEVELS = 88;   // L1-L47 + L48-L53 + KL1-KL30 + KKL1-KKL5
+    private static final int TOTAL_LEVELS = 95;   // L1-L47 + L48-L53 + KL1-KL37 + KKL1-KKL5
     // 炼气~元婴：每 5 关一层（1-20）；化神起：每 10 关一个大境界，第 10 层为"圆满"；
     // 高阶四境之后是终点"独断万古"——通关数再多也停在它上面。
     private static final String[] BIG_REALMS = {"炼气", "筑基", "金丹", "元婴"};
-    private static final String[] HIGH_REALMS = {"化神", "洞虚", "归墟", "无量"};
+    private static final String[] HIGH_REALMS = {"化神", "洞虚", "归墟", "无量", "归一", "无极", "永恒"};
     private static final String FINAL_REALM = "独断万古";
     private static final String[] LAYERS = {
             "一层", "二层", "三层", "四层", "五层", "六层", "七层", "八层", "九层"
     };
     // 下一个大境界的门槛（通关数）与名称，nextRealmHint 用
-    private static final int[] NEXT_AT = {6, 11, 16, 21, 31, 41, 51, 61};
-    private static final String[] NEXT_NAME = {"筑基", "金丹", "元婴", "化神", "洞虚", "归墟", "无量", FINAL_REALM};
+    private static final int[] NEXT_AT = {6, 11, 16, 21, 31, 41, 51, 61, 71, 81, 91};
+    private static final String[] NEXT_NAME = {"筑基", "金丹", "元婴", "化神", "洞虚", "归墟", "无量", "归一", "无极", "永恒", FINAL_REALM};
     private static final int[] REALM_COLORS = {
             0xFF67C23A, 0xFF409EFF, 0xFFE6A23C, 0xFFB37FEB,
-            0xFFFB7299, 0xFF36CFC9, 0xFF2F54EB, 0xFFFADB14, 0xFFB8965A
+            0xFFFB7299, 0xFF36CFC9, 0xFF2F54EB, 0xFFFADB14,
+            0xFF00B5AD, 0xFF722ED1, 0xFFB8965A, 0xFFB8965A
     };
     // 终点境界专属：深空紫黑渐变 + 鎏金描边/光晕
     private static final int[] FINAL_BADGE_COLORS = {0xFF1F1C2C, 0xFF4A3B6B};
@@ -63,6 +64,9 @@ public class ProfileActivity extends Activity {
             "洞虚观世，勘破虚妄",
             "万法归墟，百川朝宗",
             "无量无边，不可思议",
+            "万法归一，大道至简",
+            "无极生太极，无穷无尽",
+            "永恒不灭，岁月成灰",
             "独断万古，古今唯一"
     };
     private static final String[] AURAS = {
@@ -74,6 +78,9 @@ public class ProfileActivity extends Activity {
             "✦ 虚妄皆破，唯道独行",
             "✦ 沧海归墟，万象臣服",
             "✦ 一念无量，光寿无涯",
+            "✦ 大道至简，万法归一",
+            "✦ 太极轮转，无穷无尽",
+            "✦ 永恒之光，岁月成灰",
             "✦ 万古长夜，我为天明",
     };
     private static final String[] CAT_NAMES = {"基本情况", "太古禁地", "神念自察", "昔日枷锁", "前世今生"};
@@ -392,7 +399,8 @@ public class ProfileActivity extends Activity {
             {"—— 太玄之初 ——", "KL16", "破壳新生", "KL17", "金蝉脱壳", "KL18", "乾坤迷阵", "KL19", "虚空造化", "KL20", "破壁飞升"},
             {"—— 太玄之初 · 壳 ——", "KKL1", "玄冥渊", "KKL2", "万剑冢", "KKL3", "断魂谷", "KKL4", "锁妖塔", "KKL5", "诛仙台"},
             {"—— 扶桑树 ——", "KL21", "枯叶听风", "KL22", "落影寻痕", "KL23", "照妖显形", "KL24", "冰鉴悬镜", "KL25", "暮雾锁听", "KL26", "暮霭沉沉", "KL27", "轻纱覆影", "KL28", "雪落无痕"},
-            {"—— 天机阁 ——", "KL29", "暗流涌动", "KL30", "天机织锦"}
+            {"—— 天机阁 ——", "KL29", "暗流涌动", "KL30", "天机织锦"},
+            {"—— 碧落天 ——", "KL36", "云中锦书", "KL37", "风中鸢尾"}
         };
 
         for (String[] zone : zones) {
@@ -427,7 +435,8 @@ public class ProfileActivity extends Activity {
                     row.addView(arrow);
                     row.setOnClickListener(new View.OnClickListener() {
                         @Override public void onClick(View v) {
-                            Intent intent = new Intent(ctx, DivineStoryActivity.class);
+                            Class<?> target = "KL36".equals(levelId) ? scrollActivity.class : DivineStoryActivity.class;
+                            Intent intent = new Intent(ctx, target);
                             intent.putExtra("level", levelId);
                             intent.putExtra("title", name);
                             ((android.app.Activity) ctx).startActivity(intent);

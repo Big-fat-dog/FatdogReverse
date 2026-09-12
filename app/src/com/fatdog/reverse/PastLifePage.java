@@ -16,6 +16,10 @@ import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import java.util.Arrays;
+import java.util.HashSet;
+import java.util.Set;
+
 // 前世今生：个人主页内的进度修复页。进入需密令 Fatdog；
 // 页内点一次补回该关记录，再点一次撤销该关记录。
 final class PastLifePage {
@@ -150,8 +154,9 @@ final class PastLifePage {
         tipLp.topMargin = dp(ctx, 2);
         col.addView(tip, tipLp);
 
-        addRange(ctx, col, "主卷", 0xFF409EFF, "L", 1, 48);
-        addRange(ctx, col, "天地秘境", 0xFF00BFA5, "KL", 1, 30);
+        addRange(ctx, col, "主卷", 0xFF409EFF, "L", 1, 53);
+        addRange(ctx, col, "天地秘境", 0xFF00BFA5, "KL", 1, 37,
+                new HashSet<Integer>(Arrays.asList(31, 32, 33, 34, 35)));
         addRange(ctx, col, "太玄之初", 0xFFB37FEB, "KKL", 1, 5);
 
         scroll.addView(col);
@@ -161,6 +166,13 @@ final class PastLifePage {
     private static void addRange(final Context ctx, final LinearLayout col,
                                  final String name, final int accent,
                                  final String prefix, final int from, final int to) {
+        addRange(ctx, col, name, accent, prefix, from, to, null);
+    }
+
+    private static void addRange(final Context ctx, final LinearLayout col,
+                                 final String name, final int accent,
+                                 final String prefix, final int from, final int to,
+                                 final Set<Integer> exclude) {
         TextView head = new TextView(ctx);
         head.setText(name);
         head.setTextSize(12);
@@ -176,13 +188,16 @@ final class PastLifePage {
             LinearLayout row = new LinearLayout(ctx);
             row.setOrientation(LinearLayout.HORIZONTAL);
             for (int j = i; j <= Math.min(i + 3, to); j++) {
+                if (exclude != null && exclude.contains(j)) continue;
                 LinearLayout.LayoutParams cp = new LinearLayout.LayoutParams(
                         0, dp(ctx, 46), 1f);
                 cp.setMargins(dp(ctx, 2), dp(ctx, 2), dp(ctx, 2), dp(ctx, 2));
                 row.addView(buildCell(ctx, prefix + j), cp);
             }
-            col.addView(row, new LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+            if (row.getChildCount() > 0) {
+                col.addView(row, new LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+            }
         }
     }
 

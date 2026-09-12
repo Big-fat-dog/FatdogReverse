@@ -1,7 +1,7 @@
 # FatdogReverse · 完整题解（按分类组织 · 不分季）
 
 > 建议每关至少独立卡 10 分钟再看对应小节。闯关的意义是练出「先搜什么、再看什么、最后用什么工具」的肌肉记忆，而不是抄答案。
-> 本文按 App 内的关卡分类组织正文（静态分析 → Smali → Frida → 网络对抗 → SSL 抓包 → Native → Xposed → 签名校验 → 天地秘境六卷），不再区分"第几季"。编号即关卡真名：主流程 `L1-L47`，天地秘境 `KL1-KL30`，太玄之初追加卷 `KKL1-KKL5`（全五关已开启）。关卡 6 没有入口按钮，藏在 Manifest；关卡 20 虽是 20 号，主题属 Smali 挑战，故排在 Smali 分类。
+> 本文按 App 内的关卡分类组织正文（静态分析 → Smali → Frida → 网络对抗 → SSL 抓包 → Native → Xposed → 签名校验 → 天地秘境六卷），不再区分"第几季"。编号即关卡真名：主流程 `L1-L47`，天地秘境 `KL1-KL37`，太玄之初追加卷 `KKL1-KKL5`（全五关已开启）。关卡 6 没有入口按钮，藏在 Manifest；关卡 20 虽是 20 号，主题属 Smali 挑战，故排在 Smali 分类。
 
 ## 关卡总览
 
@@ -21,6 +21,7 @@
 | 天地秘境 · 太玄之初 | KL16-KL20、KKL1-KKL5 | `## 天地秘境 · 太玄之初（KL16-20、KKL1-5）` |
 | 天地秘境 · 扶桑树 | KL21-KL28 | `## 天地秘境 · 扶桑树（KL21-28）` |
 | 天地秘境 · 天机阁 | KL29-KL30 | `## 天地秘境 · 天机阁（KL29-30）` |
+| 天地秘境 · 碧落天 | KL36-KL37 | `## 天地秘境 · 碧落天（KL36-37）` |
 
 > 网络/服务端类关卡（L15-L47 与 KL6-KL10、KKL2-KKL4）的加和答案以各节正文为准；服务端先 `python server.py` 起 HTTPS（21 起）才能取数。
 
@@ -4371,6 +4372,153 @@ print(hashlib.sha256(str(total).encode()).hexdigest())
 
 **patch/hook 路线**：不要只改 `nativeStatus()`。四点记账要求 open 先置位、sign 与 commit 交替闭合；inline hook `kkl4_crc_check` 或任一 JNI 入口都会改写前几条指令，CRC 窗口自己会先失配。想靠 patch 走通，必须完整重建 CRC 与记账链路（进程已被投毒时先重启）；最省事仍是静态还原 UTF-16 真标记派生密钥直接复刻请求。服务端 seed 是 `20260923`（`random.Random(20260923).randint(1,100)` 生成 1000 个数）。
 
+### KKL5：诛仙台（太玄之初 · VMP + onCreate 抽取 + AES-128-CBC）
+
+#### 一、这一关在考什么
+
+KKL5 对齐 360 加固对 `Activity.onCreate` 的处理方式：**原始 `onCreate` 的关键逻辑不在 dex 里，而是被抽成 native，交给壳 SO 里的解释器逐条解密执行**（参考 360 加固脱壳笔记：`StubApp.interface11` 把 `onCreate` 注册到壳 SO 的 native 方法，解释器按 case 还原 Dalvik 指令）。本关把这个手法做成可控的教学版：
+
+- `kkl5Activity.onCreate()` 只做三件事：构建视图、调用 `Kkl5Native.nativeOnCreate(this)`、放行翻页取数；
+- 真正的门禁在 `libkkl5.so` 的 `kkl5_on_create_gate()` 里，由自定义寄存器 VM 解释执行字节码得出；
+- 门禁通过后才派生取数用的 AES/MAC 子钥；取数协议是 AES-128-CBC + HMAC-SHA256 复合签名；
+- 业务 DEX（`com.fatdog.reverse.kkl5.GateKeeper5`）用同一个 AES 密钥加密埋在 `assets/kkl5/ascension_altar.bin`，运行时 `nativeUnseal()` 解密后内存加载。
+
+一句话：`onCreate` 是入口，VM 是机关，AES-CBC 是取数协议，服务端只认由真标记派生出的签名。
+
+#### 二、VM 架构与字节码格式
+
+`app/jni/kkl5.cpp` 里的解释器是寄存器式 VM：
+
+- 16 个 32 位虚拟寄存器 `V0`-`V15`；
+- 指令长度固定 32 位，小端存储；
+- 指令编码：`opcode << 24 | imm16`，即最高字节是操作码、低 16 位是立即数（KKL5 开发时曾把 opcode 放低字节、立即数放高 16 位，与解释器解码方向相反导致 VM 死循环，后统一为现在这个格式）；
+- 指令集：`MOV / ADDI / XOR / XORI / AND / OR / SHL / SHR / ROL / ROR / CMP / JMP / JZ / JNZ / ADD / SUB / MUL / HALT`；
+- 字节码不是明文：`bytecode[i] ^= kKkl5VmRollingKey[i % 32]`，滚动密钥是 `0x11..0x30` 共 32 字节，存在 `kkl5_vm_program.h`；
+- `MOV` 是双字指令：低 16 位和高 16 位各发一条，解释器第一次保留低半区、第二次把立即数移进高半区，这样就能装下 32 位常量。
+
+字节码程序本身做的是**逐字节密钥派生**：对 `i = 0..15`（AES 主钥）或 `0..31`（MAC 子钥），按标记和盐计算
+
+```
+k = ((marker[i % len(marker)] * 0x1F + salt[i % len(salt)] * 0x2B + i * 0x11)
+     ^ (marker[i % len(marker)] << 1)) 旋转左移 8 位 3 位  ^ salt[i % len(salt)]
+```
+
+再按 `i % 4` 塞进第 `1 + i/4` 号寄存器，最后从寄存器读回 16/32 字节。真标记 `Fatdog_ascend` 是 VM 里的立即数；诱饵 `Fatdog_ascent` 是另一份字节码，服务端只认真标记派生的签名。
+
+#### 三、密钥与协议参数
+
+| 参数          | 值                                                           |
+| ------------- | ------------------------------------------------------------ |
+| 真标记        | `Fatdog_ascend`（VM 立即数）/ 诱饵 `Fatdog_ascent`           |
+| AES 主钥      | `6a3315b12737d2b16d2ed50ddf8d4852`（16 字节，VM 派生）       |
+| MAC 子钥      | `SHA256(aes_key + "\|kkl5_ascension")` = `af529d9976ff1c367d3b265757362d0efce4d7d43120d7245fce4fae28d72714` |
+| 响应 AES 密钥 | `SHA256("Fatdog_ascend\|kkl5_response")[:16]`                |
+| 请求 IV       | `SHA256("page=N\|ts=T\|" + mac_key)[:16]`                    |
+| 请求密文      | `AES-128-CBC(aes_key, PKCS7("page=N&ts=T"))`，`enc = hex(IV + 密文)` |
+| 请求签名      | `HMAC-SHA256(mac_key, enc)`                                  |
+| 响应 IV       | `SHA256("N\|T\|" + rsp_key.hex())[:16]`                      |
+| 响应签名      | `HMAC-SHA256(mac_key, "N\|T\|ivHex\|dHex")`                  |
+| 页数 / 种子   | 100 页 × 10 个数字；seed `20260930`                          |
+| 加和 / 提交   | 53011 / `sha256("53011")` = `5c1f9a36a76360acdb86b6859da42f3ea7abe57ba5f5d836066039885f619924` |
+| flag          | `FLAG_18_KKL5{ascension_of_the_immortals}`                   |
+
+服务端 `/api/kkl5` 先校验 page/ts，再用 MAC 子钥验 `sign`，然后解 AES-CBC、比对明文是否等于 `page=N&ts=T`，最后返回 `{"iv":..., "d":..., "sign":...}`。任一环节不符返回 403。
+
+#### 四、静态复刻路线（推荐）
+
+**第 1 步：解出 VM 字节码。** 把 `kkl5_vm_program.h` 里的 `kKkl5VmProgramEnc` 与 `kKkl5VmRollingKey` 取出来，逐字节异或还原成 32 位指令流：
+
+```python
+enc = list(kKkl5VmProgramEnc)
+key = bytes(range(0x11, 0x31))
+words = []
+for i in range(0, len(enc), 4):
+    w = 0
+    for j in range(4):
+        w |= (enc[i + j] ^ key[(i + j) % 32]) << (j * 8)
+    words.append(w)
+```
+
+**第 2 步：实现解释器。** 解码 `op = (w >> 24) & 0xFF`、`imm = w & 0xFFFF`，按上表实现 switch 即可。跑完 `kKkl5VmProgramEnc` 得到 AES 主钥，跑 `kKkl5VmMacEnc` 得到 MAC 子钥。实际产物里这两个值是：
+
+```
+aes_key = 6a3315b12737d2b16d2ed50ddf8d4852
+mac_key = af529d9976ff1c367d3b265757362d0efce4d7d43120d7245fce4fae28d72714
+```
+
+**第 3 步：复刻请求协议并逐页取数。** 下面的脚本可直接跑通（先用 `python server.py` 起服务）：
+
+```python
+# solutions_kkl5.py —— KKL5 诛仙台完整复刻
+import hashlib, hmac, json, ssl, time, urllib.request
+from Crypto.Cipher import AES
+
+BASE = "https://127.0.0.1:8443"
+AES_KEY = bytes.fromhex("6a3315b12737d2b16d2ed50ddf8d4852")
+MAC_KEY = hashlib.sha256(AES_KEY + b"|kkl5_ascension").digest()
+RSP_KEY = hashlib.sha256(b"Fatdog_ascend|kkl5_response").digest()[:16]
+
+
+def pkcs7_pad(data):
+    n = 16 - (len(data) % 16)
+    return data + bytes([n]) * n
+
+
+def unpad(data):
+    return data[:-data[-1]]
+
+
+def fetch_page(page, ts):
+    plain = f"page={page}&ts={ts}".encode()
+    iv = hashlib.sha256(f"{page}|{ts}|".encode() + MAC_KEY).digest()[:16]
+    ct = AES.new(AES_KEY, AES.MODE_CBC, iv).encrypt(pkcs7_pad(plain))
+    enc = (iv + ct).hex()
+    sign = hmac.new(MAC_KEY, enc.encode(), hashlib.sha256).hexdigest()
+    body = f"page={page}&ts={ts}&enc={enc}&sign={sign}".encode()
+    ctx = ssl.create_default_context()
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
+    req = urllib.request.Request(BASE + "/api/kkl5", data=body,
+                                 headers={"Content-Type": "application/x-www-form-urlencoded"})
+    rsp = json.loads(urllib.request.urlopen(req, context=ctx, timeout=10).read())
+    # 验响应签名：HMAC(mac_key, "page|ts|ivHex|dHex")
+    msg = f"{page}|{ts}|{rsp['iv']}|{rsp['d']}".encode()
+    expect = hmac.new(MAC_KEY, msg, hashlib.sha256).hexdigest()
+    assert hmac.compare_digest(expect, rsp["sign"]), "响应签名不匹配"
+    pt = AES.new(RSP_KEY, AES.MODE_CBC, bytes.fromhex(rsp["iv"])).decrypt(bytes.fromhex(rsp["d"]))
+    return json.loads(unpad(pt))["nums"]
+
+
+ts = int(time.time())
+total = 0
+for page in range(1, 101):
+    nums = fetch_page(page, ts)
+    total += sum(nums)
+    if page % 10 == 0:
+        print(f"page {page:3d}: partial sum = {total}")
+
+print("sum =", total)
+print("submit =", hashlib.sha256(str(total).encode()).hexdigest())
+```
+
+跑完输出 `sum = 53011`，提交 `5c1f9a36a76360acdb86b6859da42f3ea7abe57ba5f5d836066039885f619924` 即通关。
+
+**第 4 步：如果要走 so 反汇编。** 也可以用 jadx 看 `kkl5Activity.onCreate` → `Kkl5Native.nativeOnCreate` → `System.loadLibrary("kkl5")`，再用 IDA/Ghidra 打开 `libkkl5.so`，重点看 `kkl5_vm_run` 的 switch、`kkl5_on_create_gate` 的寄存器读取，以及 `nativeSign` 里 AES-CBC + HMAC 的调用顺序。VM 字节码在 `.rodata`，滚动密钥常量同样在附近。
+
+#### 五、动态路线
+
+- Frida hook `Kkl5Native.nativeSign(page, ts)`：直接拿 `enc|sign` 字符串，不用自己实现 AES/HMAC，然后照第 3 步拼请求即可；
+- Frida hook `Kkl5Native.nativeUnseal(sealed)`：拿到解密后的业务 DEX，dump 出来可确认 `GateKeeper5` 内容；
+- patch `kkl5_on_create_gate` 或 VM 字节码：门禁会直接失败，因为 `kkl5_on_create_gate` 会把派生出的主钥与 `kKkl5VmExpectAes` 比对，patch 后签名被投毒，服务端 403。
+
+#### 六、常见坑
+
+1. `enc` 是 `IV + 密文` 的 hex，不是纯密文；服务端解密时从 `enc[:16]` 取 IV；
+2. 请求 IV 和响应 IV 的派生公式不同，响应 IV 是服务端算好通过 `iv` 字段下发的，不要自己重算；
+3. MAC 子钥不是 `SHA256(marker)`，而是 `SHA256(aes_key + "|kkl5_ascension")`，即先有 VM 派生的 AES 主钥，再有 MAC 子钥；
+4. VM 字节码解码时 opcode 在最高字节，`w = (w >> 24) & 0xFF`；写成 `w & 0xFF` 会得到完全错误的指令流；
+5. 服务端 seed 固定为 `20260930`，同一页的 10 个数字固定，换时间戳不会改变数字本身。
+
 ## 天地秘境 · 扶桑树（KL21-28）
 
 
@@ -4523,6 +4671,76 @@ def lcg_ans(seed):                      # KL24-30：libice 之后统一 LCG 伪 
 
 **坑位提醒**：`Ck.verifySignature` 的 HMAC 密钥就是 so 里两个标记之一（另一为 `Fatdog_knit` 诱饵）；响应签名覆盖的是不含 sign 字段的 body 原始字节，服务端与客户端必须保持同一套 canonical 编码，否则验签失败。flag `FLAG_18_KL30{heavenly_loom}`。
 
+## 天地秘境 · 碧落天（KL36-37）
+
+> 碧落天两关围绕 Flutter/Dart 引擎逆向：KL36 是 AOT 常量池提取入门，KL37 进阶到 Dart Kernel 字节码逆向+四路哨兵反调试。
+
+### KL36：云中锦书（libflutterbridge.so · Dart AOT 常量池）
+
+**考点**：从模拟 Flutter 引擎的 SO 中提取 Dart AOT 编译后的常量池。`libflutterbridge.so`（桥 `FlutterBridge`）导出：
+
+- `byte[] nativeGetConstantPool()` → 返回模拟 Dart 常量池 byte[]（含魔数 `Dart\x00` + 条目）；
+- `String nativeSign(page, ts)` → 用常量池中提取的密钥算 HMAC-SHA256 签名。
+
+**解法**：
+1. **静态路线**：IDA 看 `nativeGetConstantPool` 返回的 byte[]，找到 XOR 密钥（`^0x3C`）还原出真密钥 `Fatdog_scroll`（诱饵 `Fatdog_roll`）；
+2. **动态路线**：Frida hook `nativeSign` 直接拿 (page, ts, sign) 三元组，Python 复刻；
+3. **Python 复刻**：`HMAC-SHA256("Fatdog_scroll", f"page={page}&ts={ts}")`，收集 100 页×10 个数求和。
+
+**Python 复刻**（先 `python server.py`）：
+```python
+import hmac, hashlib, requests
+KEY = b"Fatdog_scroll"
+def sign(page, ts):
+    return hmac.new(KEY, f"page={page}&ts={ts}".encode(), hashlib.sha256).hexdigest()
+# 逐页请求 https://<host>/api/kl36?page=&ts=&sign= ，收集 1000 个数求和
+```
+
+**答案**：100 页共 1000 个数求和，`sha256(str(sum))` 即通关哈希。flag `FLAG_18_KL36{cloud_letter}`。真标记 `Fatdog_scroll` / 诱饵 `Fatdog_roll`。
+
+**坑位提醒**：常量池里的密钥是 XOR 混淆的，直接 strings 看不到明文；诱饵只差一个字母，仔细辨别。
+
+### KL37：风中鸢尾（libfluttercore.so · Dart Kernel 字节码 + 四路哨兵）
+
+**考点**：Dart Kernel 字节码逆向 + 四路哨兵反调试+ CRC 自校验 + 密钥投毒。`libfluttercore.so`（桥 `FlutterCore`）混合注册：
+
+- **静态注册**：`nativeGetBytecodeBlob()` → 返回模拟 Dart Kernel 字节码 byte[]（魔数 `Drt\x00`）；`nativeGetAlgorithmInfo()` → 算法描述；
+- **动态注册**（JNI_OnLoad → RegisterNatives）：
+  - `nativeExecute(page, ts)` → 四路哨兵自检 + HMAC-SHA256 签名（检测触发返回 `guard_failed`）；
+  - `nativeVerify(page, ts, sign)` → 验签；
+  - `nativeAnswer()` → 本地答案比对；
+  - `nativeGetStatus()` → 哨兵自检状态详情。
+
+**四路哨兵**：
+1. ptrace/TracerPid 检测调试附加；
+2. `/proc/self/maps` 扫描 Frida 特征（gum-js-loop/gmain/gdbus/pool-frida）；
+3. 27042-27044 端口探测；
+4. 线程名扫描（comm 字段匹配）。
+
+**CRC 自校验**：`.text` 段 CRC-32 校验，函数头 inline hook 检测。检测命中即静默投毒密钥一字节（key[2] ^= 0xFF），服务端 HMAC 验签 403。
+
+**解法**：
+1. **Frida 路线**：hook `nativeGetStatus` 绕过哨兵 → hook `nativeExecute` 直接拿签名 → Python 复刻；
+2. **静态路线**：IDA 读字节码 blob → 还原常量池 → 提取 XOR 密钥 → Python 复刻；
+3. **patch 路线**：patch CRC 校验器 + 废哨兵 → 重打包。
+
+**Python 复刻**（先 `python server.py`）：
+```python
+import hmac, hashlib
+KEY = b"Fatdog_kite"  # 真密钥（诱饵 Fatdog_sail）
+def sign(page, ts):
+    return hmac.new(KEY, f"page={page}&ts={ts}".encode(), hashlib.sha256).hexdigest()
+# 逐页请求 https://<host>/api/kl37?page=&ts=&sign= ，收集 1000 个数求和
+```
+
+**答案**：100 页共 1000 个数求和（seed=20280615），`sha256(str(sum))` 即通关哈希。flag `FLAG_18_KL37{iris_in_the_wind}`。真标记 `Fatdog_kite` / 诱饵 `Fatdog_sail`。
+
+**坑位提醒**：
+- 四路哨兵同时在线，任一检测命中即投毒密钥——Frida 必须 spawn 抢跑或 patch 掉检测函数；
+- 诱饵 `Fatdog_sail` 与真标记只差一个字母，用错即 403；
+- `nativeGetStatus` 只读不判胜，可安全调用查看哨兵状态；
+- 字节码 blob 里的常量池是 XOR 混淆的，需要还原才能提取密钥。
+
 ## 附录：通用速查与 flag 表
 
 
@@ -4558,152 +4776,6 @@ frida -U -n com.fatdog.reverse -l hook_l10.js
 ```
 
 
-### KKL5：诛仙台（太玄之初 · VMP + onCreate 抽取 + AES-128-CBC）
-
-#### 一、这一关在考什么
-
-KKL5 对齐 360 加固对 `Activity.onCreate` 的处理方式：**原始 `onCreate` 的关键逻辑不在 dex 里，而是被抽成 native，交给壳 SO 里的解释器逐条解密执行**（参考 360 加固脱壳笔记：`StubApp.interface11` 把 `onCreate` 注册到壳 SO 的 native 方法，解释器按 case 还原 Dalvik 指令）。本关把这个手法做成可控的教学版：
-
-- `kkl5Activity.onCreate()` 只做三件事：构建视图、调用 `Kkl5Native.nativeOnCreate(this)`、放行翻页取数；
-- 真正的门禁在 `libkkl5.so` 的 `kkl5_on_create_gate()` 里，由自定义寄存器 VM 解释执行字节码得出；
-- 门禁通过后才派生取数用的 AES/MAC 子钥；取数协议是 AES-128-CBC + HMAC-SHA256 复合签名；
-- 业务 DEX（`com.fatdog.reverse.kkl5.GateKeeper5`）用同一个 AES 密钥加密埋在 `assets/kkl5/ascension_altar.bin`，运行时 `nativeUnseal()` 解密后内存加载。
-
-一句话：`onCreate` 是入口，VM 是机关，AES-CBC 是取数协议，服务端只认由真标记派生出的签名。
-
-#### 二、VM 架构与字节码格式
-
-`app/jni/kkl5.cpp` 里的解释器是寄存器式 VM：
-
-- 16 个 32 位虚拟寄存器 `V0`-`V15`；
-- 指令长度固定 32 位，小端存储；
-- 指令编码：`opcode << 24 | imm16`，即最高字节是操作码、低 16 位是立即数（KKL5 开发时曾把 opcode 放低字节、立即数放高 16 位，与解释器解码方向相反导致 VM 死循环，后统一为现在这个格式）；
-- 指令集：`MOV / ADDI / XOR / XORI / AND / OR / SHL / SHR / ROL / ROR / CMP / JMP / JZ / JNZ / ADD / SUB / MUL / HALT`；
-- 字节码不是明文：`bytecode[i] ^= kKkl5VmRollingKey[i % 32]`，滚动密钥是 `0x11..0x30` 共 32 字节，存在 `kkl5_vm_program.h`；
-- `MOV` 是双字指令：低 16 位和高 16 位各发一条，解释器第一次保留低半区、第二次把立即数移进高半区，这样就能装下 32 位常量。
-
-字节码程序本身做的是**逐字节密钥派生**：对 `i = 0..15`（AES 主钥）或 `0..31`（MAC 子钥），按标记和盐计算
-
-```
-k = ((marker[i % len(marker)] * 0x1F + salt[i % len(salt)] * 0x2B + i * 0x11)
-     ^ (marker[i % len(marker)] << 1)) 旋转左移 8 位 3 位  ^ salt[i % len(salt)]
-```
-
-再按 `i % 4` 塞进第 `1 + i/4` 号寄存器，最后从寄存器读回 16/32 字节。真标记 `Fatdog_ascend` 是 VM 里的立即数；诱饵 `Fatdog_ascent` 是另一份字节码，服务端只认真标记派生的签名。
-
-#### 三、密钥与协议参数
-
-| 参数 | 值 |
-|---|---|
-| 真标记 | `Fatdog_ascend`（VM 立即数）/ 诱饵 `Fatdog_ascent` |
-| AES 主钥 | `6a3315b12737d2b16d2ed50ddf8d4852`（16 字节，VM 派生） |
-| MAC 子钥 | `SHA256(aes_key + "\|kkl5_ascension")` = `af529d9976ff1c367d3b265757362d0efce4d7d43120d7245fce4fae28d72714` |
-| 响应 AES 密钥 | `SHA256("Fatdog_ascend\|kkl5_response")[:16]` |
-| 请求 IV | `SHA256("page=N\|ts=T\|" + mac_key)[:16]` |
-| 请求密文 | `AES-128-CBC(aes_key, PKCS7("page=N&ts=T"))`，`enc = hex(IV + 密文)` |
-| 请求签名 | `HMAC-SHA256(mac_key, enc)` |
-| 响应 IV | `SHA256("N\|T\|" + rsp_key.hex())[:16]` |
-| 响应签名 | `HMAC-SHA256(mac_key, "N\|T\|ivHex\|dHex")` |
-| 页数 / 种子 | 100 页 × 10 个数字；seed `20260930` |
-| 加和 / 提交 | 53011 / `sha256("53011")` = `5c1f9a36a76360acdb86b6859da42f3ea7abe57ba5f5d836066039885f619924` |
-| flag | `FLAG_18_KKL5{ascension_of_the_immortals}` |
-
-服务端 `/api/kkl5` 先校验 page/ts，再用 MAC 子钥验 `sign`，然后解 AES-CBC、比对明文是否等于 `page=N&ts=T`，最后返回 `{"iv":..., "d":..., "sign":...}`。任一环节不符返回 403。
-
-#### 四、静态复刻路线（推荐）
-
-**第 1 步：解出 VM 字节码。** 把 `kkl5_vm_program.h` 里的 `kKkl5VmProgramEnc` 与 `kKkl5VmRollingKey` 取出来，逐字节异或还原成 32 位指令流：
-
-```python
-enc = list(kKkl5VmProgramEnc)
-key = bytes(range(0x11, 0x31))
-words = []
-for i in range(0, len(enc), 4):
-    w = 0
-    for j in range(4):
-        w |= (enc[i + j] ^ key[(i + j) % 32]) << (j * 8)
-    words.append(w)
-```
-
-**第 2 步：实现解释器。** 解码 `op = (w >> 24) & 0xFF`、`imm = w & 0xFFFF`，按上表实现 switch 即可。跑完 `kKkl5VmProgramEnc` 得到 AES 主钥，跑 `kKkl5VmMacEnc` 得到 MAC 子钥。实际产物里这两个值是：
-
-```
-aes_key = 6a3315b12737d2b16d2ed50ddf8d4852
-mac_key = af529d9976ff1c367d3b265757362d0efce4d7d43120d7245fce4fae28d72714
-```
-
-**第 3 步：复刻请求协议并逐页取数。** 下面的脚本可直接跑通（先用 `python server.py` 起服务）：
-
-```python
-# solutions_kkl5.py —— KKL5 诛仙台完整复刻
-import hashlib, hmac, json, ssl, time, urllib.request
-from Crypto.Cipher import AES
-
-BASE = "https://127.0.0.1:8443"
-AES_KEY = bytes.fromhex("6a3315b12737d2b16d2ed50ddf8d4852")
-MAC_KEY = hashlib.sha256(AES_KEY + b"|kkl5_ascension").digest()
-RSP_KEY = hashlib.sha256(b"Fatdog_ascend|kkl5_response").digest()[:16]
-
-
-def pkcs7_pad(data):
-    n = 16 - (len(data) % 16)
-    return data + bytes([n]) * n
-
-
-def unpad(data):
-    return data[:-data[-1]]
-
-
-def fetch_page(page, ts):
-    plain = f"page={page}&ts={ts}".encode()
-    iv = hashlib.sha256(f"{page}|{ts}|".encode() + MAC_KEY).digest()[:16]
-    ct = AES.new(AES_KEY, AES.MODE_CBC, iv).encrypt(pkcs7_pad(plain))
-    enc = (iv + ct).hex()
-    sign = hmac.new(MAC_KEY, enc.encode(), hashlib.sha256).hexdigest()
-    body = f"page={page}&ts={ts}&enc={enc}&sign={sign}".encode()
-    ctx = ssl.create_default_context()
-    ctx.check_hostname = False
-    ctx.verify_mode = ssl.CERT_NONE
-    req = urllib.request.Request(BASE + "/api/kkl5", data=body,
-                                 headers={"Content-Type": "application/x-www-form-urlencoded"})
-    rsp = json.loads(urllib.request.urlopen(req, context=ctx, timeout=10).read())
-    # 验响应签名：HMAC(mac_key, "page|ts|ivHex|dHex")
-    msg = f"{page}|{ts}|{rsp['iv']}|{rsp['d']}".encode()
-    expect = hmac.new(MAC_KEY, msg, hashlib.sha256).hexdigest()
-    assert hmac.compare_digest(expect, rsp["sign"]), "响应签名不匹配"
-    pt = AES.new(RSP_KEY, AES.MODE_CBC, bytes.fromhex(rsp["iv"])).decrypt(bytes.fromhex(rsp["d"]))
-    return json.loads(unpad(pt))["nums"]
-
-
-ts = int(time.time())
-total = 0
-for page in range(1, 101):
-    nums = fetch_page(page, ts)
-    total += sum(nums)
-    if page % 10 == 0:
-        print(f"page {page:3d}: partial sum = {total}")
-
-print("sum =", total)
-print("submit =", hashlib.sha256(str(total).encode()).hexdigest())
-```
-
-跑完输出 `sum = 53011`，提交 `5c1f9a36a76360acdb86b6859da42f3ea7abe57ba5f5d836066039885f619924` 即通关。
-
-**第 4 步：如果要走 so 反汇编。** 也可以用 jadx 看 `kkl5Activity.onCreate` → `Kkl5Native.nativeOnCreate` → `System.loadLibrary("kkl5")`，再用 IDA/Ghidra 打开 `libkkl5.so`，重点看 `kkl5_vm_run` 的 switch、`kkl5_on_create_gate` 的寄存器读取，以及 `nativeSign` 里 AES-CBC + HMAC 的调用顺序。VM 字节码在 `.rodata`，滚动密钥常量同样在附近。
-
-#### 五、动态路线
-
-- Frida hook `Kkl5Native.nativeSign(page, ts)`：直接拿 `enc|sign` 字符串，不用自己实现 AES/HMAC，然后照第 3 步拼请求即可；
-- Frida hook `Kkl5Native.nativeUnseal(sealed)`：拿到解密后的业务 DEX，dump 出来可确认 `GateKeeper5` 内容；
-- patch `kkl5_on_create_gate` 或 VM 字节码：门禁会直接失败，因为 `kkl5_on_create_gate` 会把派生出的主钥与 `kKkl5VmExpectAes` 比对，patch 后签名被投毒，服务端 403。
-
-#### 六、常见坑
-
-1. `enc` 是 `IV + 密文` 的 hex，不是纯密文；服务端解密时从 `enc[:16]` 取 IV；
-2. 请求 IV 和响应 IV 的派生公式不同，响应 IV 是服务端算好通过 `iv` 字段下发的，不要自己重算；
-3. MAC 子钥不是 `SHA256(marker)`，而是 `SHA256(aes_key + "|kkl5_ascension")`，即先有 VM 派生的 AES 主钥，再有 MAC 子钥；
-4. VM 字节码解码时 opcode 在最高字节，`w = (w >> 24) & 0xFF`；写成 `w & 0xFF` 会得到完全错误的指令流；
-5. 服务端 seed 固定为 `20260930`，同一页的 10 个数字固定，换时间戳不会改变数字本身。
 
 ### 附 3 · flag 速查表（全量 L1-47 + KL1-30 + KKL1-5）
 

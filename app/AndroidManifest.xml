@@ -140,6 +140,8 @@
         <activity android:name=".j65Activity" android:exported="false" />
         <activity android:name=".tideActivity" android:exported="false" />
         <activity android:name=".loomActivity" android:exported="false" />
+        <activity android:name=".scrollActivity" android:exported="false" />
+        <activity android:name=".kiteActivity" android:exported="false" />
 
         <!-- Native大陆 L48：落日平原（operator+ 重载） -->
         <activity android:name=".x48Activity" android:exported="false" />
