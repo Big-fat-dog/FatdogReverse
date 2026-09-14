@@ -77,11 +77,12 @@ public class x52Activity extends Activity {
         box.setPadding(Ui.dp(16), Ui.dp(14), Ui.dp(16), Ui.dp(12));
 
         TextView tv = new TextView(this);
-        tv.setText("L52 · 冰封雪域（★★★★★ 魔改 SM4 · 3 SO 分离）\n"
-                + "libnative52.so   — 魔改 SM4 加密\n"
-                + "libnative52k.so  — 密钥 + RC4\n"
+        tv.setText("L52 · 冰封雪域（★★★★★ 魔改分组 · 3 SO 分离）\n"
+                + "libnative52.so   — 魔改分组加密\n"
+                + "libnative52k.so  — 密钥 + 流密码\n"
                 + "libnative52b.so  — 业务代码干扰\n"
-                + "魔改 SM4 + HMAC-SHA256 · 深层调用栈");
+                + "魔改分组密码 + 签名双阵联防 · 深层调用栈\n"
+                + "冰封之下暗流涌动，三 SO 协同缺一方崩溃");
         tv.setGravity(Gravity.CENTER);
         box.addView(tv, Ui.wrap(4));
 

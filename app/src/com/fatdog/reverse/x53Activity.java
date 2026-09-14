@@ -80,11 +80,12 @@ public class x53Activity extends Activity {
         box.setPadding(Ui.dp(16), Ui.dp(14), Ui.dp(16), Ui.dp(12));
 
         TextView tv = new TextView(this);
-        tv.setText("L53 · 焚天火域（★★★★★ Feistel + 魔改 AES 双算法 · 最终关）\n"
+        tv.setText("L53 · 焚天火域（★★★★★ 双阵联防 · 最终关）\n"
                 + "libnative53.so  — 调度 + 异常控制流\n"
-                + "libnative53c.so — Feistel + 魔改 AES 双算法 + 密钥\n"
+                + "libnative53c.so — 轮函数 + 魔改分组密码双阵 + 密钥\n"
                 + "libnative53b.so — 22类业务代码干扰\n"
-                + "Feistel + 魔改 AES + HMAC-SHA256 + RC4");
+                + "双阵联防 + 签名 + 流密码三式齐出\n"
+                + "焚天之火焚烧一切，收官之卷万法归一");
         tv.setGravity(Gravity.CENTER);
         box.addView(tv, Ui.wrap(4));
 

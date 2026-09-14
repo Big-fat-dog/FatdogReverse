@@ -1,7 +1,7 @@
 # FatdogReverse · 完整题解（按分类组织 · 不分季）
 
 > 建议每关至少独立卡 10 分钟再看对应小节。闯关的意义是练出「先搜什么、再看什么、最后用什么工具」的肌肉记忆，而不是抄答案。
-> 本文按 App 内的关卡分类组织正文（静态分析 → Smali → Frida → 网络对抗 → SSL 抓包 → Native → Xposed → 签名校验 → 天地秘境六卷），不再区分"第几季"。编号即关卡真名：主流程 `L1-L47`，天地秘境 `KL1-KL37`，太玄之初追加卷 `KKL1-KKL5`（全五关已开启）。关卡 6 没有入口按钮，藏在 Manifest；关卡 20 虽是 20 号，主题属 Smali 挑战，故排在 Smali 分类。
+> 本文按 App 内的关卡分类组织正文（静态分析 → Smali → Frida → 网络对抗 → SSL 抓包 → Native → Xposed → 签名校验 → 天地秘境六卷），不再区分"第几季"。编号即关卡真名：主流程 `L1-L47`，天地秘境 `KL1-KL38`，太玄之初追加卷 `KKL1-KKL5`（全五关已开启）。关卡 6 没有入口按钮，藏在 Manifest；关卡 20 虽是 20 号，主题属 Smali 挑战，故排在 Smali 分类。
 
 ## 关卡总览
 
@@ -21,7 +21,7 @@
 | 天地秘境 · 太玄之初 | KL16-KL20、KKL1-KKL5 | `## 天地秘境 · 太玄之初（KL16-20、KKL1-5）` |
 | 天地秘境 · 扶桑树 | KL21-KL28 | `## 天地秘境 · 扶桑树（KL21-28）` |
 | 天地秘境 · 天机阁 | KL29-KL30 | `## 天地秘境 · 天机阁（KL29-30）` |
-| 天地秘境 · 碧落天 | KL36-KL37 | `## 天地秘境 · 碧落天（KL36-37）` |
+| 天地秘境 · 碧落天 | KL36-KL38 | `## 天地秘境 · 碧落天（KL36-38）` |
 
 > 网络/服务端类关卡（L15-L47 与 KL6-KL10、KKL2-KKL4）的加和答案以各节正文为准；服务端先 `python server.py` 起 HTTPS（21 起）才能取数。
 
@@ -4671,9 +4671,9 @@ def lcg_ans(seed):                      # KL24-30：libice 之后统一 LCG 伪 
 
 **坑位提醒**：`Ck.verifySignature` 的 HMAC 密钥就是 so 里两个标记之一（另一为 `Fatdog_knit` 诱饵）；响应签名覆盖的是不含 sign 字段的 body 原始字节，服务端与客户端必须保持同一套 canonical 编码，否则验签失败。flag `FLAG_18_KL30{heavenly_loom}`。
 
-## 天地秘境 · 碧落天（KL36-37）
+## 天地秘境 · 碧落天（KL36-38）
 
-> 碧落天两关围绕 Flutter/Dart 引擎逆向：KL36 是 AOT 常量池提取入门，KL37 进阶到 Dart Kernel 字节码逆向+四路哨兵反调试。
+> 碧落天三关围绕 Flutter/Dart 引擎逆向：KL36 是 AOT 常量池提取入门，KL37 进阶到 Dart Kernel 字节码逆向+四路哨兵反调试，KL38 深入 Flutter 网络层 Hook+SSL Pinning。
 
 ### KL36：云中锦书（libflutterbridge.so · Dart AOT 常量池）
 
@@ -4740,6 +4740,55 @@ def sign(page, ts):
 - 诱饵 `Fatdog_sail` 与真标记只差一个字母，用错即 403；
 - `nativeGetStatus` 只读不判胜，可安全调用查看哨兵状态；
 - 字节码 blob 里的常量池是 XOR 混淆的，需要还原才能提取密钥。
+
+### KL38：雾里观花（libflutternet.so · Flutter 网络层 Hook + SSL Pinning + 四路哨兵）
+
+**考点**：Flutter 自定义 HttpClient 网络层模拟 + Dart 层 SSL Pinning（证书 SHA-256 校验）+ Dart Isolate 签名 + FFI 边界 + 四路哨兵反调试 + 密钥投毒。`libflutternet.so`（桥 `FlutterNet`）混合注册：
+
+- **静态注册**：`nativeBuildRequest(page, ts)` → 构建带签名的 HTTP 请求 byte[]；`nativeGetPinHash()` → 返回 SSL Pin 证书 SHA-256 哈希；
+- **动态注册**（JNI_OnLoad → RegisterNatives）：
+  - `nativeSign(page, ts)` → 四路哨兵自检 + HMAC-SHA256 签名（检测触发返回 `guard_failed`）；
+  - `nativeVerify(page, ts, sign)` → 验签；
+  - `nativeAnswer()` → 本地答案比对；
+  - `nativeGetStatus()` → 哨兵自检状态详情。
+
+**Flutter 网络层模拟**：
+- 自定义 `HttpClient` 实现，绕过 Java OkHttp 栈，直接构建 HTTP 请求；
+- SSL Pinning：在 Dart 层校验证书 SHA-256 哈希（`K38_PIN` 常量）；
+- 请求签名在 Dart Isolate 中计算，通过 FFI 调用 native HMAC-SHA256；
+- 密钥 `Fatdog_haze` 以 XOR 字节数组拆段藏匿（`K38_KEY_PART`），运行时拼装。
+
+**四路哨兵**（与 KL37 同构）：
+1. ptrace/TracerPid 检测调试附加；
+2. `/proc/self/maps` 扫描 Frida 特征（frida/gadget/gum-js/linjector）；
+3. 27042-27044 端口探测（300ms 超时）；
+4. 线程名扫描（comm 字段匹配 gum-js-loop/gmain/gdbus/pool-frida）。
+
+**密钥投毒**：任一哨兵命中即静默投毒（`g_key_poisoned = true`），后续所有签名返回 `guard_failed`，服务端 HMAC 验签 403。
+
+**解法**：
+1. **Frida 路线**：spawn 抢跑 → hook `anti_debug::run_all` 空实现绕过哨兵 → hook `nativeSign` 直接拿签名 → Python 复刻；
+2. **静态路线**：IDA 读 `K38_KEY_PART` XOR 数组 → XOR 0x3C 还原密钥 → Python 复刻 HMAC-SHA256；
+3. **patch 路线**：patch `anti_debug::run_all` 返回 0 + patch `guard_check` 恒返回 true → 重打包。
+
+**Python 复刻**（先 `python server.py`）：
+```python
+import hmac, hashlib
+KEY = b"Fatdog_haze"  # 真密钥（诱饵 Fatdog_fog）
+def sign(page, ts):
+    return hmac.new(KEY, f"page={page}&ts={ts}".encode(), hashlib.sha256).hexdigest()
+# 逐页请求 https://<host>/api/kl38?page=&ts=&sign= ，收集 100 页×10 个数求和
+```
+
+**答案**：100 页共 1000 个数求和（seed=20280701），`sha256(str(sum))` 前 8 位 hex 即答案。flag `FLAG_18_KL38{flower_in_mist}`。真标记 `Fatdog_haze` / 诱饵 `Fatdog_fog`。
+
+**坑位提醒**：
+- Flutter 绕过 Java 网络栈，传统 OkHttp hook 无效——需 hook libflutter.so 的 `Dart_Invoke` 系列或直接分析 native 层；
+- SSL Pinning 在 Dart 层实现，Java 层 TrustManager hook 无效；
+- 四路哨兵同时在线，Frida 必须 spawn 抢跑或 patch 掉检测函数；
+- 诱饵 `Fatdog_fog` 与真标记只差三个字母，用错即 403；
+- `nativeGetStatus` 只读不判胜，可安全调用查看哨兵状态；
+- 答案是 SHA256("20280701") 前 8 位 hex，需要自行计算。
 
 ## 附录：通用速查与 flag 表
 

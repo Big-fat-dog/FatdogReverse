@@ -2490,6 +2490,35 @@ def api_kl37(page: int = Query(...), ts: int = Query(...), sign: str = Query(...
     return {"page": page, "nums": []}
 
 
+# ---------------- 关卡 KL38（碧落天）雾里观花：Flutter 网络层 Hook ----------
+KEY_KL38 = b"Fatdog_haze"
+DECOY_KL38 = [b"Fatdog_fog"]
+PAGES_KL38, PER_PAGE_KL38, SEED_KL38 = 100, 10, 20280701
+_rng_kl38 = random.Random(SEED_KL38)
+NUMS_KL38 = [_rng_kl38.randint(1, 100) for _ in range(PAGES_KL38 * PER_PAGE_KL38)]
+KL38_SUM = sum(NUMS_KL38)
+KL38_SUM_HASH = hashlib.sha256(str(KL38_SUM).encode()).hexdigest()
+
+
+def _kl38_try(key, page, ts, sign):
+    msg = f"page={page}&ts={ts}"
+    expected = hmac.new(key, msg.encode(), hashlib.sha256).hexdigest()
+    return hmac.compare_digest(sign, expected)
+
+
+@app.get("/api/kl38")
+def api_kl38(page: int = Query(...), ts: int = Query(...), sign: str = Query(...)):
+    _check_page(page, PAGES_KL38)
+    _check_ts(ts)
+    if _kl38_try(KEY_KL38, page, ts, sign):
+        idx = (page - 1) * PER_PAGE_KL38
+        return {"page": page, "nums": NUMS_KL38[idx:idx + PER_PAGE_KL38]}
+    for dk in DECOY_KL38:
+        if _kl38_try(dk, page, ts, sign):
+            raise HTTPException(status_code=403, detail="sign invalid")
+    return {"page": page, "nums": []}
+
+
 if __name__ == "__main__":
     cert_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "certs")
     print(f"FatdogReverse 服务端（FastAPI）：http://{HOST}:{PORT_HTTP}（15-20） https://{HOST}:{PORT_HTTPS}（21-27）")
@@ -2502,7 +2531,7 @@ if __name__ == "__main__":
           f"KKL2={sum(NUMS_KKL2)} KKL3={sum(NUMS_KKL3)} KKL4={sum(NUMS_KKL4)} "
           f"L43={sum(NUMS43)} L44={sum(NUMS44)} L45={sum(NUMS45)} L46={sum(NUMS46)} L47={sum(NUMS47)} "
           f"L48={sum(NUMS48)} L49={sum(NUMS49)} L50={sum(NUMS50)} L51={sum(NUMS51)} L52={sum(NUMS52)} L53={sum(NUMS53)} "
-          f"KL36={KL36_SUM} KL37={KL37_SUM}")
+          f"KL36={KL36_SUM} KL37={KL37_SUM} KL38={KL38_SUM}")
     http_cfg = uvicorn.Config(app, host=HOST, port=PORT_HTTP, log_level="info")
     threading.Thread(target=uvicorn.Server(http_cfg).run, daemon=True).start()
     https_cfg = uvicorn.Config(app, host=HOST, port=PORT_HTTPS,

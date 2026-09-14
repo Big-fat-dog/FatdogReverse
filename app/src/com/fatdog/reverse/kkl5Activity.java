@@ -70,7 +70,7 @@ public class kkl5Activity extends Activity {
         tv.setText("KKL5 · 诛仙台（★★★★★）\n\n"
                 + "外壳把本页的 onCreate 抽成 native：\n"
                 + "  · onCreate 门禁由 VM 字节码解释执行\n"
-                + "  · 取数走 AES-128-CBC + HMAC-SHA256 复合签名\n"
+                + "  · 取数走分组加密 + 散列签名复合防线\n"
                 + "  · 翻页触发 open → sign → commit 三点记账\n\n"
                 + "数据只在服务端；VM 字节码、密钥、判胜都不在 Java 里。");
         tv.setGravity(Gravity.CENTER);

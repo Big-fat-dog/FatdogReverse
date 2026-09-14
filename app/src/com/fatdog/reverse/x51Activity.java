@@ -77,11 +77,12 @@ public class x51Activity extends Activity {
         box.setPadding(Ui.dp(16), Ui.dp(14), Ui.dp(16), Ui.dp(12));
 
         TextView tv = new TextView(this);
-        tv.setText("L51 · 雷霆山巅（★★★ 模板 + constexpr · 3 SO 分离）\n"
-                + "libnative51.so  — 3DES-EDE-ECB\n"
-                + "libnative51h.so — SM3 + HMAC + 密钥\n"
+        tv.setText("L51 · 雷霆山巅（★★★ 模板 · 3 SO 分离）\n"
+                + "libnative51.so  — 主入口 + 分组加密\n"
+                + "libnative51h.so — 散列 + 签名 + 密钥\n"
                 + "libnative51b.so — 业务代码干扰\n"
-                + "3DES + SM3 + HMAC-SHA256 · 模板实例化");
+                + "三重签名联防 · 模板实例化暗藏玄机\n"
+                + "三 SO 各守一方，缺一不可——雷霆之下步步惊心");
         tv.setGravity(Gravity.CENTER);
         box.addView(tv, Ui.wrap(4));
 

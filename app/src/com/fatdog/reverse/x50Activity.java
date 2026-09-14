@@ -78,12 +78,13 @@ public class x50Activity extends Activity {
         box.setPadding(Ui.dp(16), Ui.dp(14), Ui.dp(16), Ui.dp(12));
 
         TextView tv = new TextView(this);
-        tv.setText("L50 · 幽暗深渊（★★★★★ vtable 虚函数表分发）\n"
+        tv.setText("L50 · 幽暗深渊（★★★★★ 虚表分发）\n"
                 + "libnative50.so 导出：\n"
                 + "  String nativeEnc(int page, long ts)\n"
                 + "  String nativeSign(String enc_hex)\n"
                 + "  String getKeyHint()\n"
-                + "AES-128-ECB + SHA-256 · vtable 分发 · 海量业务代码");
+                + "分组加密 + 散列签名双阵联防 · 虚表分发真伪难辨\n"
+                + "海量业务代码如深渊暗流，一步踏错万劫不复");
         tv.setGravity(Gravity.CENTER);
         box.addView(tv, Ui.wrap(4));
 

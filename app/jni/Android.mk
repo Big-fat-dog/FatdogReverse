@@ -306,6 +306,14 @@ LOCAL_CPPFLAGS := -std=c++17 -fexceptions -frtti
 LOCAL_LDLIBS := -llog
 include $(BUILD_SHARED_LIBRARY)
 
+# KL38
+include $(CLEAR_VARS)
+LOCAL_MODULE := flutternet
+LOCAL_SRC_FILES := kl38.cpp
+LOCAL_CPPFLAGS := -std=c++17 -fexceptions -frtti
+LOCAL_LDLIBS := -llog
+include $(BUILD_SHARED_LIBRARY)
+
 # KKL1
 include $(CLEAR_VARS)
 LOCAL_MODULE := kkl1

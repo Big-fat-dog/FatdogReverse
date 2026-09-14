@@ -81,12 +81,13 @@ public class x49Activity extends Activity {
         box.setPadding(Ui.dp(16), Ui.dp(14), Ui.dp(16), Ui.dp(12));
 
         TextView tv = new TextView(this);
-        tv.setText("L49 · 迷雾森林（★★★ std::map 分发 · RAII）\n"
+        tv.setText("L49 · 迷雾森林（★★★ 分发阵法 · RAII）\n"
                 + "libnative49.so 导出：\n"
                 + "  String nativeEnc(int page, long ts)\n"
                 + "  String nativeSign(String enc_hex)\n"
                 + "  String getKeyHint()\n"
-                + "SM4-ECB + HMAC-SHA256 · std::map 分发");
+                + "分组加密 + 签名双阵联防 · 分发阵法暗藏玄机\n"
+                + "RAII 之术守代码完整，迷雾重重需静心破阵");
         tv.setGravity(Gravity.CENTER);
         box.addView(tv, Ui.wrap(4));
 

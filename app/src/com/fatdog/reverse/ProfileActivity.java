@@ -34,7 +34,7 @@ import java.util.ArrayList;
 // 个人主页：顶部"传送带"式分类条（基本情况 / 太古禁地 / 神念自察 / 昔日枷锁 / 前世今生），可横向滑动；
 // 下方内容随分类切换。基本情况 = 头像 + 境界 + 修仙进度；右上角昼夜切换；背景图。
 public class ProfileActivity extends Activity {
-    private static final int TOTAL_LEVELS = 95;   // L1-L47 + L48-L53 + KL1-KL37 + KKL1-KKL5
+    private static final int TOTAL_LEVELS = 91;   // L1-L47 + L48-L53 + KL1-KL38 + KKL1-KKL5（LEVEL_IDS 数组长度）
     // 炼气~元婴：每 5 关一层（1-20）；化神起：每 10 关一个大境界，第 10 层为"圆满"；
     // 高阶四境之后是终点"独断万古"——通关数再多也停在它上面。
     private static final String[] BIG_REALMS = {"炼气", "筑基", "金丹", "元婴"};
@@ -400,7 +400,7 @@ public class ProfileActivity extends Activity {
             {"—— 太玄之初 · 壳 ——", "KKL1", "玄冥渊", "KKL2", "万剑冢", "KKL3", "断魂谷", "KKL4", "锁妖塔", "KKL5", "诛仙台"},
             {"—— 扶桑树 ——", "KL21", "枯叶听风", "KL22", "落影寻痕", "KL23", "照妖显形", "KL24", "冰鉴悬镜", "KL25", "暮雾锁听", "KL26", "暮霭沉沉", "KL27", "轻纱覆影", "KL28", "雪落无痕"},
             {"—— 天机阁 ——", "KL29", "暗流涌动", "KL30", "天机织锦"},
-            {"—— 碧落天 ——", "KL36", "云中锦书", "KL37", "风中鸢尾"}
+            {"—— 碧落天 ——", "KL36", "云中锦书", "KL37", "风中鸢尾", "KL38", "雾里观花"}
         };
 
         for (String[] zone : zones) {
@@ -435,7 +435,7 @@ public class ProfileActivity extends Activity {
                     row.addView(arrow);
                     row.setOnClickListener(new View.OnClickListener() {
                         @Override public void onClick(View v) {
-                            Class<?> target = "KL36".equals(levelId) ? scrollActivity.class : DivineStoryActivity.class;
+                            Class<?> target = "KL36".equals(levelId) ? scrollActivity.class : "KL38".equals(levelId) ? hazeActivity.class : DivineStoryActivity.class;
                             Intent intent = new Intent(ctx, target);
                             intent.putExtra("level", levelId);
                             intent.putExtra("title", name);

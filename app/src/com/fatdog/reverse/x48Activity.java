@@ -81,8 +81,8 @@ public class x48Activity extends Activity {
                 + "libnative48.so 导出：\n"
                 + "  String nativeSign(int page, long ts)\n"
                 + "  String getKeyHint()\n"
-                + "密钥由两段 XOR 数组经 operator+ 拼接\n"
-                + "C++ mangled 名 + std::string 特征");
+                + "密钥由两段数组拼接而成——拼接之法令密钥变幻莫测\n"
+                + "C++ mangled 名 + std::string 特征，静心辨之方见真章");
         tv.setGravity(Gravity.CENTER);
         box.addView(tv, Ui.wrap(4));
 
