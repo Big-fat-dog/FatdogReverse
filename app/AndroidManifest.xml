@@ -143,6 +143,8 @@
         <activity android:name=".scrollActivity" android:exported="false" />
         <activity android:name=".kiteActivity" android:exported="false" />
         <activity android:name=".hazeActivity" android:exported="false" />
+        <activity android:name=".moonActivity" android:exported="false" />
+        <activity android:name=".reflectActivity" android:exported="false" />
 
         <!-- Native大陆 L48：落日平原（operator+ 重载） -->
         <activity android:name=".x48Activity" android:exported="false" />

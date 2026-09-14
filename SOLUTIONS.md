@@ -1,7 +1,7 @@
 # FatdogReverse · 完整题解（按分类组织 · 不分季）
 
 > 建议每关至少独立卡 10 分钟再看对应小节。闯关的意义是练出「先搜什么、再看什么、最后用什么工具」的肌肉记忆，而不是抄答案。
-> 本文按 App 内的关卡分类组织正文（静态分析 → Smali → Frida → 网络对抗 → SSL 抓包 → Native → Xposed → 签名校验 → 天地秘境六卷），不再区分"第几季"。编号即关卡真名：主流程 `L1-L47`，天地秘境 `KL1-KL38`，太玄之初追加卷 `KKL1-KKL5`（全五关已开启）。关卡 6 没有入口按钮，藏在 Manifest；关卡 20 虽是 20 号，主题属 Smali 挑战，故排在 Smali 分类。
+> 本文按 App 内的关卡分类组织正文（静态分析 → Smali → Frida → 网络对抗 → SSL 抓包 → Native → Xposed → 签名校验 → 天地秘境六卷），不再区分"第几季"。编号即关卡真名：主流程 `L1-L47`，天地秘境 `KL1-KL40`，太玄之初追加卷 `KKL1-KKL5`（全五关已开启）。关卡 6 没有入口按钮，藏在 Manifest；关卡 20 虽是 20 号，主题属 Smali 挑战，故排在 Smali 分类。
 
 ## 关卡总览
 
@@ -21,7 +21,7 @@
 | 天地秘境 · 太玄之初 | KL16-KL20、KKL1-KKL5 | `## 天地秘境 · 太玄之初（KL16-20、KKL1-5）` |
 | 天地秘境 · 扶桑树 | KL21-KL28 | `## 天地秘境 · 扶桑树（KL21-28）` |
 | 天地秘境 · 天机阁 | KL29-KL30 | `## 天地秘境 · 天机阁（KL29-30）` |
-| 天地秘境 · 碧落天 | KL36-KL38 | `## 天地秘境 · 碧落天（KL36-38）` |
+| 天地秘境 · 碧落天 | KL36-KL40 | `## 天地秘境 · 碧落天（KL36-40）` |
 
 > 网络/服务端类关卡（L15-L47 与 KL6-KL10、KKL2-KKL4）的加和答案以各节正文为准；服务端先 `python server.py` 起 HTTPS（21 起）才能取数。
 
@@ -4671,9 +4671,9 @@ def lcg_ans(seed):                      # KL24-30：libice 之后统一 LCG 伪 
 
 **坑位提醒**：`Ck.verifySignature` 的 HMAC 密钥就是 so 里两个标记之一（另一为 `Fatdog_knit` 诱饵）；响应签名覆盖的是不含 sign 字段的 body 原始字节，服务端与客户端必须保持同一套 canonical 编码，否则验签失败。flag `FLAG_18_KL30{heavenly_loom}`。
 
-## 天地秘境 · 碧落天（KL36-38）
+## 天地秘境 · 碧落天（KL36-40）
 
-> 碧落天三关围绕 Flutter/Dart 引擎逆向：KL36 是 AOT 常量池提取入门，KL37 进阶到 Dart Kernel 字节码逆向+四路哨兵反调试，KL38 深入 Flutter 网络层 Hook+SSL Pinning。
+> 碧落天五关围绕 Flutter/Dart 引擎逆向：KL36 是 AOT 常量池提取入门，KL37 进阶到 Dart Kernel 字节码逆向+四路哨兵反调试，KL38 深入 Flutter 网络层 Hook+SSL Pinning，KL39 攻克 Dart FFI 双向往调+密钥分片，KL40 综合收官六重防线。
 
 ### KL36：云中锦书（libflutterbridge.so · Dart AOT 常量池）
 
@@ -4790,10 +4790,103 @@ def sign(page, ts):
 - `nativeGetStatus` 只读不判胜，可安全调用查看哨兵状态；
 - 答案是 SHA256("20280701") 前 8 位 hex，需要自行计算。
 
-## 附录：通用速查与 flag 表
+### KL39：月下独酌（libbow.so · Dart FFI 双向往调 + 密钥分片 + FFI 注册表 + 四路哨兵）
 
+**考点**：Dart FFI 双向往调——Dart→C 加密，C→Dart 回调取密钥碎片；密钥分两侧各存一半运行时拼装；FFI 函数注册表（DartNativeFunction 数组）逆向；四路哨兵反调试 + 静默投毒。`libbow.so`（桥 `FlutterFFI`）动态注册（JNI_OnLoad → RegisterNatives）：
 
-### 附 1 · smali 通用速查（关卡 7-9、20）
+- `nativeEncRequest(page, ts)` → XOR 加密请求参数 byte[]（模拟 Dart→C FFI 调用链）；
+- `nativeDeriveKey()` → C→Dart 回调拼装完整密钥（四路哨兵自检 + 拼装 FRAG_DART + FRAG_C）；
+- `nativeSign(page, ts)` → HMAC-SHA256 签名（检测触发返回 `guard_failed`）；
+- `nativeVerify(page, ts, sign)` → 验签；
+- `nativeAnswer()` → 本地答案比对；
+- `nativeGetStatus()` → 哨兵状态 + FFI 注册表信息。
+
+**密钥分片设计**：
+- Dart 侧持有 `FRAG_DART`（16 字节，前 11 字节 = "Fatdog_moon"，后 5 字节 Dart 填充）；
+- C 侧持有 `FRAG_C`（16 字节，C 侧碎片）；
+- 运行时拼装：`FRAG_DART + FRAG_C` = 32 字节完整 HMAC 密钥；
+- XOR 编码键 `^0x42`（区别于 KL38 的 `^0x3C`）。
+
+**FFI 注册表**：静态 `FFI_REGISTRY[]` 数组包含 3 个真实函数 + 3 个诱饵入口，IDA 中可见但调用会崩溃。
+
+**四路哨兵**（与 KL37/38 同构）：
+1. ptrace/TracerPid 检测调试附加；
+2. `/proc/self/maps` 扫描 Frida 特征；
+3. 27042-27044 端口探测；
+4. 线程名扫描。
+
+**解法**：
+1. **Frida 路线**：spawn 抢跑 → hook `anti_debug::run_all` 空实现 → hook `nativeDeriveKey` 直接拿完整密钥 → Python 复刻；
+2. **静态路线**：IDA 读 `FRAG_DART` 和 `FRAG_C` XOR 数组 → XOR 0x42 还原 → 拼装 → Python 复刻 HMAC-SHA256；
+3. **FFI 注册表路线**：IDA 分析 `FFI_REGISTRY[]` 数组 → 找到 `nativeEncRequest` 和 `nativeDeriveKey` 入口 → Hook 拿密钥。
+
+**Python 复刻**（先 `python server.py`）：
+```python
+import hmac, hashlib
+KEY = b"Fatdog_moon"  # 真密钥（诱饵 Fatdog_star）
+def sign(page, ts):
+    return hmac.new(KEY, f"page={page}&ts={ts}".encode(), hashlib.sha256).hexdigest()
+# POST /api/kl39 表单 page=&ts=&enc=&sign= ，收集 100 页×10 个数求和
+```
+
+**答案**：100 页共 1000 个数求和（seed=20280701），`sha256(str(sum))` 前 8 位 hex 即答案。flag `FLAG_18_KL39{drinking_alone_moonlight}`。真标记 `Fatdog_moon` / 诱饵 `Fatdog_star`。
+
+**坑位提醒**：
+- Dart FFI 边界是双向的——不仅 Dart 调 C，C 也会回调 Dart 取密钥碎片，传统单向 hook 不够；
+- 密钥分两侧存储，单独提取任一片都无法还原完整密钥；
+- FFI 注册表中有诱饵入口，盲目调用会崩溃；
+- 诱饵 `Fatdog_star` 与真标记只差四个字母，用错即 403；
+- 答案是 SHA256("Fatdog_moon") 前 8 位 hex，需要自行计算。
+
+### KL40：星河倒影（librig.so · 碧落天综合收官卷 · 多层安全叠加）
+
+**考点**：六重防线综合收官——①AOT 编译产物加密 ②FFI 动态链接 ③Dart Isolate 多线程签名 ④反调试（ptrace + timing）⑤证书锁定 + HMAC 签名链 ⑥响应体 RC4 加密。`librig.so`（桥 `FlutterMirror`）动态注册（JNI_OnLoad → RegisterNatives）：
+
+- `nativeFullSign(page, ts)` → 全链签名（反调试 + 自校验 + HMAC-SHA256）；
+- `nativeDecryptRsp(hex_data)` → RC4 解密响应体；
+- `nativeVerifyIntegrity()` → .text 段哈希 + 函数指针校验；
+- `nativeAnswer()` → 本地答案比对；
+- `nativeGetStatus()` → 完整状态信息。
+
+**多层安全叠加**：
+- 反调试：ptrace/TracerPid + /proc/self/maps + 27042-27044 端口 + 线程名扫描（四路同构）；
+- 自校验：函数指针 + .text 段哈希验证代码完整性；
+- 密钥派生：`Fatdog_reflect` → SHA256(master+"|hmac") → HMAC 密钥；SHA256(master+"|rc4")[:16] → RC4 密钥；SHA256(master+"|aot")[:16] → AOT 密钥；
+- 响应加密：服务端用 RC4 加密 JSON 响应，客户端用 `nativeDecryptRsp` 解密。
+
+**解法**：
+1. **Frida 路线**：spawn 抢跑 → hook `anti_debug::run_all` + `guard_check` 空实现 → hook `nativeFullSign` 拿签名 → hook `nativeDecryptRsp` 拿解密 → Python 复刻；
+2. **静态路线**：IDA 读 XOR 数组还原密钥 → 派生 HMAC/RC4/AOT 子密钥 → Python 复刻签名 + RC4 解密；
+3. **patch 路线**：patch 反调试 + patch 自校验 → 重打包。
+
+**Python 复刻**（先 `python server.py`）：
+```python
+import hmac, hashlib
+KEY = b"Fatdog_reflect"  # 真密钥（诱饵 Fatdog_echo）
+hmac_key = hashlib.sha256(KEY + b"|hmac").digest()
+rc4_key = hashlib.sha256(KEY + b"|rc4").digest()[:16]
+def sign(page, ts):
+    return hmac.new(hmac_key, f"page={page}&ts={ts}".encode(), hashlib.sha256).hexdigest()
+def rc4_decrypt(key, data):
+    S = list(range(256)); j = 0
+    for i in range(256): j = (j + S[i] + key[i % len(key)]) % 256; S[i], S[j] = S[j], S[i]
+    x = y = 0; r = bytearray(data)
+    for i in range(len(data)):
+        x = (x + 1) % 256; y = (y + S[x]) % 256; S[x], S[y] = S[y], S[x]
+        r[i] ^= S[(S[x] + S[y]) % 256]
+    return bytes(r)
+# POST /api/kl40 表单 page=&ts=&sign= → 返回 {"d": "hex密文"}
+# 解密 d 得到 page=N|nums=1,2,...
+```
+
+**答案**：100 页共 1000 个数求和（seed=20280701），`sha256(str(sum))` 前 8 位 hex 即答案。flag `FLAG_18_KL40{galaxy_reflected}`。真标记 `Fatdog_reflect` / 诱饵 `Fatdog_echo`。
+
+**坑位提醒**：
+- 这是碧落天收官卷，综合了前面所有技术——反调试、FFI、签名、RC4 全部在线；
+- 任一层被绕过即静默投毒，必须全部正确才能通过；
+- 诱饵 `Fatdog_echo` 与真标记只差四个字母，用错即 403；
+- 响应体是 RC4 加密的，不是明文 JSON——需要先解密再解析；
+- 答案是 SHA256("Fatdog_reflect") 前 8 位 hex，需要自行计算。
 
 ```text
 apktool d FatdogReverse.apk -o out       # 单 classes.dex → out/smali（已无 classes2/3）
@@ -4921,6 +5014,11 @@ frida -U -n com.fatdog.reverse -l hook_l10.js
 | KKL3 | `FLAG_18_KKL3{valley_of_the_sentinel}` |
 | KKL4 | `FLAG_18_KKL4{tower_of_the_sealed}` |
 | KKL5 | `FLAG_18_KKL5{ascension_of_the_immortals}` |
+| KL36 | `FLAG_18_KL36{scroll_from_the_clouds}` |
+| KL37 | `FLAG_18_KL37{kite_in_the_wind}` |
+| KL38 | `FLAG_18_KL38{flower_in_mist}` |
+| KL39 | `FLAG_18_KL39{drinking_alone_moonlight}` |
+| KL40 | `FLAG_18_KL40{galaxy_reflected}` |
 
 
 > 备注：L43-L45 现版源码庆祝串均为 `FLAG_18_L48{mirror_tells_true}`（L48 为历史编号残留、三关复制未改），上表按关卡语义区分；L47 以当前 App 庆祝串 `FLAG_18_L47{guard_matrix_crc_aes}` 为准。关卡 9 有两个变体串（`single_gate_not_enough` 是只过一重门时的诱饵/半程提示）。

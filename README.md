@@ -13,9 +13,9 @@ FatdogReverse 是一个面向 Android 逆向工程练习的本地靶场。
 | 编号 | 数量 | 内容 |
 |---|---:|---|
 | `L1-L53` | 53 关 | 基本关卡 |
-| `KL1-KL38` | 38 关 | 天地秘境 |
+| `KL1-KL40` | 40 关 | 天地秘境 |
 | `KKL1-KKL5` | 5 关 | 太玄之初独立壳系列 |
-| 合计 | 96 关 | Java、Native、网络与壳对抗 |
+| 合计 | 98 关 | Java、Native、网络与壳对抗 |
 
 主要能力覆盖：
 
@@ -58,7 +58,7 @@ FatdogReverse 是一个面向 Android 逆向工程练习的本地靶场。
 | 太玄之初追加卷 | `KKL1-KKL5` | C++ 壳零件、DEX 内存加载、反检测、CRC 和 VMP 签名链 |
 | 扶桑树 | `KL21-KL28` | 端口、fd、maps、auxv、ptrace、时序和反调试组合检测 |
 | 天机阁 | `KL29-KL30` | 自定义 TLV 与 Protobuf 二进制协议 |
-| 碧落天 | `KL36-KL38` | Flutter/Dart 引擎逆向：AOT 常量池、Kernel 字节码、网络层 Hook |
+| 碧落天 | `KL36-KL40` | Flutter/Dart 引擎逆向：AOT 常量池、Kernel 字节码、网络层 Hook、FFI 双向往调、综合收官卷 |
 
 ## 通关规则
 

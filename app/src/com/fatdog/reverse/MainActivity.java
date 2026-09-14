@@ -677,8 +677,8 @@ public class MainActivity extends Activity {
             }
         } else if (kunlunCat == 6) {
             /* 碧落天：KL36 起 */
-            String[] names = {"云中锦书", "风中鸢尾", "雾里观花"};
-            int[] klNums = {36, 37, 38};
+            String[] names = {"云中锦书", "风中鸢尾", "雾里观花", "月下独酌", "星河倒影"};
+            int[] klNums = {36, 37, 38, 39, 40};
             for (int i = 0; i < names.length; i++) {
                 final int kl = klNums[i];
                 boolean open = PassLog.isDone(this, "KL" + kl);
@@ -691,7 +691,7 @@ public class MainActivity extends Activity {
                         LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
                 lp.topMargin = Ui.dp(12);
                 list.addView(b, lp);
-                final Class<?> target = kl == 36 ? scrollActivity.class : kl == 37 ? kiteActivity.class : hazeActivity.class;
+                final Class<?> target = kl == 36 ? scrollActivity.class : kl == 37 ? kiteActivity.class : kl == 38 ? hazeActivity.class : kl == 39 ? moonActivity.class : reflectActivity.class;
                 b.setOnClickListener(new View.OnClickListener() {
                     @Override public void onClick(View v) {
                         startActivity(new Intent(MainActivity.this, target));

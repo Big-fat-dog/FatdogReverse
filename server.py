@@ -2519,6 +2519,87 @@ def api_kl38(page: int = Query(...), ts: int = Query(...), sign: str = Query(...
     return {"page": page, "nums": []}
 
 
+# ---------------- 关卡 KL39（碧落天）月下独酌：Dart FFI 双向往调 ----------
+KEY_KL39 = b"Fatdog_moon"
+DECOY_KL39 = [b"Fatdog_star"]
+PAGES_KL39, PER_PAGE_KL39, SEED_KL39 = 100, 10, 20280701
+_rng_kl39 = random.Random(SEED_KL39)
+NUMS_KL39 = [_rng_kl39.randint(1, 100) for _ in range(PAGES_KL39 * PER_PAGE_KL39)]
+KL39_SUM = sum(NUMS_KL39)
+KL39_SUM_HASH = hashlib.sha256(str(KL39_SUM).encode()).hexdigest()
+
+
+def _kl39_try(key, page, ts, sign):
+    msg = f"page={page}&ts={ts}"
+    expected = hmac.new(key, msg.encode(), hashlib.sha256).hexdigest()
+    return hmac.compare_digest(sign, expected)
+
+
+@app.post("/api/kl39")
+def api_kl39(page: int = Form(...), ts: int = Form(...),
+             enc: str = Form(...), sign: str = Form(...)):
+    _check_page(page, PAGES_KL39)
+    _check_ts(ts)
+    # 验证签名
+    if _kl39_try(KEY_KL39, page, ts, sign):
+        idx = (page - 1) * PER_PAGE_KL39
+        return {"page": page, "nums": NUMS_KL39[idx:idx + PER_PAGE_KL39]}
+    for dk in DECOY_KL39:
+        if _kl39_try(dk, page, ts, sign):
+            raise HTTPException(status_code=403, detail="sign invalid")
+    return {"page": page, "nums": []}
+
+
+# ---------------- 关卡 KL40（碧落天）星河倒影：综合收官卷 ----------
+KEY_KL40 = b"Fatdog_reflect"
+DECOY_KL40 = [b"Fatdog_echo"]
+PAGES_KL40, PER_PAGE_KL40, SEED_KL40 = 100, 10, 20280701
+_rng_kl40 = random.Random(SEED_KL40)
+NUMS_KL40 = [_rng_kl40.randint(1, 100) for _ in range(PAGES_KL40 * PER_PAGE_KL40)]
+KL40_SUM = sum(NUMS_KL40)
+KL40_SUM_HASH = hashlib.sha256(str(KL40_SUM).encode()).hexdigest()
+
+
+def _kl40_try(key, page, ts, sign):
+    msg = f"page={page}&ts={ts}"
+    expected = hmac.new(key, msg.encode(), hashlib.sha256).hexdigest()
+    return hmac.compare_digest(sign, expected)
+
+
+@app.post("/api/kl40")
+def api_kl40(page: int = Form(...), ts: int = Form(...),
+             sign: str = Form(...)):
+    _check_page(page, PAGES_KL40)
+    _check_ts(ts)
+    if _kl40_try(KEY_KL40, page, ts, sign):
+        idx = (page - 1) * PER_PAGE_KL40
+        body = json.dumps({"page": page, "nums": NUMS_KL40[idx:idx + PER_PAGE_KL40]})
+        # RC4 加密响应（与 KL38 同构）
+        rc4_key = hashlib.sha256(KEY_KL40 + b"|rc4").digest()[:16]
+        encrypted = _rc4_40(rc4_key, body.encode())
+        return {"d": encrypted.hex()}
+    for dk in DECOY_KL40:
+        if _kl40_try(dk, page, ts, sign):
+            raise HTTPException(status_code=403, detail="sign invalid")
+    return {"page": page, "nums": []}
+
+
+def _rc4_40(key, data):
+    S = list(range(256))
+    j = 0
+    for i in range(256):
+        j = (j + S[i] + key[i % len(key)]) % 256
+        S[i], S[j] = S[j], S[i]
+    x = y = 0
+    result = bytearray(data)
+    for i in range(len(data)):
+        x = (x + 1) % 256
+        y = (y + S[x]) % 256
+        S[x], S[y] = S[y], S[x]
+        result[i] ^= S[(S[x] + S[y]) % 256]
+    return bytes(result)
+
+
 if __name__ == "__main__":
     cert_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "certs")
     print(f"FatdogReverse 服务端（FastAPI）：http://{HOST}:{PORT_HTTP}（15-20） https://{HOST}:{PORT_HTTPS}（21-27）")
@@ -2531,7 +2612,7 @@ if __name__ == "__main__":
           f"KKL2={sum(NUMS_KKL2)} KKL3={sum(NUMS_KKL3)} KKL4={sum(NUMS_KKL4)} "
           f"L43={sum(NUMS43)} L44={sum(NUMS44)} L45={sum(NUMS45)} L46={sum(NUMS46)} L47={sum(NUMS47)} "
           f"L48={sum(NUMS48)} L49={sum(NUMS49)} L50={sum(NUMS50)} L51={sum(NUMS51)} L52={sum(NUMS52)} L53={sum(NUMS53)} "
-          f"KL36={KL36_SUM} KL37={KL37_SUM} KL38={KL38_SUM}")
+          f"KL36={KL36_SUM} KL37={KL37_SUM} KL38={KL38_SUM} KL39={KL39_SUM} KL40={KL40_SUM}")
     http_cfg = uvicorn.Config(app, host=HOST, port=PORT_HTTP, log_level="info")
     threading.Thread(target=uvicorn.Server(http_cfg).run, daemon=True).start()
     https_cfg = uvicorn.Config(app, host=HOST, port=PORT_HTTPS,

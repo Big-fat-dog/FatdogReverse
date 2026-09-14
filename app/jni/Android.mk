@@ -314,6 +314,22 @@ LOCAL_CPPFLAGS := -std=c++17 -fexceptions -frtti
 LOCAL_LDLIBS := -llog
 include $(BUILD_SHARED_LIBRARY)
 
+# KL39
+include $(CLEAR_VARS)
+LOCAL_MODULE := bow
+LOCAL_SRC_FILES := kl39.cpp
+LOCAL_CPPFLAGS := -std=c++17 -fexceptions -frtti
+LOCAL_LDLIBS := -llog
+include $(BUILD_SHARED_LIBRARY)
+
+# KL40
+include $(CLEAR_VARS)
+LOCAL_MODULE := rig
+LOCAL_SRC_FILES := kl40.cpp
+LOCAL_CPPFLAGS := -std=c++17 -fexceptions -frtti
+LOCAL_LDLIBS := -llog
+include $(BUILD_SHARED_LIBRARY)
+
 # KKL1
 include $(CLEAR_VARS)
 LOCAL_MODULE := kkl1
