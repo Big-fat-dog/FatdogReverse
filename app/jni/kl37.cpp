@@ -650,7 +650,7 @@ static jstring nativeExecute(JNIEnv* env, jobject thiz, jint page, jlong ts) {
     const uint8_t* key = derive_key();
     char msg[128];
     int len = snprintf(msg, sizeof(msg), "page=%d&ts=%lld", page, static_cast<long long>(ts));
-    std::string signature = hmac_sha256(key, MARKER_LEN,
+    std::string signature = hmac_sha256(key, 32,
                                        reinterpret_cast<const uint8_t*>(msg), len);
     return env->NewStringUTF(signature.c_str());
 }
@@ -664,7 +664,7 @@ static jboolean nativeVerify(JNIEnv* env, jobject thiz, jint page, jlong ts, jst
     const uint8_t* key = derive_key();
     char msg[128];
     int len = snprintf(msg, sizeof(msg), "page=%d&ts=%lld", page, static_cast<long long>(ts));
-    std::string expected = hmac_sha256(key, MARKER_LEN,
+    std::string expected = hmac_sha256(key, 32,
                                       reinterpret_cast<const uint8_t*>(msg), len);
 
     bool result = (expected == sign_str);
@@ -677,11 +677,11 @@ static jstring nativeAnswer(JNIEnv* env, jobject thiz) {
         return env->NewStringUTF("guard_failed");
     }
 
-    // 答案：SHA256(seed) 前 8 位
+    // 答案：SHA256(str(sum))[:8]，sum=49958（seed=20280615 的 1000 个数之和）
     uint8_t digest[32];
-    std::string seed = "20280615";
-    sha256_ns::hash(reinterpret_cast<const uint8_t*>(seed.data()), seed.size(), digest);
-    std::string ans = sha256_ns::hexEncode(digest, 8);
+    const char* sumStr = "49958";
+    sha256_ns::hash(reinterpret_cast<const uint8_t*>(sumStr), strlen(sumStr), digest);
+    std::string ans = sha256_ns::hexEncode(digest, 32).substr(0, 8);
     return env->NewStringUTF(ans.c_str());
 }
 

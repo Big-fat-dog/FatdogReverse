@@ -405,8 +405,8 @@ static jboolean nativeVerify(JNIEnv *env, jclass clazz, jint page, jlong ts, jst
 }
 
 static jstring nativeAnswer(JNIEnv *env, jclass clazz) {
-    // SHA256("20280701") 前 8 位 hex
-    std::string ans = sha256Hex("20280701");
+    // SHA256(str(sum))[:8]，sum=50778（seed=20280701 的 1000 个数之和）
+    std::string ans = sha256Hex("50778");
     return env->NewStringUTF(ans.substr(0, 8).c_str());
 }
 

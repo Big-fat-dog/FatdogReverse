@@ -20,7 +20,7 @@
  *   - 线程名扫描（gum-js-loop 等）
  *   - 检测命中即投毒密钥一字节，服务端 403
  *
- * 答案：SHA256("Fatdog_moon") 前 8 位 hex
+ * 答案：SHA256(str(sum)) 前 8 位 hex（sum=49978）
  * 标记：Fatdog_moon（真）/ Fatdog_star（诱饵）
  */
 
@@ -91,6 +91,12 @@ static const volatile uint8_t K39_DECOY[] = {
     95^0x42, 115^0x42, 116^0x42, 97^0x42, 114^0x42
 };
 
+// Fatdog_moon = {70,97,116,100,111,103,95,109,111,111,110} XOR 0x42（真密钥，直接用于 HMAC）
+static const volatile uint8_t K39_KEY[] = {
+    70^0x42, 97^0x42, 116^0x42, 100^0x42, 111^0x42, 103^0x42,
+    95^0x42, 109^0x42, 111^0x42, 111^0x42, 110^0x42
+};
+
 // XOR 编码密钥（用于 encRequest 加密运算）
 static const volatile uint8_t K39_ROLL_KEY[] = {
     0x42, 0x97, 0x13, 0x58, 0xA1, 0x2B, 0x6F, 0xC3
@@ -117,6 +123,14 @@ static std::string decodeDecoy() {
     r.reserve(sizeof(K39_DECOY));
     for (size_t i = 0; i < sizeof(K39_DECOY); i++)
         r += (char)(K39_DECOY[i] ^ 0x42);
+    return r;
+}
+
+static std::string decodeKey() {
+    std::string r;
+    r.reserve(sizeof(K39_KEY));
+    for (size_t i = 0; i < sizeof(K39_KEY); i++)
+        r += (char)(K39_KEY[i] ^ 0x42);
     return r;
 }
 
@@ -423,8 +437,8 @@ static std::string ffiComputeSign(int page, long ts, bool use_real_key) {
     if (g_key_poisoned) return "guard_failed";
     std::string key;
     if (use_real_key) {
-        // 通过 FFI 回调组装完整密钥
-        key = ffiCallbackAssembleKey();
+        // 直接使用真密钥（模拟 Dart FFI 回调获取的完整密钥）
+        key = decodeKey();
     } else {
         key = decodeDecoy();
     }
@@ -512,9 +526,9 @@ static jboolean nativeVerify(JNIEnv *env, jclass clazz, jint page, jlong ts, jst
 }
 
 // 5. nativeAnswer() -> String
-//    SHA256("Fatdog_moon") 前 8 位 hex
+//    SHA256(str(sum)) 前 8 位 hex（sum=49978）
 static jstring nativeAnswer(JNIEnv *env, jclass clazz) {
-    std::string ans = sha256Hex("Fatdog_moon");
+    std::string ans = sha256Hex("49978");
     return env->NewStringUTF(ans.substr(0, 8).c_str());
 }
 

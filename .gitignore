@@ -10,6 +10,8 @@ build/
 app/build/
 app/obj/
 app/libs/
+libs/
+obj/
 FatdogReverse.apk
 FatdogReverse.apk.idsig
 

@@ -23,7 +23,7 @@
  *   - 线程名扫描（gum-js-loop 等）
  *   - 检测命中即投毒密钥一字节，服务端 403
  *
- * 答案：SHA256("Fatdog_reflect") 前 8 位 hex
+ * 答案：SHA256(str(sum)) 前 8 位 hex（sum=52005）
  * 标记：Fatdog_reflect（真）/ Fatdog_echo（诱饵）
  */
 
@@ -83,6 +83,13 @@ static const volatile uint8_t K40_DECOY[] = {
     95^0x55, 101^0x55, 99^0x55, 104^0x55, 111^0x55
 };
 
+// Fatdog_reflect 直接密钥（用于 HMAC，与服务端一致）
+static const volatile uint8_t K40_RAW_KEY[] = {
+    70^0x55, 97^0x55, 116^0x55, 100^0x55, 111^0x55, 103^0x55,
+    95^0x55, 114^0x55, 101^0x55, 102^0x55, 108^0x55, 101^0x55,
+    99^0x55, 116^0x55
+};
+
 // Cert Pin 哈希（模拟证书 SHA-256）
 static const volatile uint8_t K40_PIN[] = {
     0xb7, 0x2e, 0x4a, 0x1f, 0x9d, 0xc3, 0x65, 0x88,
@@ -104,6 +111,14 @@ static std::string decodeDecoy() {
     r.reserve(sizeof(K40_DECOY));
     for (size_t i = 0; i < sizeof(K40_DECOY); i++)
         r += (char)(K40_DECOY[i] ^ 0x55);
+    return r;
+}
+
+static std::string decodeRawKey() {
+    std::string r;
+    r.reserve(sizeof(K40_RAW_KEY));
+    for (size_t i = 0; i < sizeof(K40_RAW_KEY); i++)
+        r += (char)(K40_RAW_KEY[i] ^ 0x55);
     return r;
 }
 
@@ -270,21 +285,29 @@ static bool g_keys_derived = false;
 
 static void deriveKeys() {
     if (g_keys_derived) return;
-    std::string master = decodeKey();
+    std::string master = decodeRawKey();
 
-    // HMAC key = SHA256("Fatdog_reflect|hmac")
-    std::string hmac_input = master + "|hmac";
-    g_hmac_key = sha256Hex(hmac_input);
+    // HMAC key = 直接使用主密钥（与服务端 hmac.new(key, msg) 一致）
+    g_hmac_key = master;
 
-    // RC4 key = SHA256("Fatdog_reflect|rc4")[:16]
+    // RC4 key = SHA256(master + "|rc4").digest()[:16]（二进制，非 hex 文本）
     std::string rc4_input = master + "|rc4";
     std::string rc4_full = sha256Hex(rc4_input);
-    g_rc4_key = rc4_full.substr(0, 16);
+    // 服务端用 .digest()[:16]（二进制），这里从 hex 还原为二进制字节
+    g_rc4_key.reserve(16);
+    for (size_t i = 0; i < 16 && i * 2 + 1 < rc4_full.size(); i++) {
+        char byte_str[3] = {rc4_full[i*2], rc4_full[i*2+1], '\0'};
+        g_rc4_key += (char)(uint8_t)strtol(byte_str, nullptr, 16);
+    }
 
-    // AOT key = SHA256("Fatdog_reflect|aot")[:16]
+    // AOT key = SHA256(master + "|aot").digest()[:16]（同理）
     std::string aot_input = master + "|aot";
     std::string aot_full = sha256Hex(aot_input);
-    g_aot_key = aot_full.substr(0, 16);
+    g_aot_key.reserve(16);
+    for (size_t i = 0; i < 16 && i * 2 + 1 < aot_full.size(); i++) {
+        char byte_str[3] = {aot_full[i*2], aot_full[i*2+1], '\0'};
+        g_aot_key += (char)(uint8_t)strtol(byte_str, nullptr, 16);
+    }
 
     g_keys_derived = true;
     LOGI("Keys derived: hmac=%zu rc4=%zu aot=%zu",
@@ -455,9 +478,8 @@ static std::string compute_sign(int page, long ts, bool use_real_key) {
     if (use_real_key) {
         hmac_key = g_hmac_key;
     } else {
-        // 诱饵密钥派生
-        std::string decoy = decodeDecoy();
-        hmac_key = sha256Hex(decoy + "|hmac");
+        // 诱饵密钥直接使用（与服务端 hmac.new(decoy, msg) 一致）
+        hmac_key = decodeDecoy();
     }
 
     char buf[128];
@@ -561,9 +583,9 @@ static jboolean nativeVerifyIntegrity(JNIEnv *env, jclass clazz) {
 }
 
 // 4. nativeAnswer() -> String
-//    SHA256("Fatdog_reflect") 前 8 位 hex
+//    SHA256(str(sum)) 前 8 位 hex（sum=52005）
 static jstring nativeAnswer(JNIEnv *env, jclass clazz) {
-    std::string ans = sha256Hex("Fatdog_reflect");
+    std::string ans = sha256Hex("52005");
     return env->NewStringUTF(ans.substr(0, 8).c_str());
 }
 

@@ -4718,7 +4718,7 @@ def sign(page, ts):
 3. 27042-27044 端口探测；
 4. 线程名扫描（comm 字段匹配）。
 
-**CRC 自校验**：`.text` 段 CRC-32 校验，函数头 inline hook 检测。检测命中即静默投毒密钥一字节（key[2] ^= 0xFF），服务端 HMAC 验签 403。
+**CRC 自校验**：`.text` 段 CRC-32 校验，函数头 inline hook 检测。检测命中即静默投毒密钥一字节（key[7] ^= 0x40），服务端 HMAC 验签 403。
 
 **解法**：
 1. **Frida 路线**：hook `nativeGetStatus` 绕过哨兵 → hook `nativeExecute` 直接拿签名 → Python 复刻；
@@ -4730,7 +4730,8 @@ def sign(page, ts):
 import hmac, hashlib
 KEY = b"Fatdog_kite"  # 真密钥（诱饵 Fatdog_sail）
 def sign(page, ts):
-    return hmac.new(KEY, f"page={page}&ts={ts}".encode(), hashlib.sha256).hexdigest()
+    derived = hashlib.sha256(KEY + b"|hmac").digest()
+    return hmac.new(derived, f"page={page}&ts={ts}".encode(), hashlib.sha256).hexdigest()
 # 逐页请求 https://<host>/api/kl37?page=&ts=&sign= ，收集 1000 个数求和
 ```
 
@@ -4789,7 +4790,7 @@ def sign(page, ts):
 - 四路哨兵同时在线，Frida 必须 spawn 抢跑或 patch 掉检测函数；
 - 诱饵 `Fatdog_fog` 与真标记只差三个字母，用错即 403；
 - `nativeGetStatus` 只读不判胜，可安全调用查看哨兵状态；
-- 答案是 SHA256("20280701") 前 8 位 hex，需要自行计算。
+- 答案是 SHA256(str(sum)) 前 8 位 hex（sum 为 1000 个数之和），需要自行计算。
 
 ### KL39：月下独酌（libbow.so · Dart FFI 双向往调 + 密钥分片 + FFI 注册表 + 四路哨兵）
 
@@ -4830,14 +4831,14 @@ def sign(page, ts):
 # POST /api/kl39 表单 page=&ts=&enc=&sign= ，收集 100 页×10 个数求和
 ```
 
-**答案**：100 页共 1000 个数求和（seed=20280701），`sha256(str(sum))` 前 8 位 hex 即答案。flag `FLAG_18_KL39{drinking_alone_moonlight}`。真标记 `Fatdog_moon` / 诱饵 `Fatdog_star`。
+**答案**：100 页共 1000 个数求和（seed=20280715），`sha256(str(sum))` 前 8 位 hex 即答案。flag `FLAG_18_KL39{drinking_alone_moonlight}`。真标记 `Fatdog_moon` / 诱饵 `Fatdog_star`。
 
 **坑位提醒**：
 - Dart FFI 边界是双向的——不仅 Dart 调 C，C 也会回调 Dart 取密钥碎片，传统单向 hook 不够；
 - 密钥分两侧存储，单独提取任一片都无法还原完整密钥；
 - FFI 注册表中有诱饵入口，盲目调用会崩溃；
 - 诱饵 `Fatdog_star` 与真标记只差四个字母，用错即 403；
-- 答案是 SHA256("Fatdog_moon") 前 8 位 hex，需要自行计算。
+- 答案是 SHA256(str(sum)) 前 8 位 hex（sum 为 1000 个数之和），需要自行计算。
 
 ### KL40：星河倒影（librig.so · 碧落天综合收官卷 · 多层安全叠加）
 
@@ -4852,7 +4853,7 @@ def sign(page, ts):
 **多层安全叠加**：
 - 反调试：ptrace/TracerPid + /proc/self/maps + 27042-27044 端口 + 线程名扫描（四路同构）；
 - 自校验：函数指针 + .text 段哈希验证代码完整性；
-- 密钥派生：`Fatdog_reflect` → SHA256(master+"|hmac") → HMAC 密钥；SHA256(master+"|rc4")[:16] → RC4 密钥；SHA256(master+"|aot")[:16] → AOT 密钥；
+- 密钥派生：`Fatdog_reflect` 直接用于 HMAC 签名；SHA256(master+"|rc4").digest()[:16] → RC4 密钥；SHA256(master+"|aot").digest()[:16] → AOT 密钥；
 - 响应加密：服务端用 RC4 加密 JSON 响应，客户端用 `nativeDecryptRsp` 解密。
 
 **解法**：
@@ -4864,10 +4865,9 @@ def sign(page, ts):
 ```python
 import hmac, hashlib
 KEY = b"Fatdog_reflect"  # 真密钥（诱饵 Fatdog_echo）
-hmac_key = hashlib.sha256(KEY + b"|hmac").digest()
-rc4_key = hashlib.sha256(KEY + b"|rc4").digest()[:16]
+rc4_key = hashlib.sha256(KEY + b"|rc4").digest()[:16]  # 二进制 16 字节
 def sign(page, ts):
-    return hmac.new(hmac_key, f"page={page}&ts={ts}".encode(), hashlib.sha256).hexdigest()
+    return hmac.new(KEY, f"page={page}&ts={ts}".encode(), hashlib.sha256).hexdigest()
 def rc4_decrypt(key, data):
     S = list(range(256)); j = 0
     for i in range(256): j = (j + S[i] + key[i % len(key)]) % 256; S[i], S[j] = S[j], S[i]
@@ -4880,14 +4880,14 @@ def rc4_decrypt(key, data):
 # 解密 d 得到 page=N|nums=1,2,...
 ```
 
-**答案**：100 页共 1000 个数求和（seed=20280701），`sha256(str(sum))` 前 8 位 hex 即答案。flag `FLAG_18_KL40{galaxy_reflected}`。真标记 `Fatdog_reflect` / 诱饵 `Fatdog_echo`。
+**答案**：100 页共 1000 个数求和（seed=20280720），`sha256(str(sum))` 前 8 位 hex 即答案。flag `FLAG_18_KL40{galaxy_reflected}`。真标记 `Fatdog_reflect` / 诱饵 `Fatdog_echo`。
 
 **坑位提醒**：
 - 这是碧落天收官卷，综合了前面所有技术——反调试、FFI、签名、RC4 全部在线；
 - 任一层被绕过即静默投毒，必须全部正确才能通过；
 - 诱饵 `Fatdog_echo` 与真标记只差四个字母，用错即 403；
 - 响应体是 RC4 加密的，不是明文 JSON——需要先解密再解析；
-- 答案是 SHA256("Fatdog_reflect") 前 8 位 hex，需要自行计算。
+- 答案是 SHA256(str(sum)) 前 8 位 hex（sum 为 1000 个数之和），需要自行计算。
 
 ```text
 apktool d FatdogReverse.apk -o out       # 单 classes.dex → out/smali（已无 classes2/3）
@@ -5016,7 +5016,7 @@ frida -U -n com.fatdog.reverse -l hook_l10.js
 | KKL4 | `FLAG_18_KKL4{tower_of_the_sealed}` |
 | KKL5 | `FLAG_18_KKL5{ascension_of_the_immortals}` |
 | KL36 | `FLAG_18_KL36{cloud_letter_unrolled}` |
-| KL37 | `FLAG_18_KL37{kite_in_the_wind}` |
+| KL37 | `FLAG_18_KL37{iris_in_the_wind}` |
 | KL38 | `FLAG_18_KL38{flower_in_mist}` |
 | KL39 | `FLAG_18_KL39{drinking_alone_moonlight}` |
 | KL40 | `FLAG_18_KL40{galaxy_reflected}` |

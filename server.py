@@ -2524,7 +2524,7 @@ def api_kl38(page: int = Query(...), ts: int = Query(...), sign: str = Query(...
 # ---------------- 关卡 KL39（碧落天）月下独酌：Dart FFI 双向往调 ----------
 KEY_KL39 = b"Fatdog_moon"
 DECOY_KL39 = [b"Fatdog_star"]
-PAGES_KL39, PER_PAGE_KL39, SEED_KL39 = 100, 10, 20280701
+PAGES_KL39, PER_PAGE_KL39, SEED_KL39 = 100, 10, 20280715
 _rng_kl39 = random.Random(SEED_KL39)
 NUMS_KL39 = [_rng_kl39.randint(1, 100) for _ in range(PAGES_KL39 * PER_PAGE_KL39)]
 KL39_SUM = sum(NUMS_KL39)
@@ -2555,7 +2555,7 @@ def api_kl39(page: int = Form(...), ts: int = Form(...),
 # ---------------- 关卡 KL40（碧落天）星河倒影：综合收官卷 ----------
 KEY_KL40 = b"Fatdog_reflect"
 DECOY_KL40 = [b"Fatdog_echo"]
-PAGES_KL40, PER_PAGE_KL40, SEED_KL40 = 100, 10, 20280701
+PAGES_KL40, PER_PAGE_KL40, SEED_KL40 = 100, 10, 20280720
 _rng_kl40 = random.Random(SEED_KL40)
 NUMS_KL40 = [_rng_kl40.randint(1, 100) for _ in range(PAGES_KL40 * PER_PAGE_KL40)]
 KL40_SUM = sum(NUMS_KL40)
