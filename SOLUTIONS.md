@@ -4685,18 +4685,19 @@ def lcg_ans(seed):                      # KL24-30：libice 之后统一 LCG 伪 
 **解法**：
 1. **静态路线**：IDA 看 `nativeGetConstantPool` 返回的 byte[]，找到 XOR 密钥（`^0x3C`）还原出真密钥 `Fatdog_scroll`（诱饵 `Fatdog_roll`）；
 2. **动态路线**：Frida hook `nativeSign` 直接拿 (page, ts, sign) 三元组，Python 复刻；
-3. **Python 复刻**：`HMAC-SHA256("Fatdog_scroll", f"page={page}&ts={ts}")`，收集 100 页×10 个数求和。
+3. **Python 复刻**：`derived = SHA256(b"Fatdog_scroll|hmac").digest()`，再 `HMAC-SHA256(derived, f"page={page}&ts={ts}")`，收集 100 页×10 个数求和。
 
 **Python 复刻**（先 `python server.py`）：
 ```python
 import hmac, hashlib, requests
 KEY = b"Fatdog_scroll"
 def sign(page, ts):
-    return hmac.new(KEY, f"page={page}&ts={ts}".encode(), hashlib.sha256).hexdigest()
+    derived = hashlib.sha256(KEY + b"|hmac").digest()
+    return hmac.new(derived, f"page={page}&ts={ts}".encode(), hashlib.sha256).hexdigest()
 # 逐页请求 https://<host>/api/kl36?page=&ts=&sign= ，收集 1000 个数求和
 ```
 
-**答案**：100 页共 1000 个数求和，`sha256(str(sum))` 即通关哈希。flag `FLAG_18_KL36{cloud_letter}`。真标记 `Fatdog_scroll` / 诱饵 `Fatdog_roll`。
+**答案**：100 页共 1000 个数求和，`sha256(str(sum))` 即通关哈希。flag `FLAG_18_KL36{cloud_letter_unrolled}`。真标记 `Fatdog_scroll` / 诱饵 `Fatdog_roll`。
 
 **坑位提醒**：常量池里的密钥是 XOR 混淆的，直接 strings 看不到明文；诱饵只差一个字母，仔细辨别。
 
@@ -5014,11 +5015,64 @@ frida -U -n com.fatdog.reverse -l hook_l10.js
 | KKL3 | `FLAG_18_KKL3{valley_of_the_sentinel}` |
 | KKL4 | `FLAG_18_KKL4{tower_of_the_sealed}` |
 | KKL5 | `FLAG_18_KKL5{ascension_of_the_immortals}` |
-| KL36 | `FLAG_18_KL36{scroll_from_the_clouds}` |
+| KL36 | `FLAG_18_KL36{cloud_letter_unrolled}` |
 | KL37 | `FLAG_18_KL37{kite_in_the_wind}` |
 | KL38 | `FLAG_18_KL38{flower_in_mist}` |
 | KL39 | `FLAG_18_KL39{drinking_alone_moonlight}` |
 | KL40 | `FLAG_18_KL40{galaxy_reflected}` |
+
+---
+
+## 天地秘境 · 须弥界（KL41+）
+
+> 须弥界覆盖跨平台 JS 框架逆向：RN/Weex/Uni-app 的 JS bundle 提取、Hermes bytecode、JSI/NativeModule 桥接、新架构 Fabric/TurboModule。
+
+### KL41：纸上谈兵（libjar.so · JS Bundle 基础）
+
+**考点**：JS bundle 中密钥被拆分为字符串片段 + metro 混淆还原 + HMAC-SHA256 签名。
+
+**协议**：GET `https://10.0.2.2:8443/api/kl41?page=N&ts=T&sign=HMAC-SHA256`
+
+**静态复刻（Python）**：
+```python
+import requests, time, hmac, hashlib
+
+KEY = b"Fatdog_tactic"
+BASE = "https://10.0.2.2:8443"
+s = requests.Session()
+s.verify = False
+
+total = 0
+for page in range(1, 101):
+    ts = int(time.time())
+    msg = f"page={page}&ts={ts}"
+    sign = hmac.new(KEY, msg.encode(), hashlib.sha256).hexdigest()
+    r = s.get(f"{BASE}/api/kl41", params={"page": page, "ts": ts, "sign": sign})
+    nums = r.json()["nums"]
+    total += sum(nums)
+
+print(f"sum = {total}")
+print(f"hash = {hashlib.sha256(str(total).encode()).hexdigest()}")
+```
+
+**答案**：100 页共 1000 个数求和，`sha256(str(sum))[:8]` 即通关哈希。flag `FLAG_18_KL41{paper_strategy}`。真标记 `Fatdog_tactic` / 诱饵 `Fatdog_plan`。
+
+**Frida 动态**：
+```javascript
+Java.perform(function() {
+    var RnBridge = Java.use("com.fatdog.reverse.RnBridge");
+    RnBridge.nativeSign.implementation = function(page, ts) {
+        var result = this.nativeSign(page, ts);
+        console.log("nativeSign(" + page + ", " + ts + ") = " + result);
+        return result;
+    };
+});
+```
+
+| 关卡 | Flag |
+|------|------|
+| KL41 | `FLAG_18_KL41{paper_strategy}` |
+| KL41 | `FLAG_18_KL41{paper_strategy}` |
 
 
 > 备注：L43-L45 现版源码庆祝串均为 `FLAG_18_L48{mirror_tells_true}`（L48 为历史编号残留、三关复制未改），上表按关卡语义区分；L47 以当前 App 庆祝串 `FLAG_18_L47{guard_matrix_crc_aes}` 为准。关卡 9 有两个变体串（`single_gate_not_enough` 是只过一重门时的诱饵/半程提示）。

@@ -449,7 +449,7 @@ public class MainActivity extends Activity {
         LinearLayout cats = new LinearLayout(this);
         cats.setOrientation(LinearLayout.HORIZONTAL);
         cats.setPadding(Ui.dp(4), Ui.dp(12), Ui.dp(4), Ui.dp(4));
-        final String[] catNames = {"昆仑山", "流沙河", "幽冥海", "太玄之初", "扶桑树", "天机阁", "碧落天"};
+        final String[] catNames = {"昆仑山", "流沙河", "幽冥海", "太玄之初", "扶桑树", "天机阁", "碧落天", "须弥界"};
         for (int i = 0; i < catNames.length; i++) {
             final int idx = i;
             TextView chip = new TextView(this);
@@ -692,6 +692,29 @@ public class MainActivity extends Activity {
                 lp.topMargin = Ui.dp(12);
                 list.addView(b, lp);
                 final Class<?> target = kl == 36 ? scrollActivity.class : kl == 37 ? kiteActivity.class : kl == 38 ? hazeActivity.class : kl == 39 ? moonActivity.class : reflectActivity.class;
+                b.setOnClickListener(new View.OnClickListener() {
+                    @Override public void onClick(View v) {
+                        startActivity(new Intent(MainActivity.this, target));
+                    }
+                });
+            }
+        } else if (kunlunCat == 7) {
+            /* 须弥界：KL41 起 */
+            String[] names = {"纸上谈兵"};
+            int[] klNums = {41};
+            for (int i = 0; i < names.length; i++) {
+                final int kl = klNums[i];
+                boolean open = PassLog.isDone(this, "KL" + kl);
+                Button b = new Button(this);
+                b.setText("KL" + kl + " · " + names[i] + (open ? " ✔" : ""));
+                b.setEnabled(true);
+                b.setAlpha(b.isEnabled() ? 1f : 0.55f);
+                Ui.styleButton(b);
+                LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+                lp.topMargin = Ui.dp(12);
+                list.addView(b, lp);
+                final Class<?> target = tacticActivity.class;
                 b.setOnClickListener(new View.OnClickListener() {
                     @Override public void onClick(View v) {
                         startActivity(new Intent(MainActivity.this, target));

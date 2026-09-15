@@ -146,6 +146,9 @@
         <activity android:name=".moonActivity" android:exported="false" />
         <activity android:name=".reflectActivity" android:exported="false" />
 
+        <!-- 天地秘境须弥界 KL41 -->
+        <activity android:name=".tacticActivity" android:exported="false" />
+
         <!-- Native大陆 L48：落日平原（operator+ 重载） -->
         <activity android:name=".x48Activity" android:exported="false" />
 

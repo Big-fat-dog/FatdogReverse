@@ -1,6 +1,5 @@
 package com.fatdog.reverse;
 
-import android.animation.AnimatorSet;
 import android.animation.ObjectAnimator;
 import android.animation.ValueAnimator;
 import android.app.Activity;
@@ -9,7 +8,9 @@ import android.content.Context;
 import android.content.Intent;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
+import android.graphics.Canvas;
 import android.graphics.Color;
+import android.graphics.Paint;
 import android.graphics.PorterDuff;
 import android.graphics.Typeface;
 import android.graphics.drawable.Drawable;
@@ -34,7 +35,7 @@ import java.util.ArrayList;
 // 个人主页：顶部"传送带"式分类条（基本情况 / 太古禁地 / 神念自察 / 昔日枷锁 / 前世今生），可横向滑动；
 // 下方内容随分类切换。基本情况 = 头像 + 境界 + 修仙进度；右上角昼夜切换；背景图。
 public class ProfileActivity extends Activity {
-    private static final int TOTAL_LEVELS = 93;   // L1-L47 + L48-L53 + KL1-KL40 + KKL1-KKL5（LEVEL_IDS 数组长度）
+    private static final int TOTAL_LEVELS = 94;   // L1-L47 + L48-L53 + KL1-KL41 + KKL1-KKL5（LEVEL_IDS 数组长度）
     // 炼气~元婴：每 5 关一层（1-20）；化神起：每 10 关一个大境界，第 10 层为"圆满"；
     // 高阶四境之后是终点"独断万古"——通关数再多也停在它上面。
     private static final String[] BIG_REALMS = {"炼气", "筑基", "金丹", "元婴"};
@@ -269,49 +270,58 @@ public class ProfileActivity extends Activity {
         avHint.setTextColor(mutedColor);
         box.addView(avHint, Ui.wrap(6));
 
-        // 境界徽章（化神起带柔和呼吸光晕；终点境界为深空鎏金渐变）
-        TextView realm = new TextView(ctx);
-        realm.setText(realmName(n));
-        realm.setTextSize(26);
-        realm.setTypeface(Typeface.DEFAULT_BOLD);
-        realm.setTextColor(Color.WHITE);
-        realm.setGravity(Gravity.CENTER);
+        // 境界徽章（化神起带文字描边光晕；终点境界为深空鎏金渐变）
         boolean finale = isFinalRealm(n);
-        GradientDrawable badge = new GradientDrawable();
-        badge.setShape(GradientDrawable.RECTANGLE);
-        badge.setCornerRadius(dp(ctx, 30f));
-        if (finale) {
-            badge.setColors(FINAL_BADGE_COLORS);
-            badge.setOrientation(GradientDrawable.Orientation.TL_BR);
-            badge.setStroke(dp(ctx, 2f), FINAL_EDGE_COLOR);
+        boolean divineGlow = hasDivineGlow(n);
+        View realm;
+        LinearLayout.LayoutParams realmLp;
+        if (divineGlow) {
+            GlowTextView gv = new GlowTextView(ctx, realmColor(n));
+            gv.setText(realmName(n));
+            gv.setTextSize(22);
+            gv.setTypeface(Typeface.DEFAULT_BOLD);
+            gv.setTextColor(Color.WHITE);
+            gv.setGravity(Gravity.CENTER);
+            if (finale) {
+                GradientDrawable badge = new GradientDrawable();
+                badge.setShape(GradientDrawable.RECTANGLE);
+                badge.setCornerRadius(dp(ctx, 24f));
+                badge.setColors(FINAL_BADGE_COLORS);
+                badge.setOrientation(GradientDrawable.Orientation.TL_BR);
+                badge.setStroke(dp(ctx, 2f), FINAL_EDGE_COLOR);
+                gv.setBackground(badge);
+                gv.setGlowColor(FINAL_GLOW_COLOR);
+            } else {
+                GradientDrawable badge = new GradientDrawable();
+                badge.setShape(GradientDrawable.RECTANGLE);
+                badge.setCornerRadius(dp(ctx, 24f));
+                badge.setColor(realmColor(n));
+                badge.setStroke(dp(ctx, 2f), 0x44FFFFFF);
+                gv.setBackground(badge);
+            }
+            gv.setPadding(dp(ctx, 20), dp(ctx, 8), dp(ctx, 20), dp(ctx, 8));
+            realm = gv;
+            realmLp = Ui.wrap(12);
+            realmLp.bottomMargin = dp(ctx, 10);
+            box.addView(realm, realmLp);
+            startDivinePulse(gv);
         } else {
+            TextView tv = new TextView(ctx);
+            tv.setText(realmName(n));
+            tv.setTextSize(22);
+            tv.setTypeface(Typeface.DEFAULT_BOLD);
+            tv.setTextColor(Color.WHITE);
+            tv.setGravity(Gravity.CENTER);
+            GradientDrawable badge = new GradientDrawable();
+            badge.setShape(GradientDrawable.RECTANGLE);
+            badge.setCornerRadius(dp(ctx, 24f));
             badge.setColor(realmColor(n));
             badge.setStroke(dp(ctx, 2f), 0x44FFFFFF);
-        }
-        realm.setBackground(badge);
-        realm.setPadding(dp(ctx, 32), dp(ctx, 10), dp(ctx, 32), dp(ctx, 10));
-        LinearLayout.LayoutParams realmLp = Ui.wrap(16);
-        realmLp.bottomMargin = dp(ctx, 12);
-        if (hasDivineGlow(n)) {
-            View glow = new View(ctx);
-            GradientDrawable gd = new GradientDrawable();
-            gd.setShape(GradientDrawable.RECTANGLE);
-            gd.setCornerRadius(dp(ctx, 36f));
-            gd.setColor(finale ? FINAL_GLOW_COLOR : realmColor(n));
-            glow.setBackground(gd);
-            FrameLayout badgeHost = new FrameLayout(ctx);
-            FrameLayout.LayoutParams glp = new FrameLayout.LayoutParams(
-                    FrameLayout.LayoutParams.MATCH_PARENT,
-                    FrameLayout.LayoutParams.MATCH_PARENT);
-            int m = dp(ctx, 7);
-            glp.setMargins(-m, -m, -m, -m);   // 光晕向四周溢出 7dp
-            badgeHost.addView(glow, glp);
-            badgeHost.addView(realm, new FrameLayout.LayoutParams(
-                    FrameLayout.LayoutParams.WRAP_CONTENT,
-                    FrameLayout.LayoutParams.WRAP_CONTENT));
-            box.addView(badgeHost, realmLp);
-            startDivinePulse(glow, realm);
-        } else {
+            tv.setBackground(badge);
+            tv.setPadding(dp(ctx, 20), dp(ctx, 8), dp(ctx, 20), dp(ctx, 8));
+            realm = tv;
+            realmLp = Ui.wrap(12);
+            realmLp.bottomMargin = dp(ctx, 10);
             box.addView(realm, realmLp);
         }
 
@@ -400,7 +410,8 @@ public class ProfileActivity extends Activity {
             {"—— 太玄之初 · 壳 ——", "KKL1", "玄冥渊", "KKL2", "万剑冢", "KKL3", "断魂谷", "KKL4", "锁妖塔", "KKL5", "诛仙台"},
             {"—— 扶桑树 ——", "KL21", "枯叶听风", "KL22", "落影寻痕", "KL23", "照妖显形", "KL24", "冰鉴悬镜", "KL25", "暮雾锁听", "KL26", "暮霭沉沉", "KL27", "轻纱覆影", "KL28", "雪落无痕"},
             {"—— 天机阁 ——", "KL29", "暗流涌动", "KL30", "天机织锦"},
-            {"—— 碧落天 ——", "KL36", "云中锦书", "KL37", "风中鸢尾", "KL38", "雾里观花", "KL39", "月下独酌", "KL40", "星河倒影"}
+            {"—— 碧落天 ——", "KL36", "云中锦书", "KL37", "风中鸢尾", "KL38", "雾里观花", "KL39", "月下独酌", "KL40", "星河倒影"},
+            {"—— 须弥界 ——", "KL41", "纸上谈兵"}
         };
 
         for (String[] zone : zones) {
@@ -435,7 +446,7 @@ public class ProfileActivity extends Activity {
                     row.addView(arrow);
                     row.setOnClickListener(new View.OnClickListener() {
                         @Override public void onClick(View v) {
-                            Class<?> target = "KL36".equals(levelId) ? scrollActivity.class : "KL38".equals(levelId) ? hazeActivity.class : DivineStoryActivity.class;
+                            Class<?> target = "KL36".equals(levelId) ? scrollActivity.class : "KL38".equals(levelId) ? hazeActivity.class : "KL41".equals(levelId) ? tacticActivity.class : DivineStoryActivity.class;
                             Intent intent = new Intent(ctx, target);
                             intent.putExtra("level", levelId);
                             intent.putExtra("title", name);
@@ -512,31 +523,18 @@ public class ProfileActivity extends Activity {
         return "独断万古，此界之上再无境界";
     }
 
-    // 化神后的柔和呼吸光：光晕 alpha 缓慢往复 + 徽章轻微明暗，不刺眼；离屏即停，不泄漏
-    private static void startDivinePulse(View glow, View badge) {
-        ObjectAnimator ga = ObjectAnimator.ofFloat(glow, "alpha", 0.10f, 0.45f);
-        ga.setDuration(1800);
-        ga.setRepeatCount(ValueAnimator.INFINITE);
-        ga.setRepeatMode(ValueAnimator.REVERSE);
-        ga.setInterpolator(new AccelerateDecelerateInterpolator());
-        ObjectAnimator ba = ObjectAnimator.ofFloat(badge, "alpha", 0.88f, 1f);
-        ba.setDuration(1800);
-        ba.setRepeatCount(ValueAnimator.INFINITE);
-        ba.setRepeatMode(ValueAnimator.REVERSE);
-        ba.setInterpolator(new AccelerateDecelerateInterpolator());
-        final AnimatorSet set = new AnimatorSet();
-        set.playTogether(ga, ba);
-        badge.addOnAttachStateChangeListener(new View.OnAttachStateChangeListener() {
-            @Override
-            public void onViewAttachedToWindow(View v) {
-            }
-
-            @Override
-            public void onViewDetachedFromWindow(View v) {
-                set.cancel();
-            }
+    // 化神后的文字描边呼吸光：光晕强度缓慢往复；离屏即停，不泄漏
+    private static void startDivinePulse(final GlowTextView gv) {
+        ObjectAnimator a = ObjectAnimator.ofFloat(gv, "glowIntensity", 0f, 1f);
+        a.setDuration(1800);
+        a.setRepeatCount(ValueAnimator.INFINITE);
+        a.setRepeatMode(ValueAnimator.REVERSE);
+        a.setInterpolator(new AccelerateDecelerateInterpolator());
+        a.start();
+        gv.addOnAttachStateChangeListener(new View.OnAttachStateChangeListener() {
+            @Override public void onViewAttachedToWindow(View v) {}
+            @Override public void onViewDetachedFromWindow(View v) { a.cancel(); }
         });
-        set.start();
     }
 
     static Bitmap loadAvatarBitmap(Context ctx) {
@@ -559,5 +557,57 @@ public class ProfileActivity extends Activity {
         Bitmap scaled = Bitmap.createScaledBitmap(bm, 256, 256, true);
         if (scaled != bm) bm.recycle();
         return scaled;
+    }
+
+    /** 化神+境界徽章：文字外围多层半透明描边产生炫彩呼吸光晕 */
+    private static class GlowTextView extends TextView {
+        private final Paint glowPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final int baseGlowColor;
+        private float glowIntensity = 0f;
+
+        GlowTextView(Context ctx, int color) {
+            super(ctx);
+            baseGlowColor = color;
+            glowPaint.setStyle(Paint.Style.STROKE);
+            glowPaint.setTextAlign(Paint.Align.CENTER);
+        }
+
+        void setGlowColor(int c) { glowPaint.setColor(c); }
+
+        /** ObjectAnimator ofFloat 动画目标属性 */
+        public float getGlowIntensity() { return glowIntensity; }
+        public void setGlowIntensity(float v) {
+            glowIntensity = v;
+            invalidate();
+        }
+
+        @Override
+        protected void onDraw(Canvas c) {
+            if (glowIntensity > 0.01f) {
+                String t = getText().toString();
+                float cx = getWidth() / 2f;
+                float cy = getHeight() / 2f - (getPaint().ascent() + getPaint().descent()) / 2f;
+                int baseA = (baseGlowColor >> 24) & 0xFF;
+                float[] hsl = new float[3];
+                android.graphics.Color.colorToHSV(baseGlowColor, hsl);
+                // 五层描边，由粗到细、由暗到亮
+                float[][] layers = {
+                    {6f, 0.06f, 12f},
+                    {4f, 0.10f, 10f},
+                    {3f, 0.18f,  6f},
+                    {2f, 0.30f,  3f},
+                    {1f, 0.50f,  0f},
+                };
+                for (float[] l : layers) {
+                    hsl[1] = l[2] == 0f ? 0.3f : Math.min(hsl[1] + 0.1f, 1f);
+                    glowPaint.setStrokeWidth(l[0]);
+                    int a = (int)(baseA * l[1] * glowIntensity);
+                    int rgb = android.graphics.Color.HSVToColor(Math.min(a, 255), hsl);
+                    glowPaint.setColor(rgb);
+                    c.drawText(t, cx, cy, glowPaint);
+                }
+            }
+            super.onDraw(c);
+        }
     }
 }

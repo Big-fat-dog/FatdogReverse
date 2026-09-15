@@ -88,6 +88,11 @@ public:
     // 序列化为字节数组
     std::vector<uint8_t> serialize() const {
         std::vector<uint8_t> result;
+        static const uint8_t MAGIC[] = {'D', 'a', 'r', 't', 0x00};
+        result.insert(result.end(), MAGIC, MAGIC + sizeof(MAGIC));
+        uint32_t count = static_cast<uint32_t>(entries_.size());
+        result.insert(result.end(), reinterpret_cast<uint8_t*>(&count),
+                    reinterpret_cast<uint8_t*>(&count) + 4);
         for (const auto& e : entries_) {
             result.push_back(static_cast<uint8_t>(e.type));
             if (e.type == ConstantEntry::STRING) {
@@ -261,35 +266,87 @@ namespace sha256_detail {
     }
 }
 
-// ==================== 密钥异或数组（非 static，防编译器折叠） ====================
+// ==================== Dart AOT 常量池快照（XOR 编码，防 strings 直读） ====================
 // Fatdog_scroll 的 UTF-8 编码：{0x46, 0x61, 0x74, 0x64, 0x6f, 0x67, 0x5f, 0x73, 0x63, 0x72, 0x6f, 0x6c, 0x6c}
 // 异或 0x3C 后：{0x7a, 0x5d, 0x48, 0x58, 0x53, 0x5b, 0x63, 0x4f, 0x5f, 0x4e, 0x53, 0x50, 0x50}
-extern const uint8_t K36_KEY_PART_A[] = {0x7a, 0x5d, 0x48, 0x58, 0x53, 0x5b, 0x63, 0x4f, 0x5f, 0x4e, 0x53, 0x50, 0x50};
-extern const size_t K36_KEY_PART_A_LEN = 13;
+static const uint8_t K36_AOT_POOL[] = {
+    0x44, 0x61, 0x72, 0x74, 0x00,             // Dart\0
+    0x06, 0x00, 0x00, 0x00,                   // count = 6
+    0x00, 0x03, 0x00, 0x00, 0x00, 0x41, 0x4f, 0x54,  // AOT
+    0x00, 0x0b, 0x00, 0x00, 0x00,
+    0x48, 0x4d, 0x41, 0x43, 0x2d, 0x53, 0x48, 0x41, 0x32, 0x35, 0x36,
+    0x00, 0x05, 0x00, 0x00, 0x00, 0x7c, 0x68, 0x6d, 0x61, 0x63,
+    0x01, 0x15, 0x50, 0x35, 0x01, 0x00, 0x00, 0x00, 0x00,
+    0x02, 0x0d, 0x00, 0x00, 0x00,
+    0x7a, 0x5d, 0x48, 0x58, 0x53, 0x5b, 0x63, 0x4f, 0x5f, 0x4e, 0x53, 0x50, 0x50,
+    0x02, 0x0b, 0x00, 0x00, 0x00,
+    0x7a, 0x5d, 0x48, 0x58, 0x53, 0x5b, 0x63, 0x4e, 0x53, 0x50, 0x50
+};
+static const size_t K36_AOT_POOL_LEN = sizeof(K36_AOT_POOL);
 
 // Fatdog_roll 的 UTF-8 编码：{0x46, 0x61, 0x74, 0x64, 0x6f, 0x67, 0x5f, 0x72, 0x6f, 0x6c, 0x6c}
 // 异或 0x3C 后：{0x7a, 0x5d, 0x48, 0x58, 0x53, 0x5b, 0x63, 0x4e, 0x53, 0x50, 0x50}
-extern const uint8_t K36_DECOY_KEY[] = {0x7a, 0x5d, 0x48, 0x58, 0x53, 0x5b, 0x63, 0x4e, 0x53, 0x50, 0x50};
-extern const size_t K36_DECOY_KEY_LEN = 11;
 
-// MAC 密钥派生：SHA256("Fatdog_scroll|mac")
-extern const uint8_t K36_MAC_KEY[] = {
-    0xa3, 0xb2, 0xc1, 0xd0, 0xe9, 0xf8, 0x07, 0x16,
-    0x25, 0x34, 0x43, 0x52, 0x61, 0x70, 0x6f, 0x7e,
-    0x8d, 0x9c, 0xab, 0xba, 0xc9, 0xd8, 0xe7, 0xf6,
-    0x05, 0x14, 0x23, 0x32, 0x41, 0x50, 0x5f, 0x6e
-};
-extern const size_t K36_MAC_KEY_LEN = 32;
+// 统一密钥派生规范：HMAC_KEY = SHA256("Fatdog_scroll|hmac") 的 32 字节二进制
+static bool poolReadU32(const uint8_t* data, size_t off, size_t len, uint32_t& value) {
+    if (off + 4 > len) return false;
+    value = (uint32_t)data[off] | ((uint32_t)data[off + 1] << 8) |
+            ((uint32_t)data[off + 2] << 16) | ((uint32_t)data[off + 3] << 24);
+    return true;
+}
+
+static bool poolGetBytes(size_t wantedIndex, std::string& out) {
+    const uint8_t* data = K36_AOT_POOL;
+    size_t len = K36_AOT_POOL_LEN;
+    size_t off = 5;  // Dart\0
+    uint32_t count = 0;
+    if (!poolReadU32(data, off, len, count)) return false;
+    off += 4;
+    for (uint32_t i = 0; i < count; ++i) {
+        if (off >= len) return false;
+        uint8_t type = data[off++];
+        uint32_t fieldLen = 0;
+        if (type == 0 || type == 2) {
+            if (!poolReadU32(data, off, len, fieldLen)) return false;
+            off += 4;
+        } else if (type == 1) {
+            fieldLen = 8;
+        } else {
+            return false;
+        }
+        if (off + fieldLen > len) return false;
+        if (i == wantedIndex) {
+            if (type != 2) return false;
+            out.assign(reinterpret_cast<const char*>(data + off), fieldLen);
+            return true;
+        }
+        off += fieldLen;
+    }
+    return false;
+}
+
+static std::string decodeKeyPart(const uint8_t* src, size_t len, uint8_t xor_key) {
+    std::string value;
+    value.reserve(len);
+    for (size_t i = 0; i < len; i++) {
+        value += static_cast<char>(src[i] ^ xor_key);
+    }
+    return value;
+}
 
 // ==================== C++ 特性：工厂函数 ====================
 static std::string buildKey() {
-    // 运行时解码
-    std::string key;
-    key.reserve(K36_KEY_PART_A_LEN);
-    for (size_t i = 0; i < K36_KEY_PART_A_LEN; i++) {
-        key += static_cast<char>(K36_KEY_PART_A[i] ^ 0x3C);
-    }
-    return key;
+    // 先从常量池字节还原真标记，再派生出服务端使用的 32 字节 HMAC key。
+    std::string markerBytes;
+    if (!poolGetBytes(4, markerBytes)) return std::string();
+    std::string marker = decodeKeyPart(
+        reinterpret_cast<const uint8_t*>(markerBytes.data()), markerBytes.size(), 0x3C);
+    std::string material = marker + "|hmac";
+    uint8_t digest[32];
+    sha256_detail::Sha256 hasher;
+    hasher.update(reinterpret_cast<const uint8_t*>(material.data()), material.size());
+    hasher.finalize(digest);
+    return std::string(reinterpret_cast<char*>(digest), sizeof(digest));
 }
 
 static std::string hmacSha256(const std::string& key, const std::string& message) {
@@ -331,25 +388,10 @@ extern "C" {
 
 JNIEXPORT jbyteArray JNICALL
 Java_com_fatdog_reverse_FlutterBridge_nativeGetConstantPool(JNIEnv* env, jobject thiz) {
-    // C++ 特性：lambda 初始化常量池
-    ConstantPool pool;
-    
-    // 添加真标记密钥
-    pool.addString("Fatdog_scroll");
-    pool.addString("HMAC-SHA256");
-    pool.addInteger(20271125);  // SEED
-    
-    // 添加诱饵密钥
-    pool.addString("Fatdog_roll");
-    pool.addString("DECOY");
-    
-    // 序列化
-    auto data = pool.serialize();
-    
-    // 分配 JNI 字节数组
-    JniByteArray result(env, static_cast<jsize>(data.size()));
-    result.setRegion(0, static_cast<jsize>(data.size()),
-                    reinterpret_cast<const jbyte*>(data.data()));
+    // 返回静态 Dart AOT 常量池快照，避免运行时临时构造。
+    JniByteArray result(env, static_cast<jsize>(K36_AOT_POOL_LEN));
+    result.setRegion(0, static_cast<jsize>(K36_AOT_POOL_LEN),
+                    reinterpret_cast<const jbyte*>(K36_AOT_POOL));
     return result.get();
 }
 
@@ -387,10 +429,10 @@ Java_com_fatdog_reverse_FlutterBridge_nativeVerify(JNIEnv* env, jobject thiz,
 
 JNIEXPORT jstring JNICALL
 Java_com_fatdog_reverse_FlutterBridge_nativeAnswer(JNIEnv* env, jobject thiz) {
-    // 返回答案：SHA256(seed) 的前8位
     sha256_detail::Sha256 hasher;
-    std::string seed = "20271125";
-    hasher.update(reinterpret_cast<const uint8_t*>(seed.data()), seed.size());
+    // 与服务端 100 页数据一致：SHA256(str(49495)) 的前 8 位 hex。
+    std::string total = "49495";
+    hasher.update(reinterpret_cast<const uint8_t*>(total.data()), total.size());
     uint8_t digest[32];
     hasher.finalize(digest);
     std::string ans = sha256_detail::hexEncode(digest, 8);

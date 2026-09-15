@@ -2444,7 +2444,8 @@ KL36_SUM_HASH = hashlib.sha256(str(KL36_SUM).encode()).hexdigest()
 
 def _kl36_try(key, page, ts, sign):
     msg = f"page={page}&ts={ts}"
-    expected = hmac.new(key, msg.encode(), hashlib.sha256).hexdigest()
+    derived = hashlib.sha256(key + b"|hmac").digest()
+    expected = hmac.new(derived, msg.encode(), hashlib.sha256).hexdigest()
     return hmac.compare_digest(sign, expected)
 
 
@@ -2473,7 +2474,8 @@ KL37_SUM_HASH = hashlib.sha256(str(KL37_SUM).encode()).hexdigest()
 
 def _kl37_try(key, page, ts, sign):
     msg = f"page={page}&ts={ts}"
-    expected = hmac.new(key, msg.encode(), hashlib.sha256).hexdigest()
+    derived = hashlib.sha256(key + b"|hmac").digest()
+    expected = hmac.new(derived, msg.encode(), hashlib.sha256).hexdigest()
     return hmac.compare_digest(sign, expected)
 
 
@@ -2600,6 +2602,35 @@ def _rc4_40(key, data):
     return bytes(result)
 
 
+# ---------------- 关卡 KL41（须弥界）纸上谈兵：JS Bundle 基础 ----------
+KEY_KL41 = b"Fatdog_tactic"
+DECOY_KL41 = [b"Fatdog_plan"]
+PAGES_KL41, PER_PAGE_KL41, SEED_KL41 = 100, 10, 20280801
+_rng_kl41 = random.Random(SEED_KL41)
+NUMS_KL41 = [_rng_kl41.randint(1, 100) for _ in range(PAGES_KL41 * PER_PAGE_KL41)]
+KL41_SUM = sum(NUMS_KL41)
+KL41_SUM_HASH = hashlib.sha256(str(KL41_SUM).encode()).hexdigest()
+
+
+def _kl41_try(key, page, ts, sign):
+    msg = f"page={page}&ts={ts}"
+    expected = hmac.new(key, msg.encode(), hashlib.sha256).hexdigest()
+    return hmac.compare_digest(sign, expected)
+
+
+@app.get("/api/kl41")
+def api_kl41(page: int = Query(...), ts: int = Query(...), sign: str = Query(...)):
+    _check_page(page, PAGES_KL41)
+    _check_ts(ts)
+    if _kl41_try(KEY_KL41, page, ts, sign):
+        idx = (page - 1) * PER_PAGE_KL41
+        return {"page": page, "nums": NUMS_KL41[idx:idx + PER_PAGE_KL41]}
+    for dk in DECOY_KL41:
+        if _kl41_try(dk, page, ts, sign):
+            raise HTTPException(status_code=403, detail="sign invalid")
+    return {"page": page, "nums": []}
+
+
 if __name__ == "__main__":
     cert_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "certs")
     print(f"FatdogReverse 服务端（FastAPI）：http://{HOST}:{PORT_HTTP}（15-20） https://{HOST}:{PORT_HTTPS}（21-27）")
@@ -2612,7 +2643,7 @@ if __name__ == "__main__":
           f"KKL2={sum(NUMS_KKL2)} KKL3={sum(NUMS_KKL3)} KKL4={sum(NUMS_KKL4)} "
           f"L43={sum(NUMS43)} L44={sum(NUMS44)} L45={sum(NUMS45)} L46={sum(NUMS46)} L47={sum(NUMS47)} "
           f"L48={sum(NUMS48)} L49={sum(NUMS49)} L50={sum(NUMS50)} L51={sum(NUMS51)} L52={sum(NUMS52)} L53={sum(NUMS53)} "
-          f"KL36={KL36_SUM} KL37={KL37_SUM} KL38={KL38_SUM} KL39={KL39_SUM} KL40={KL40_SUM}")
+          f"KL36={KL36_SUM} KL37={KL37_SUM} KL38={KL38_SUM} KL39={KL39_SUM} KL40={KL40_SUM} KL41={KL41_SUM}")
     http_cfg = uvicorn.Config(app, host=HOST, port=PORT_HTTP, log_level="info")
     threading.Thread(target=uvicorn.Server(http_cfg).run, daemon=True).start()
     https_cfg = uvicorn.Config(app, host=HOST, port=PORT_HTTPS,

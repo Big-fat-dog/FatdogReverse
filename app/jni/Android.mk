@@ -454,3 +454,11 @@ LOCAL_SRC_FILES := native53b.cpp
 LOCAL_CPPFLAGS := -std=c++17 -fexceptions -frtti
 LOCAL_LDLIBS := -llog
 include $(BUILD_SHARED_LIBRARY)
+
+# KL41 须弥界 纸上谈兵
+include $(CLEAR_VARS)
+LOCAL_MODULE := jar
+LOCAL_SRC_FILES := kl41.cpp
+LOCAL_CPPFLAGS := -std=c++17 -fexceptions -frtti
+LOCAL_LDLIBS := -llog
+include $(BUILD_SHARED_LIBRARY)
