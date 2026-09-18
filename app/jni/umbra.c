@@ -43,7 +43,7 @@ __attribute__((noinline)) int k35_fake_round_mix(unsigned char *p, int n) {
     return n / 2;
 }
 
-/* ================= SM4 手写实现（S 盒/FK/CK 魔数认阵） ================= 
+/* ================= SM4 手写实现（S 盒/FK/CK 魔数认阵） ================= */
 /* ---------------- SHA-256 / HMAC-SHA256（紧凑实现，供派生/签名复用） ---------------- */
 typedef struct {
     unsigned int h[8];

@@ -46,7 +46,9 @@ public class h63Activity extends Activity {
                 + "OR 判定（任一触发即判定）：\n"
                 + "  ① timing side-channel（多轮中位数）\n"
                 + "  ② Frida 版本嗅探\n\n"
-                + "标记：两个标记一真一假，需仔细辨别");
+                + "标记：两个标记一真一假，需仔细辨别\n\n"
+                + "【重要】本关答案与检测结果绑定：一旦被检出 Frida，答案会被锁定，\n"
+                + "必须先绕过检测（hook nativeFridaDetect 返回 0）再提交。");
         tv.setGravity(Gravity.CENTER);
         root.addView(tv, Ui.wrap(6));
 
@@ -63,6 +65,7 @@ public class h63Activity extends Activity {
         runBtn.setOnClickListener(new View.OnClickListener() {
             @Override public void onClick(View v) {
                 int result = Sk.nativeFridaDetect();
+                if (result == 1) showFridaDetected();
                 String status = Sk.nativeStatus();
                 statusTv.setText("检测结果: " + (result == 1 ? "检出 Frida" : "未检出") + "\n\n" + status);
                 statusTv.setTextColor(result == 1 ? 0xFFFF6B6B : 0xFF51CF66);
@@ -85,6 +88,7 @@ public class h63Activity extends Activity {
             @Override public void onClick(View v) {
                 String ans = ansIn.getText().toString().trim();
                 if (ans.isEmpty()) { Toast.makeText(h63Activity.this, "请输入答案", Toast.LENGTH_SHORT).show(); return; }
+                if (Sk.nativeFridaDetect() == 1) { showFridaDetected(); return; }
                 String expected = Sk.nativeAnswer();
                 if (ans.equals(expected)) {
                     Celebration.show(h63Activity.this, "FLAG_18_KL26{dusk_hides_the_truth}");
@@ -117,5 +121,13 @@ public class h63Activity extends Activity {
 
         setContentView(Ui.wrapScroll(root));
         ThemeKit.apply(this);
+    }
+
+    private void showFridaDetected() {
+        new AlertDialog.Builder(this)
+                .setTitle("已被 Frida 检测")
+                .setMessage("检测到 Frida 注入！\n\n本关答案与检测结果绑定：一旦被检出，答案即被锁定，无法通关。\n请先绕过检测（例如 hook nativeFridaDetect 返回 0）再提交。")
+                .setPositiveButton("知道了", null)
+                .show();
     }
 }

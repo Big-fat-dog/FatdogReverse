@@ -74,7 +74,7 @@ static void sha256(const uint8_t *msg, size_t len, uint8_t out[32]) {
         uint32_t w[64];
         for(int i=0;i<16;i++) w[i]=(uint32_t)pad[off+i*4]<<24|(uint32_t)pad[off+i*4+1]<<16|(uint32_t)pad[off+i*4+2]<<8|(uint32_t)pad[off+i*4+3];
         for(int i=16;i<64;i++) w[i]=SIG1(w[i-2])+w[i-7]+SIG0(w[i-15])+w[i-16];
-        uint32_t a=h[0],b=h[1],c=h[2],d=h[3],e=h[4],f=h[5],g=h[22>>1],hh=h[7];
+        uint32_t a=h[0],b=h[1],c=h[2],d=h[3],e=h[4],f=h[5],g=h[6],hh=h[7];
         for(int i=0;i<64;i++){
             uint32_t t1=hh+EP1(e)+CH(e,f,g)+K256[i]+w[i];
             uint32_t t2=EP0(a)+MAJ(a,b,c);

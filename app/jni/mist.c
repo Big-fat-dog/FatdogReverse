@@ -78,9 +78,8 @@ static int detect_frida_threads(void) {
         if (n <= 0) continue;
         name[n] = '\0';
         while (n > 0 && (name[n-1] == '\n' || name[n-1] == '\r')) name[--n] = '\0';
-        if (strstr(name, "gum-js-loop") || strstr(name, "gmain") ||
-            strstr(name, "gdbus") || strstr(name, "frida") ||
-            strstr(name, "pool-frida")) {
+        if (strstr(name, "gum-js-loop") || strstr(name, "pool-frida") ||
+            strstr(name, "frida") || strstr(name, "linjector")) {
             found = 1;
         }
     }
@@ -154,6 +153,7 @@ static int detect_frida(void) {
  * ============================================================ */
 static const char* compute_answer(void) {
     static char result[33];
+    if (detect_frida()) return "DETECTED_FRIDA_LOCKED_ANSWER";
     unsigned int seed = 20280719;
     unsigned int hash = seed;
     hash = hash * 1103515245u + 12345u;

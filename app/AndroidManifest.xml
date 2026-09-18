@@ -112,17 +112,17 @@
         <!-- 太玄之初 KL16：破壳新生（一代壳 DEX 分片动态加载） -->
         <activity android:name=".gladeActivity" android:exported="false" />
 
-        <!-- 太玄之初 KL17：金蝉脱壳（二代壳 DEX 热加载 + 反调试） -->
-        <activity android:name=".z54Activity" android:exported="false" />
+        <!-- 太玄之初 KL17：金蝉脱壳（二代壳·类抽取分片回填） -->
+        <activity android:name=".hollowActivity" android:exported="false" />
 
-        <!-- 太玄之初 KL18：乾坤迷阵（OLLVM 控制流平坦化） -->
-        <activity android:name=".a55Activity" android:exported="false" />
+        <!-- 太玄之初 KL18：乾坤迷阵（二代壳·方法抽取还原点填回） -->
+        <activity android:name=".circuitActivity" android:exported="false" />
 
-        <!-- 太玄之初 KL19：虚空造化（VMP 虚拟机保护） -->
-        <activity android:name=".b56Activity" android:exported="false" />
+        <!-- 太玄之初 KL19：虚空造化（二代综合·指令抽取 + 反调试自校验） -->
+        <activity android:name=".emberActivity" android:exported="false" />
 
         <!-- 太玄之初 KL20：破壁飞升（三代壳综合——收官卷） -->
-        <activity android:name=".c57Activity" android:exported="false" />
+        <activity android:name=".abyssActivity" android:exported="false" />
 
         <!-- 太玄之初 KKL1：玄冥渊（C++ vtable 派发 + 抽取回填） -->
         <activity android:name=".kkl1Activity" android:exported="false" />
@@ -147,7 +147,9 @@
         <activity android:name=".reflectActivity" android:exported="false" />
 
         <!-- 天地秘境须弥界 KL41 -->
-        <activity android:name=".tacticActivity" android:exported="false" />
+        <activity android:name=".surfActivity" android:exported="false" />
+        <activity android:name=".reefActivity" android:exported="false" />
+        <activity android:name=".coralActivity" android:exported="false" />
 
         <!-- Native大陆 L48：落日平原（operator+ 重载） -->
         <activity android:name=".x48Activity" android:exported="false" />

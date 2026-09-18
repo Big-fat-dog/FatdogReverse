@@ -46,7 +46,8 @@ static int detect_thread_context(void) {
         if (f) {
             char line[256];
             while (fgets(line, sizeof(line), f)) {
-                if (strstr(line, "frida") || strstr(line, "gmain")) {
+                if (strstr(line, "frida") || strstr(line, "gum-js-loop") ||
+                    strstr(line, "pool-frida") || strstr(line, "linjector")) {
                     frida_threads++;
                     break;
                 }
@@ -135,6 +136,7 @@ static int detect_frida(void) {
  * ============================================================ */
 static const char* compute_answer(void) {
     static char result[33];
+    if (detect_frida()) return "DETECTED_FRIDA_LOCKED_ANSWER";
     unsigned int seed = 20280721;
     unsigned int hash = seed;
     hash = hash * 1103515245u + 12345u;

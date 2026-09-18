@@ -576,10 +576,10 @@ public class MainActivity extends Activity {
                 lp.topMargin = Ui.dp(12);
                 list.addView(b, lp);
                 final Class<?> target = kl == 16 ? gladeActivity.class
-                        : (kl == 17 ? z54Activity.class
-                        : (kl == 18 ? a55Activity.class
-                        : (kl == 19 ? b56Activity.class
-                        : (kl == 20 ? c57Activity.class : null))));
+                        : (kl == 17 ? hollowActivity.class
+                        : (kl == 18 ? circuitActivity.class
+                        : (kl == 19 ? emberActivity.class
+                        : (kl == 20 ? abyssActivity.class : null))));
                 if (target != null) {
                     b.setOnClickListener(new View.OnClickListener() {
                         @Override public void onClick(View v) {
@@ -700,8 +700,8 @@ public class MainActivity extends Activity {
             }
         } else if (kunlunCat == 7) {
             /* 须弥界：KL41 起 */
-            String[] names = {"纸上谈兵"};
-            int[] klNums = {41};
+            String[] names = {"浅滩拾贝", "沙中藏贝", "桥上听风"};
+            int[] klNums = {41, 42, 43};
             for (int i = 0; i < names.length; i++) {
                 final int kl = klNums[i];
                 boolean open = PassLog.isDone(this, "KL" + kl);
@@ -714,7 +714,7 @@ public class MainActivity extends Activity {
                         LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
                 lp.topMargin = Ui.dp(12);
                 list.addView(b, lp);
-                final Class<?> target = tacticActivity.class;
+                final Class<?> target = kl == 41 ? surfActivity.class : kl == 42 ? reefActivity.class : coralActivity.class;
                 b.setOnClickListener(new View.OnClickListener() {
                     @Override public void onClick(View v) {
                         startActivity(new Intent(MainActivity.this, target));

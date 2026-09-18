@@ -59,7 +59,7 @@ FatdogReverse 是一个面向 Android 逆向工程练习的本地靶场。
 | 扶桑树 | `KL21-KL28` | 端口、fd、maps、auxv、ptrace、时序和反调试组合检测 |
 | 天机阁 | `KL29-KL30` | 自定义 TLV 与 Protobuf 二进制协议 |
 | 碧落天 | `KL36-KL40` | Flutter/Dart 引擎逆向：AOT 常量池、Kernel 字节码、网络层 Hook、FFI 双向往调、综合收官卷 |
-| 须弥界 | `KL41-KL45` | 跨平台 JS 框架逆向：JS Bundle 提取、Hermes bytecode、JSI/NativeModule 桥接、RN 新架构、综合收官卷 |
+| 须弥界 | `KL41-KL45` | H5/WebView 逆向：JSBridge 注入定位、H5 资源加密提取、JS 层加密还原、bridge 协议逆向与重放、签名拦截、综合收官卷 |
 
 ## 通关规则
 

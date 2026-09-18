@@ -154,13 +154,13 @@ static void viola_sign(int page, long long ts, char hex[65]) {
 /* ---------- JNI 导出面 ---------- */
 #ifndef VIOLA_HOST_TEST
 extern "C" {
-JNIEXPORT jstring JNICALL Java_com_fatdog_reverse_Wn_nativeSign(JNIEnv *env, jclass clazz, jint page, jlong ts) {
+JNIEXPORT jstring JNICALL Java_com_fatdog_reverse_Ek_nativeSign(JNIEnv *env, jclass clazz, jint page, jlong ts) {
     char hex[65]; (void)clazz; viola_sign((int)page, (long long)ts, hex); return env->NewStringUTF(hex);
 }
-JNIEXPORT jstring JNICALL Java_com_fatdog_reverse_Wn_nativeMarker(JNIEnv *env, jclass clazz) {
+JNIEXPORT jstring JNICALL Java_com_fatdog_reverse_Ek_nativeMarker(JNIEnv *env, jclass clazz) {
     (void)clazz; return env->NewStringUTF(g_mark);
 }
-JNIEXPORT jstring JNICALL Java_com_fatdog_reverse_Wn_nativeDecoy(JNIEnv *env, jclass clazz) {
+JNIEXPORT jstring JNICALL Java_com_fatdog_reverse_Ek_nativeDecoy(JNIEnv *env, jclass clazz) {
     (void)clazz; return env->NewStringUTF(DECOY_MARK);
 }
 JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void *reserved) {

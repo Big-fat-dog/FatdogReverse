@@ -1,16 +1,16 @@
 package com.fatdog.reverse;
 
 /**
- * KL41 诱饵类（须弥界 · JS Bundle 基础）
- * 假签名工具——内容像真的，但无人调用。
+ * KL42 诱饵类（须弥界 · H5 资源加密）。
+ * 名字贴着考点、内容像真的——但没有任何调用方。
  *
- * 标记：Fatdog_plan（诱饵，与真标记仅差后缀）
+ * 标记：Fatdog_shore（诱饵，与真钥仅差几个字母）
  */
-public class RnKit {
-    private static final String FAKE_KEY = "Fatdog_plan";
-    private static final String FAKE_PIN = "sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
+public class BeachKit {
+    private static final String FAKE_KEY = "Fatdog_shore";
+    private static final String FAKE_TAG = "sha256/BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB=";
 
-    private RnKit() {}
+    private BeachKit() {}
 
     public static String fakeSign(int page, long ts) {
         String msg = "page=" + page + "&ts=" + ts;
@@ -26,7 +26,7 @@ public class RnKit {
         }
     }
 
-    public static String getPinHash() {
-        return FAKE_PIN;
+    public static String getTag() {
+        return FAKE_TAG;
     }
 }

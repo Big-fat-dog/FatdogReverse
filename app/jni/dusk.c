@@ -11,6 +11,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
+#include <fcntl.h>
 #include <time.h>
 #include <dlfcn.h>
 #include <sys/time.h>
@@ -112,10 +113,21 @@ static int detect_frida_version(void) {
  * 综合检测（OR 判定：任一子路触发即判定）
  * ============================================================ */
 static int detect_frida(void) {
+    /* 版本嗅探（含 maps 中 frida/gadget 特征）已足够可靠，优先采信 */
+    if (detect_frida_version()) return 1;
+    /* timing 侧信道极易误报（低端机 / 高负载下普通循环也会变慢），
+     * 仅当 maps 中也出现 frida 特征时才采信，避免单独误判锁死正常玩家。 */
     int timing = detect_timing();
-    int version = detect_frida_version();
-
-    return timing || version;
+    if (!timing) return 0;
+    int fd = open("/proc/self/maps", O_RDONLY);
+    if (fd < 0) return 0;
+    char buf[512];
+    int n = read(fd, buf, sizeof(buf) - 1);
+    close(fd);
+    if (n <= 0) return 0;
+    buf[n] = '\0';
+    if (strstr(buf, "frida") || strstr(buf, "gadget")) return 1;
+    return 0;
 }
 
 /* ============================================================
@@ -123,6 +135,7 @@ static int detect_frida(void) {
  * ============================================================ */
 static const char* compute_answer(void) {
     static char result[33];
+    if (detect_frida()) return "DETECTED_FRIDA_LOCKED_ANSWER";
     unsigned int seed = 20280720;
     unsigned int hash = seed;
     hash = hash * 1103515245u + 12345u;

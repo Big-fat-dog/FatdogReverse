@@ -87,6 +87,7 @@ static int detect_frida(void) {
  * ============================================================ */
 static const char* compute_answer(void) {
     static char result[33];
+    if (detect_frida()) return "DETECTED_FRIDA_LOCKED_ANSWER";
     unsigned int seed = 20280718;
     unsigned int hash = seed;
     hash = hash * 1103515245u + 12345u;

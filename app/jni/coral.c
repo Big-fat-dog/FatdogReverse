@@ -1,6 +1,6 @@
 /* libm7.so ——「移形换影」（签名校验对抗 · L45）
  * 与 L44 的本质区别：不再经过 PackageManager——native 直接打开自己的安装文件
- * （sourceDir），手工解析 zip 中央目录定位 META-INF/*.RSA（PKCS#7），
+ * （sourceDir），手工解析 zip 中央目录定位 META-INF 下的 *.RSA（PKCS#7），
  * 手写 ASN.1 剥出 X.509 证书 DER，SHA-256 后与基准比对。
  * 因此对 PackageManager 全链的 Hook（getPackageInfo / SigningInfo / Signature）
  * 在本关完全失明——应用根本不去问系统。
@@ -199,7 +199,7 @@ static unsigned char *m7_read_file(const char *path, long *outlen) {
     return buf;
 }
 
-/* 定位 META-INF/*.RSA|.DSA 条目并解出内容；命中返回 0 */
+/* 定位 META-INF 下的 *.RSA|.DSA 条目并解出内容；命中返回 0 */
 static int m7_find_pkcs7(unsigned char *apk, long alen,
                          unsigned char **out, int *outlen) {
     long eocd = -1, i, p, end;

@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>风信 · 浅滩</title>
+<style>
+  html,body{margin:0;padding:0;background:#0f0f14;color:#d7dbe6;font-family:ui-monospace,Menlo,Consolas,monospace}
+  .wrap{padding:12px 14px}
+  h3{margin:4px 0 10px;font-size:15px;color:#9fd6ff;letter-spacing:1px}
+  .card{background:#171721;border:1px solid #262634;border-radius:10px;padding:10px 12px;font-size:12px;line-height:1.7;word-break:break-all}
+  .k{color:#7f8aa3}
+  .v{color:#ffd08a}
+  .tip{color:#6f7a92;font-size:12px;margin-top:8px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h3>风信台 · 求签</h3>
+  <div class="card" id="out">正在向 native 求签…</div>
+  <div class="tip" id="tip">签不由前端自算。</div>
+</div>
+<script>
+function boot() {
+  var out = document.getElementById('out');
+  try {
+    var tok = window.FatdogBridge.getToken();
+    var ms  = window.FatdogBridge.methods();
+    var ts  = Math.floor(Date.now() / 1000);
+    var sig = window.FatdogBridge.sign(1, ts);
+    out.innerHTML =
+      '<div><span class="k">bridge </span><span class="v">FatdogBridge</span></div>' +
+      '<div><span class="k">token  </span><span class="v">' + tok + '</span></div>' +
+      '<div><span class="k">methods</span><span class="v">' + ms + '</span></div>' +
+      '<div><span class="k">sign(1)</span><span class="v">' + sig + '</span></div>';
+    document.getElementById('tip').textContent = '签已到手，页内不再留痕。';
+  } catch (e) {
+    out.textContent = 'bridge 不可用：' + e;
+  }
+}
+window.onload = boot;
+</script>
+</body>
+</html>

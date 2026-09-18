@@ -671,6 +671,104 @@ def api_kl17(page: int = Query(...), ts: int = Query(...), sign: str = Query(...
     return {"page": page, "nums": []}
 
 
+# ---------------- 关卡 47（KL18）乾坤迷阵：HMAC-SHA256（二代壳·方法抽取，不魔改） ----------------
+# 仿梆梆方法抽取：so 把标记**逐字节**抽走（缓冲区先填 nop），只有走到「还原点」才逐条填回
+# （模拟方法体还原），且后一字节依赖前一字节。标记派生 HMAC 密钥对 "page=N&ts=T" 签名取数。
+# 与 KL17 不同：KL17 在加载时分段回填（类抽取），KL18 加载时不还原、必须经还原点（方法抽取）。
+KL18_MASTER = "Fatdog_reweave"
+DECOY_KL18 = ["Fatdog_reweaves"]  # 一字之差诱饵：命中即 403
+PAGES_KL18, PER_PAGE_KL18, SEED_KL18 = 100, 10, 20260118
+_rng_kl18 = random.Random(SEED_KL18)
+NUMS_KL18 = [_rng_kl18.randint(1, 100) for _ in range(PAGES_KL18 * PER_PAGE_KL18)]
+
+
+def _kl18_sign(master: str, page: int, ts: int) -> str:
+    key = hashlib.sha256(master.encode() + b"kl18").digest()[:32]
+    return hmac.new(key, f"page={page}&ts={ts}".encode(), hashlib.sha256).hexdigest()
+
+
+def _kl18_try(master: str, page: int, ts: int, sign: str) -> bool:
+    return hmac.compare_digest(sign, _kl18_sign(master, page, ts))
+
+
+@app.get("/api/kl18")
+def api_kl18(page: int = Query(...), ts: int = Query(...), sign: str = Query(...)):
+    _check_ts(ts)
+    if _kl18_try(KL18_MASTER, page, ts, sign):
+        _check_page(page, PAGES_KL18)
+        idx = (page - 1) * PER_PAGE_KL18
+        return {"page": page, "nums": NUMS_KL18[idx:idx + PER_PAGE_KL18]}
+    for dk in DECOY_KL18:
+        if _kl18_try(dk, page, ts, sign):
+            raise HTTPException(status_code=403, detail="sign invalid")
+    return {"page": page, "nums": []}
+
+
+# ---------------- 关卡 48（KL19）虚空造化：HMAC-SHA256（二代综合·指令抽取+反调试+自校验） ----------------
+# 仿二代综合壳：so 在 KL18 方法抽取之上叠加反调试哨兵与 CRC 自校验——判定被调试即抹掉
+# 还原出的标记，签名随之失效。还原点仍是链式逐字节填回，标记派生 HMAC 密钥签名取数。
+# 服务端只认真标记 Fatdog_rekindle 派生的签名；被抹掉/用诱饵签名的请求拿不到数字。
+KL19_MASTER = "Fatdog_rekindle"
+DECOY_KL19 = ["Fatdog_rekindles"]  # 一字之差诱饵：命中即 403
+PAGES_KL19, PER_PAGE_KL19, SEED_KL19 = 100, 10, 20260119
+_rng_kl19 = random.Random(SEED_KL19)
+NUMS_KL19 = [_rng_kl19.randint(1, 100) for _ in range(PAGES_KL19 * PER_PAGE_KL19)]
+
+
+def _kl19_sign(master: str, page: int, ts: int) -> str:
+    key = hashlib.sha256(master.encode() + b"kl19").digest()[:32]
+    return hmac.new(key, f"page={page}&ts={ts}".encode(), hashlib.sha256).hexdigest()
+
+
+def _kl19_try(master: str, page: int, ts: int, sign: str) -> bool:
+    return hmac.compare_digest(sign, _kl19_sign(master, page, ts))
+
+
+@app.get("/api/kl19")
+def api_kl19(page: int = Query(...), ts: int = Query(...), sign: str = Query(...)):
+    _check_ts(ts)
+    if _kl19_try(KL19_MASTER, page, ts, sign):
+        _check_page(page, PAGES_KL19)
+        idx = (page - 1) * PER_PAGE_KL19
+        return {"page": page, "nums": NUMS_KL19[idx:idx + PER_PAGE_KL19]}
+    for dk in DECOY_KL19:
+        if _kl19_try(dk, page, ts, sign):
+            raise HTTPException(status_code=403, detail="sign invalid")
+    return {"page": page, "nums": []}
+
+
+# ---------------- 关卡 49（KL20）破壁飞升：HMAC-SHA256（三代壳·乐固不落地 + SO 加固 + anti-frida） ----------------
+# 仿腾讯乐固：DEX 内存解密不落盘 + SO 自加固。so 在还原点外面裹 anti-frida 守卫（maps/27042 端口/命名管道/CRC 自校验），
+# 命中 ≥2 项即抹掉还原出的标记，签名随之失效。标记派生 HMAC 密钥签名取数。
+KL20_MASTER = "Fatdog_unsheathe"
+DECOY_KL20 = ["Fatdog_unsheathes"]  # 一字之差诱饵：命中即 403
+PAGES_KL20, PER_PAGE_KL20, SEED_KL20 = 100, 10, 20260120
+_rng_kl20 = random.Random(SEED_KL20)
+NUMS_KL20 = [_rng_kl20.randint(1, 100) for _ in range(PAGES_KL20 * PER_PAGE_KL20)]
+
+
+def _kl20_sign(master: str, page: int, ts: int) -> str:
+    key = hashlib.sha256(master.encode() + b"kl20").digest()[:32]
+    return hmac.new(key, f"page={page}&ts={ts}".encode(), hashlib.sha256).hexdigest()
+
+
+def _kl20_try(master: str, page: int, ts: int, sign: str) -> bool:
+    return hmac.compare_digest(sign, _kl20_sign(master, page, ts))
+
+
+@app.get("/api/kl20")
+def api_kl20(page: int = Query(...), ts: int = Query(...), sign: str = Query(...)):
+    _check_ts(ts)
+    if _kl20_try(KL20_MASTER, page, ts, sign):
+        _check_page(page, PAGES_KL20)
+        idx = (page - 1) * PER_PAGE_KL20
+        return {"page": page, "nums": NUMS_KL20[idx:idx + PER_PAGE_KL20]}
+    for dk in DECOY_KL20:
+        if _kl20_try(dk, page, ts, sign):
+            raise HTTPException(status_code=403, detail="sign invalid")
+    return {"page": page, "nums": []}
+
+
 # ---------------- 关卡 44（KL7）裂魂之匣：魔改 DES（IP 首尾互换 + S3 换位 + FP 重算） ----------------
 KL7_MASTER = "Fatdog_shatter"
 DECOY_KL7 = ["Fatdog_scatter"]
@@ -2763,10 +2861,10 @@ def _rc4_40(key, data):
     return bytes(result)
 
 
-# ---------------- 关卡 KL41（须弥界）纸上谈兵：JS Bundle 基础 ----------
-KEY_KL41 = b"Fatdog_tactic"
-DECOY_KL41 = [b"Fatdog_plan"]
-PAGES_KL41, PER_PAGE_KL41, SEED_KL41 = 100, 10, 20280801
+# ---------------- 关卡 KL41（须弥界）浅滩拾贝：H5 壳 / JSBridge 注入定位 ----------
+KEY_KL41 = b"Fatdog_surf"
+DECOY_KL41 = [b"Fatdog_drift"]
+PAGES_KL41, PER_PAGE_KL41, SEED_KL41 = 100, 10, 20280901
 _rng_kl41 = random.Random(SEED_KL41)
 NUMS_KL41 = [_rng_kl41.randint(1, 100) for _ in range(PAGES_KL41 * PER_PAGE_KL41)]
 KL41_SUM = sum(NUMS_KL41)
@@ -2792,6 +2890,65 @@ def api_kl41(page: int = Query(...), ts: int = Query(...), sign: str = Query(...
     return {"page": page, "nums": []}
 
 
+# ---------------- 关卡 KL42（须弥界）沙中藏贝：H5 资源加密 + JS 层加密 ----------
+KEY_KL42 = b"Fatdog_reef"
+DECOY_KL42 = [b"Fatdog_shore"]
+PAGES_KL42, PER_PAGE_KL42, SEED_KL42 = 100, 10, 20280902
+_rng_kl42 = random.Random(SEED_KL42)
+NUMS_KL42 = [_rng_kl42.randint(1, 100) for _ in range(PAGES_KL42 * PER_PAGE_KL42)]
+KL42_SUM = sum(NUMS_KL42)
+KL42_SUM_HASH = hashlib.sha256(str(KL42_SUM).encode()).hexdigest()
+
+
+def _kl42_try(key, page, ts, sign):
+    msg = f"page={page}&ts={ts}"
+    expected = hmac.new(key, msg.encode(), hashlib.sha256).hexdigest()
+    return hmac.compare_digest(sign, expected)
+
+
+@app.get("/api/kl42")
+def api_kl42(page: int = Query(...), ts: int = Query(...), sign: str = Query(...)):
+    _check_page(page, PAGES_KL42)
+    _check_ts(ts)
+    if _kl42_try(KEY_KL42, page, ts, sign):
+        idx = (page - 1) * PER_PAGE_KL42
+        return {"page": page, "nums": NUMS_KL42[idx:idx + PER_PAGE_KL42]}
+    for dk in DECOY_KL42:
+        if _kl42_try(dk, page, ts, sign):
+            raise HTTPException(status_code=403, detail="sign invalid")
+    return {"page": page, "nums": []}
+
+
+# ---------------- 关卡 KL43（须弥界）桥上听风：JSBridge 协议逆向 + JS 侧消息签名 ----------
+KEY_KL43 = b"Fatdog_coral"
+DECOY_KL43 = [b"Fatdog_tidepool"]
+PAGES_KL43, PER_PAGE_KL43, SEED_KL43 = 100, 10, 20280903
+_rng_kl43 = random.Random(SEED_KL43)
+NUMS_KL43 = [_rng_kl43.randint(1, 100) for _ in range(PAGES_KL43 * PER_PAGE_KL43)]
+KL43_SUM = sum(NUMS_KL43)
+KL43_SUM_HASH = hashlib.sha256(str(KL43_SUM).encode()).hexdigest()
+
+
+def _kl43_try(key, cmd, page, ts, sign):
+    msg = f"cmd={cmd}&page={page}&ts={ts}"
+    expected = hmac.new(key, msg.encode(), hashlib.sha256).hexdigest()
+    return hmac.compare_digest(sign, expected)
+
+
+@app.post("/api/kl43")
+def api_kl43(cmd: str = Form(...), page: int = Form(...), ts: int = Form(...),
+             sign: str = Form(...)):
+    _check_page(page, PAGES_KL43)
+    _check_ts(ts)
+    if cmd == "q" and _kl43_try(KEY_KL43, cmd, page, ts, sign):
+        idx = (page - 1) * PER_PAGE_KL43
+        return {"page": page, "nums": NUMS_KL43[idx:idx + PER_PAGE_KL43]}
+    for dk in DECOY_KL43:
+        if _kl43_try(dk, cmd, page, ts, sign):
+            raise HTTPException(status_code=403, detail="sign invalid")
+    return {"page": page, "nums": []}
+
+
 if __name__ == "__main__":
     cert_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "certs")
     print(f"FatdogReverse 服务端（FastAPI）：http://{HOST}:{PORT_HTTP}（15-20） https://{HOST}:{PORT_HTTPS}（21-27）")
@@ -2804,7 +2961,7 @@ if __name__ == "__main__":
           f"KKL2={sum(NUMS_KKL2)} KKL3={sum(NUMS_KKL3)} KKL4={sum(NUMS_KKL4)} "
           f"L43={sum(NUMS43)} L44={sum(NUMS44)} L45={sum(NUMS45)} L46={sum(NUMS46)} L47={sum(NUMS47)} "
           f"L48={sum(NUMS48)} L49={sum(NUMS49)} L50={sum(NUMS50)} L51={sum(NUMS51)} L52={sum(NUMS52)} L53={sum(NUMS53)} "
-          f"KL36={KL36_SUM} KL37={KL37_SUM} KL38={KL38_SUM} KL39={KL39_SUM} KL40={KL40_SUM} KL41={KL41_SUM}")
+          f"KL36={KL36_SUM} KL37={KL37_SUM} KL38={KL38_SUM} KL39={KL39_SUM} KL40={KL40_SUM} KL41={KL41_SUM} KL42={KL42_SUM} KL43={KL43_SUM}")
     http_cfg = uvicorn.Config(app, host=HOST, port=PORT_HTTP, log_level="info")
     threading.Thread(target=uvicorn.Server(http_cfg).run, daemon=True).start()
     https_cfg = uvicorn.Config(app, host=HOST, port=PORT_HTTPS,

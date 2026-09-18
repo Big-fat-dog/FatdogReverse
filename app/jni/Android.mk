@@ -214,21 +214,24 @@ include $(BUILD_SHARED_LIBRARY)
 # KL18
 include $(CLEAR_VARS)
 LOCAL_MODULE := blaze
-LOCAL_SRC_FILES := blaze.c
+LOCAL_SRC_FILES := blaze.cpp
+LOCAL_CPPFLAGS := -std=c++17 -fexceptions -frtti
 LOCAL_LDLIBS := -llog
 include $(BUILD_SHARED_LIBRARY)
 
 # KL19
 include $(CLEAR_VARS)
 LOCAL_MODULE := bison
-LOCAL_SRC_FILES := bison.c
+LOCAL_SRC_FILES := bison.cpp
+LOCAL_CPPFLAGS := -std=c++17 -fexceptions -frtti
 LOCAL_LDLIBS := -llog
 include $(BUILD_SHARED_LIBRARY)
 
 # KL20
 include $(CLEAR_VARS)
 LOCAL_MODULE := delta
-LOCAL_SRC_FILES := delta.c
+LOCAL_SRC_FILES := delta.cpp
+LOCAL_CPPFLAGS := -std=c++17 -fexceptions -frtti
 LOCAL_LDLIBS := -llog
 include $(BUILD_SHARED_LIBRARY)
 
@@ -457,10 +460,26 @@ LOCAL_CPPFLAGS := -std=c++17 -fexceptions -frtti
 LOCAL_LDLIBS := -llog
 include $(BUILD_SHARED_LIBRARY)
 
-# KL41 须弥界 纸上谈兵
+# KL41 须弥界 浅滩拾贝（H5 壳 / JSBridge 注入定位）
 include $(CLEAR_VARS)
-LOCAL_MODULE := jar
-LOCAL_SRC_FILES := kl41.cpp
+LOCAL_MODULE := h5shell
+LOCAL_SRC_FILES := h5shell.cpp
+LOCAL_CPPFLAGS := -std=c++17 -fexceptions -frtti
+LOCAL_LDLIBS := -llog
+include $(BUILD_SHARED_LIBRARY)
+
+# KL42 须弥界 沙中藏贝（H5 资源加密 + JS 层加密）
+include $(CLEAR_VARS)
+LOCAL_MODULE := webvault
+LOCAL_SRC_FILES := webvault.cpp
+LOCAL_CPPFLAGS := -std=c++17 -fexceptions -frtti
+LOCAL_LDLIBS := -llog
+include $(BUILD_SHARED_LIBRARY)
+
+# KL43 须弥界 桥上听风（JSBridge 协议分发）
+include $(CLEAR_VARS)
+LOCAL_MODULE := jsbridge
+LOCAL_SRC_FILES := jsbridge.cpp
 LOCAL_CPPFLAGS := -std=c++17 -fexceptions -frtti
 LOCAL_LDLIBS := -llog
 include $(BUILD_SHARED_LIBRARY)

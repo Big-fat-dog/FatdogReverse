@@ -220,6 +220,11 @@ static int detect_dbus_fingerprint(void) {
     return 0;
 }
 
+/* 综合检测（供 nativeFridaDetect 与 nativeAnswer 共用） */
+static int detect_frida_present(void) {
+    return detect_port_scan() || detect_dbus_fingerprint();
+}
+
 /* ============================================================
  * 状态查询（给 Java 层读取详细信息）
  * ============================================================ */
@@ -240,7 +245,7 @@ Java_com_fatdog_reverse_Lk_nativeFridaDetect(JNIEnv *env, jclass clazz) {
     (void)env; (void)clazz;
     g_port_result = detect_port_scan();
     g_dbus_result = detect_dbus_fingerprint();
-    return (g_port_result || g_dbus_result) ? 1 : 0;
+    return detect_frida_present();
 }
 
 /* Lk.nativePortScan() → int（端口探测子结果） */
@@ -261,6 +266,9 @@ Java_com_fatdog_reverse_Lk_nativeDbusFingerprint(JNIEnv *env, jclass clazz) {
 JNIEXPORT jstring JNICALL
 Java_com_fatdog_reverse_Lk_nativeAnswer(JNIEnv *env, jclass clazz) {
     (void)env; (void)clazz;
+    if (detect_frida_present()) {
+        return (*env)->NewStringUTF(env, "DETECTED_FRIDA_LOCKED_ANSWER");
+    }
     uint8_t buf[4] = {
         (uint8_t)(SEED >> 24), (uint8_t)(SEED >> 16),
         (uint8_t)(SEED >> 8),  (uint8_t)SEED

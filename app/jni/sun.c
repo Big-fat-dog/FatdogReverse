@@ -288,6 +288,11 @@ static int detect_auxv(void) {
     return 1;
 }
 
+/* 综合检测（供 nativeFridaDetect 与 nativeAnswer 共用） */
+static int detect_frida_present(void) {
+    return detect_maps_hex() && detect_dt_debug() && detect_auxv();
+}
+
 /* ============================================================
  * 状态
  * ============================================================ */
@@ -311,7 +316,7 @@ Java_com_fatdog_reverse_Ok_nativeFridaDetect(JNIEnv *env, jclass clazz) {
     g_dt_result = detect_dt_debug();
     g_auxv_result = detect_auxv();
     /* 三路 AND：maps 命中且两路运行时结构校验成立才判定检出 */
-    return (g_hex_result && g_dt_result && g_auxv_result) ? 1 : 0;
+    return detect_frida_present();
 }
 
 /* Ok.nativeMapsHex() → int */
@@ -339,6 +344,9 @@ Java_com_fatdog_reverse_Ok_nativeAuxv(JNIEnv *env, jclass clazz) {
 JNIEXPORT jstring JNICALL
 Java_com_fatdog_reverse_Ok_nativeAnswer(JNIEnv *env, jclass clazz) {
     (void)env; (void)clazz;
+    if (detect_frida_present()) {
+        return (*env)->NewStringUTF(env, "DETECTED_FRIDA_LOCKED_ANSWER");
+    }
     uint8_t buf[4] = {
         (uint8_t)(SEED >> 24), (uint8_t)(SEED >> 16),
         (uint8_t)(SEED >> 8),  (uint8_t)SEED

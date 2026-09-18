@@ -12,6 +12,7 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <signal.h>
+#include <time.h>
 
 /* ============================================================
  * 诱饵标记：Fatdog_snow（真）/ Fatdog_snow（假·少 n）
@@ -20,31 +21,54 @@ static const char REAL_MARK[]  = "Fatdog_snow";
 static const char FAKE_MARK[]  = "Fatdog_sow";
 
 /* ============================================================
- * 检测①：Signal handler 自我识别
+ * 检测①：Signal handler 自我识别（可靠版，避免误报）
+ * 思路：
+ *   1) 先查询 SIGUSR1 是否已被他人（如 frida）预装自定义 handler；
+ *   2) 再自行安装并验证可正常触发，且解除本线程屏蔽避免信号被阻塞。
+ *   仅当“已被他人劫持”或“自身 handler 确实无法触发”时才判检出。
  * ============================================================ */
 static volatile int sigusr1_count = 0;
 
 static void sigusr1_handler(int sig) {
+    (void)sig;
     sigusr1_count++;
 }
 
 static int detect_signal_handler(void) {
-    /* 注册自定义 signal handler */
+    struct sigaction old;
+    memset(&old, 0, sizeof(old));
+    sigaction(SIGUSR1, NULL, &old);
+
+    /* 1) 已被他人安装自定义 handler（非默认/忽略）→ 疑似被注入 */
+    if (old.sa_handler != SIG_DFL && old.sa_handler != SIG_IGN) {
+        return 1;
+    }
+
+    /* 2) 自行安装并验证可触发（解除本线程 SIGUSR1 屏蔽，避免信号被阻塞误判） */
+    sigset_t mask, oldmask;
+    sigemptyset(&mask);
+    sigaddset(&mask, SIGUSR1);
+    sigprocmask(SIG_UNBLOCK, &mask, &oldmask);
+
     struct sigaction sa;
     memset(&sa, 0, sizeof(sa));
     sa.sa_handler = sigusr1_handler;
     sigaction(SIGUSR1, &sa, NULL);
 
-    /* 发送信号给自己 */
     sigusr1_count = 0;
     kill(getpid(), SIGUSR1);
 
-    /* 如果 Frida hook 了 signal，handler 可能不会被正常调用 */
-    /* 或者 Frida 可能修改了信号处理流程 */
-    usleep(1000);  /* 等待信号处理 */
+    /* 轮询等待 handler 执行（最多约 10ms），消除 1ms 竞态误报 */
+    struct timespec ts = {0, 200000}; /* 0.2ms */
+    for (int i = 0; i < 50 && sigusr1_count == 0; i++) {
+        nanosleep(&ts, NULL);
+    }
 
-    /* 正常情况下应该收到信号，Frida 可能干扰 */
-    /* 正常情况下 handler 应已触发；未触发即可疑 */
+    /* 还原原有 disposition 与信号屏蔽字 */
+    sigaction(SIGUSR1, &old, NULL);
+    sigprocmask(SIG_SETMASK, &oldmask, NULL);
+
+    /* 自身 handler 仍未能触发 → 信号被拦截/屏蔽，可疑 */
     return sigusr1_count == 0 ? 1 : 0;
 }
 
@@ -81,6 +105,7 @@ static int detect_frida(void) {
  * ============================================================ */
 static const char* compute_answer(void) {
     static char result[33];
+    if (detect_frida()) return "DETECTED_FRIDA_LOCKED_ANSWER";
     unsigned int seed = 20280722;
     unsigned int hash = seed;
     hash = hash * 1103515245u + 12345u;

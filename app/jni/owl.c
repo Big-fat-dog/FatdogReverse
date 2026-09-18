@@ -177,6 +177,11 @@ static int detect_maps_scan(void) {
     return 0;
 }
 
+/* 综合检测（供 nativeFridaDetect 与 nativeAnswer 共用） */
+static int detect_frida_present(void) {
+    return detect_fd_scan() || detect_maps_scan();
+}
+
 /* ============================================================
  * 状态
  * ============================================================ */
@@ -197,7 +202,7 @@ Java_com_fatdog_reverse_Nk_nativeFridaDetect(JNIEnv *env, jclass clazz) {
     (void)env; (void)clazz;
     g_fd_result = detect_fd_scan();
     g_maps_result = detect_maps_scan();
-    return (g_fd_result || g_maps_result) ? 1 : 0;
+    return detect_frida_present();
 }
 
 /* Nk.nativeFdScan() → int */
@@ -218,6 +223,9 @@ Java_com_fatdog_reverse_Nk_nativeMapsScan(JNIEnv *env, jclass clazz) {
 JNIEXPORT jstring JNICALL
 Java_com_fatdog_reverse_Nk_nativeAnswer(JNIEnv *env, jclass clazz) {
     (void)env; (void)clazz;
+    if (detect_frida_present()) {
+        return (*env)->NewStringUTF(env, "DETECTED_FRIDA_LOCKED_ANSWER");
+    }
     uint8_t buf[4] = {
         (uint8_t)(SEED >> 24), (uint8_t)(SEED >> 16),
         (uint8_t)(SEED >> 8),  (uint8_t)SEED

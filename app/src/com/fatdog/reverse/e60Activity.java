@@ -51,7 +51,9 @@ public class e60Activity extends Activity {
                 + "  ① maps hex：r-xp 段搜索 frida 特征字节\n"
                 + "  ② 运行时 DT_DEBUG：dl_iterate_phdr 读取链接器写入值\n"
                 + "  ③ auxv：/proc/self/auxv 与 ELF 头交叉校验\n\n"
-                + "标记：两个标记一真一假，需仔细辨别");
+                + "标记：两个标记一真一假，需仔细辨别\n\n"
+                + "【重要】本关答案与检测结果绑定：一旦被检出 Frida，答案会被锁定，\n"
+                + "必须先绕过检测（hook nativeFridaDetect 返回 0）再提交。");
         tv.setGravity(Gravity.CENTER);
         root.addView(tv, Ui.wrap(6));
 
@@ -68,6 +70,7 @@ public class e60Activity extends Activity {
         runBtn.setOnClickListener(new View.OnClickListener() {
             @Override public void onClick(View v) {
                 int result = Ok.nativeFridaDetect();
+                if (result == 1) showFridaDetected();
                 String status = Ok.nativeStatus();
                 statusTv.setText("检测结果: " + (result == 1 ? "检出 Frida" : "未检出") + "\n\n" + status);
                 statusTv.setTextColor(result == 1 ? 0xFFFF6B6B : 0xFF51CF66);
@@ -90,6 +93,7 @@ public class e60Activity extends Activity {
             @Override public void onClick(View v) {
                 String ans = ansIn.getText().toString().trim();
                 if (ans.isEmpty()) { Toast.makeText(e60Activity.this, "请输入答案", Toast.LENGTH_SHORT).show(); return; }
+                if (Ok.nativeFridaDetect() == 1) { showFridaDetected(); return; }
                 String expected = Ok.nativeAnswer();
                 if (ans.equals(expected)) {
                     Celebration.show(e60Activity.this, "FLAG_18_KL23{mirror_shows_true_face}");
@@ -129,5 +133,13 @@ public class e60Activity extends Activity {
 
         setContentView(Ui.wrapScroll(root));
         ThemeKit.apply(this);
+    }
+
+    private void showFridaDetected() {
+        new AlertDialog.Builder(this)
+                .setTitle("已被 Frida 检测")
+                .setMessage("检测到 Frida 注入！\n\n本关答案与检测结果绑定：一旦被检出，答案即被锁定，无法通关。\n请先绕过检测（例如 hook nativeFridaDetect 返回 0）再提交。")
+                .setPositiveButton("知道了", null)
+                .show();
     }
 }
