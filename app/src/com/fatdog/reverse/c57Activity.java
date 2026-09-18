@@ -50,7 +50,7 @@ public class c57Activity extends Activity {
 
         // 答案输入框
         final EditText ansIn = new EditText(this);
-        ansIn.setHint("输入答案（32位 hex）");
+        ansIn.setHint("输入答案（64位 十六进制，即 sha256 摘要）");
         ansIn.setTextColor(Color.WHITE);
         ansIn.setTypeface(Typeface.MONOSPACE);
         ansIn.setBackgroundColor(0x33FFFFFF);

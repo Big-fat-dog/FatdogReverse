@@ -197,15 +197,17 @@ include $(BUILD_SHARED_LIBRARY)
 
 # KL16
 include $(CLEAR_VARS)
-LOCAL_MODULE := taupe
-LOCAL_SRC_FILES := taupe.c
+LOCAL_MODULE := ash
+LOCAL_SRC_FILES := ash.cpp
+LOCAL_CPPFLAGS := -std=c++17 -fexceptions -frtti
 LOCAL_LDLIBS := -llog
 include $(BUILD_SHARED_LIBRARY)
 
 # KL17
 include $(CLEAR_VARS)
 LOCAL_MODULE := viola
-LOCAL_SRC_FILES := viola.c
+LOCAL_SRC_FILES := viola.cpp
+LOCAL_CPPFLAGS := -std=c++17 -fexceptions -frtti
 LOCAL_LDLIBS := -llog
 include $(BUILD_SHARED_LIBRARY)
 

@@ -575,7 +575,7 @@ public class MainActivity extends Activity {
                         LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
                 lp.topMargin = Ui.dp(12);
                 list.addView(b, lp);
-                final Class<?> target = kl == 16 ? y53Activity.class
+                final Class<?> target = kl == 16 ? gladeActivity.class
                         : (kl == 17 ? z54Activity.class
                         : (kl == 18 ? a55Activity.class
                         : (kl == 19 ? b56Activity.class

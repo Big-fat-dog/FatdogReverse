@@ -3749,113 +3749,190 @@ flag `FLAG_18_KL15{all_methods_converge}`。
 ## 天地秘境 · 太玄之初（KL16-20、KKL1-5）
 
 
-### KL16：破壳新生（一代壳 DEX 静态加密）
+### KL16：破壳新生（一代壳 · 分片动态加载 + 标准 AES 取数）
 
-**考点**：识别 APK 壳类型 → 追踪 Application 入口 → 逆向 so 中的解密算法 → Python 复刻还原 DEX。
+**考点**：梆梆一代壳的核心思想——DEX 整体加密、壳在加载时把分片"悄悄"拼回内存（不落盘）。本题把它具象成"标记拆两段密文，JNI_OnLoad 两阶段动态还原"，还原出的真标记再派生标准 AES/HMAC 密钥去给网络请求加签取数。难点不在算法（标准 AES-128-ECB，轮常量未魔改），而在"标记必须让 so 真正跑起来才完整"。
 
+> 标记：真 `Fatdog_unveil`；明文诱饵 `Fatdog_unveils`（一字之差，strings 可见，用错即 403）。
 
-#### 静态路线（推荐先走）
+#### 静态路线（IDA 逆 JNI_OnLoad）
 
-**Step 1：识别壳**
-1. jadx 打开 APK → 只能看到壳的 Application 类（`android:name` 指向壳入口）。
-2. `AndroidManifest.xml` 中 `application` 节点的 `android:name` 不是项目自己的 Activity，而是一个"奇怪"的类名 → 实锤加壳。
-3. 用 `apktool d FatdogReverse.apk -o out` 解包，查看 `lib/` 目录下有 `libtaupe.so` → 壳的核心逻辑在 native 层。
+**Step 1：定位壳入口**
+1. jadx 看 `gladeActivity` → 它走的是网络求和 UI（`Va.fetchPage` → `GET /api/kl16`），不是本地比对。
+2. `Va.java` 里 `System.loadLibrary("ash")` → 核心在 `libash.so`。
+3. `gladeActivity` 的提示已点明：DEX 是死的，字符串里只有形近诱饵，真标记要"动态起来"才完整。
 
-**Step 2：追踪解密入口**
-1. jadx 搜索 `attachBaseContext` → 找到壳的 Application 类。
-2. `attachBaseContext` 内部调用了一个 native 方法 → 这就是解密入口。
-3. 搜索 `System.loadLibrary` → 加载的是 `k16` → 对应 `libtaupe.so`。
+**Step 2：逆两段密文还原标记**
+`libash.so` 的 `JNI_OnLoad` 调 `ash_load_stage1()` + `ash_load_stage2()`：
+- 阶段1：`ENC_A[7]` 逐字节 `ror3` 后 `XOR KEYA` → 还原 `"Fatdog_"`
+- 阶段2：`ENC_B[6]` 逐字节 `ror1` 后 `XOR KEYB` → 还原 `"unveil"`
+- 两段拼起 = 真标记 `Fatdog_unveil`
 
-**Step 3：IDA 逆向 libtaupe.so**
-1. IDA 加载 `libtaupe.so`（arm64-v8a）。
-2. 搜索字符串 `Fatdog_pack` → 定位到 `.rodata` 段 → 这是真标记（诱饵 `Fatdog_packer` 也在附近）。
-3. 从 JNI_OnLoad 或 `Java_com_fatdog_reverse_Dk_*` 函数入手 → 找到 `decrypt` 函数。
-4. 分析 `decrypt` 函数：
-   - 第一轮：每个字节 XOR `XOR_KEY[i % 8]`（密钥 `5A 3C 7E 1D 92 64 A8 F0`）
-   - 第二轮：循环左移 3 位（`out[i] = (out[i] << 3) | (out[i] >> 5)`）
-   - 第三轮：每 8 字节组内 XOR 累积（`acc = XOR(组内所有字节)`，再 XOR 每个字节）
-5. 密钥 `XOR_KEY` 在 `.rodata` 段以全局数组形式存在 → `strings -el libtaupe.so` 可以看到。
-
-**Step 4：Python 复刻**
-```python
-import hashlib
-
-XOR_KEY = bytes([0x5A, 0x3C, 0x7E, 0x1D, 0x92, 0x64, 0xA8, 0xF0])
-
-# 从 IDA 或 Frida 拿到的加密数据
-ENC_DEX = bytes([
-    0x7C, 0x1A, 0x0E, 0x65, 0x2D, 0x4F, 0xC3, 0xB8,
-    0x91, 0xD7, 0x3E, 0xA2, 0x54, 0x86, 0xFB, 0x09,
-    0xC5, 0x73, 0x1D, 0xAE, 0x48, 0xBF, 0x62, 0x30,
-    0xE7, 0x9C, 0x55, 0x8A, 0x13, 0xD6, 0x7F, 0x41
-])
-
-def decrypt(enc):
-    # 第一轮：XOR + rotate
-    dec = bytearray(len(enc))
-    for i in range(len(enc)):
-        dec[i] = enc[i] ^ XOR_KEY[i % 8]
-        dec[i] = ((dec[i] << 3) | (dec[i] >> 5)) & 0xFF
-    # 第二轮：组内 XOR 累积
-    for i in range(0, len(dec), 8):
-        acc = 0
-        for j in range(8):
-            if i + j < len(dec):
-                acc ^= dec[i + j]
-        for j in range(8):
-            if i + j < len(dec):
-                dec[i + j] ^= acc
-    return bytes(dec)
-
-decrypted = decrypt(ENC_DEX)
-print("解密结果:", decrypted)
-# 前10字节 ASCII = "KL16_SEED:"，接下来4字节 = 种子值
-
-seed = int.from_bytes(decrypted[10:14], 'big')
-print("种子:", seed)
-
-# SHA-256(seed) 得答案
-answer = hashlib.sha256(seed.to_bytes(4, 'big')).hexdigest()
-print("答案:", answer)
+常量（.rodata，注意是 `ror` 不是 `rol`，加密时 `rol` 藏入）：
+```
+KEYA = {0x5A, 0x3C, 0x21, 0x7E}
+KEYB = {0x7E, 0x21, 0x3C, 0x5A}
+ENC_A = {0xe0, 0xea, 0xaa, 0xd0, 0xa9, 0xda, 0xf3}   # ror3+XOR KEYA -> "Fatdog_"
+ENC_B = {0x16, 0x9e, 0x94, 0x7e, 0x2e, 0x9a}       # ror1+XOR KEYB -> "unveil"
 ```
 
-**Step 5：提交答案**
-- 将 Python 算出的 32 位 hex 答案填入 App 的输入框 → 点击"提交" → 通过。
+**Step 3：派生密钥 + 复刻请求**
+标记运行时派生（先跑完两段加载才有）：
+```
+aes_key = SHA256(标记 + "|aes")[:16]
+mac     = SHA256(标记 + "|mac")         # 完整 32 字节
+```
+请求载荷 `page=N&ts=T` 零填充到 32 字节，标准 AES-128-ECB 加密得 `enc`（hex），`sign = HMAC-SHA256(mac, enc)`。**AES 是标准轮常量，没有换血**（这是与 KL6 的本质区别）。
 
-#### 动态路线（Frida）
-
-**Step 1：Hook 解密函数**
+#### 动态路线（Frida，最快）
+直接在 `JNI_OnLoad` 之后读还原好的标记，或 hook 导出函数：
 ```javascript
-Java.perform(function() {
-    var Dk = Java.use('com.fatdog.reverse.Dk');
-    console.log('解密结果:', Dk.nativeDecrypt());
-    console.log('种子:', Dk.nativeSeed());
-    console.log('答案:', Dk.nativeAnswer());
+Java.perform(function () {
+    var Va = Java.use('com.fatdog.reverse.Va');
+    console.log('marker =', Va.nativeMarker());   // "Fatdog_unveil"
+    console.log('decoy  =', Va.nativeDecoy());     // "Fatdog_unveils"
+});
+```
+也可以直接 hook `nativeEnc`/`nativeSign` 拿现成的 enc/sign 去发包，省去复刻。
+
+#### 脱壳路线（内存 dump：把壳拼好的明文从内存抠出来）
+
+一代壳的精髓就是"启动时才把加密内容还原进内存"，所以**最正统的打法就是脱壳——在还原完成、被使用之前的瞬间把内存里的明文抠出来**。本关的"加密内容"不是真实 DEX 文件，而是两阶段拼回的标记 `Fatdog_unveil`，它藏在 `libash.so` 的 `.bss` 段（`static char g_mark[64]`，由 `JNI_OnLoad` → `ash_load_stage1` / `ash_load_stage2` 在运行时填进去）。这带来一个关键现象：**`strings libash.so` 静态扫只能看到诱饵字面量 `Fatdog_unveils`（编译期写死的 `DECOY_MARK`），真标记 `Fatdog_unveil` 是运行时才出现的明文**——这正是脱壳能拿到、静态分析拿不到的东西。
+
+**方法 A：frida 直接读还原后的标记（最省事，等价于脱壳成品）**
+```javascript
+Java.perform(function () {
+    var Va = Java.use('com.fatdog.reverse.Va');
+    // JNI_OnLoad 早就在 native 层跑完了两段加载，这里直接取成品
+    console.log('[dump] marker =', Va.nativeMarker());
 });
 ```
 
-**Step 2：直接拿答案**
-- Frida 控制台输出的 `nativeAnswer()` 就是最终答案 → 直接填入提交。
+**方法 B：纯 native 抠 `g_mark` 缓冲区（不依赖 Java 层）**
+```javascript
+var base = Module.findBaseAddress('libash.so');
+var off  = 0xXXXX;   // g_mark 相对 so 基址的偏移：在 IDA/Ghidra 里看 .bss 中 g_mark 符号地址减去 so 基址
+var len  = 13;       // strlen("Fatdog_unveil")
+console.log('[dump]', base.add(off).readUtf8String(len));
+```
 
-#### 关键地址（IDA）
+**方法 C：扫 `/proc/<pid>/maps` + 读 `/proc/<pid>/mem` 抠 so 的 rw 段**
+```bash
+pid=$(pidof com.fatdog.reverse)        # 或 ps | grep fatdog
+grep libash.so /proc/$pid/maps         # 找 rw-p 那一行（data/bss）
+python3 - <<'PY'
+import re
+pid = <填 pid>
+with open(f'/proc/{pid}/maps') as f: maps=f.read()
+for line in maps.splitlines():
+    if 'libash.so' in line and 'rw-p' in line:
+        a,b = [int(x,16) for x in line.split()[0].split('-')]
+        with open(f'/proc/{pid}/mem','rb') as mem:
+            mem.seek(a); buf=mem.read(b-a)
+        for m in re.findall(rb'Fatdog_[a-z]{4,8}', buf):
+            print('found', m)          # 跑完 JNI_OnLoad 后 Fatdog_unveil 会出现（诱饵 Fatdog_unveils 也在）
+PY
+```
+两条 `Fatdog_*` 都会出来，真标记靠长度（13）和上下文（`unveil` 不是 `unveils`）区分。
 
-| 内容 | 地址/偏移 | 说明 |
-|---|---|---|
-| XOR_KEY | .rodata 段 | `5A 3C 7E 1D 92 64 A8 F0` |
-| ENC_DEX | .rodata 段 | 32 字节加密数据 |
-| decrypt() | .text 段 | 解密函数，可从 JNI 函数 xref 找到 |
-| MARKER | .rodata 段 | `Fatdog_pack`（UTF-16LE） |
-| DECOY | .rodata 段 | `Fatdog_packer`（UTF-16LE） |
+**方法 D：知识迁移——真实一代壳怎么 dump DEX（本关用不到，但 KL17–KL20 用得上）**
+本关没有"加密 DEX 文件"（标记走 native、答案走网络求和），所以 DEX-dump 拿不到 flag；但思路完全通用，先在这里把"内存抠取"的手感练熟：
+- hook `libart.so` 的 `OpenMemory` / `DexFile::DexFile` 构造 / `InMemoryDexClassLoader` 构造，在解密完成、加载前的那一刻 dump 出 `dex\n035` 魔数开头的字节；
+- 或上 **frida-fart / FART**，自动在 `openDexFile` 时机 dump 并修复 `dexHeader` 的 `fileSize` / `classDefsSize` 等被壳改坏的字段；
+- dump 出来的 DEX 头字段常被壳改坏，需 `dexrepair` / 010 Editor 模板修 `mapOff` / `stringIdsSize` 再进 jadx / gda。
+
+> 小结：本关三种打法对应三种思维——**静态逆**（逆 `JNI_OnLoad` 还原算法）、**动态 hook**（Frida 直接读成品）、**脱壳 dump**（把还原后的明文从内存抠出来）。后两者正是针对"真标记不在静态字符串"这一核心设定：静态 `strings` 只有诱饵，内存里才有真标记。
+
+#### 完整 Python 复刻（还原标记 → 取数 → 求和）
+```python
+import hashlib, hmac, random, time, json, ssl, urllib.request
+
+KEYA = bytes([0x5A,0x3C,0x21,0x7E])
+KEYB = bytes([0x7E,0x21,0x3C,0x5A])
+ENC_A = bytes([0xe0,0xea,0xaa,0xd0,0xa9,0xda,0xf3])
+ENC_B = bytes([0x16,0x9e,0x94,0x7e,0x2e,0x9a])
+
+def ror(b,n): return ((b >> n) | (b << (8-n))) & 0xFF
+marker = b''
+for i in range(len(ENC_A)): marker += bytes([ror(ENC_A[i],3) ^ KEYA[i%4]])
+for i in range(len(ENC_B)): marker += bytes([ror(ENC_B[i],1) ^ KEYB[i%4]])
+marker = marker.decode()
+assert marker == 'Fatdog_unveil', marker
+
+aes_key = hashlib.sha256((marker+'|aes').encode()).digest()[:16]
+mac     = hashlib.sha256((marker+'|mac').encode()).digest()
+
+# 标准 AES-128-ECB
+SBOX=[0x63,0x7c,0x77,0x7b,0xf2,0x6b,0x6f,0xc5,0x30,0x01,0x67,0x2b,0xfe,0xd7,0xab,0x76,0xca,0x82,0xc9,0x7d,0xfa,0x59,0x47,0xf0,0xad,0xd4,0xa2,0xaf,0x9c,0xa4,0x72,0xc0,0xb7,0xfd,0x93,0x26,0x36,0x3f,0xf7,0xcc,0x34,0xa5,0xe5,0xf1,0x71,0xd8,0x31,0x15,0x04,0xc7,0x23,0xc3,0x18,0x96,0x05,0x9a,0x07,0x12,0x80,0xe2,0xeb,0x27,0xb2,0x75,0x09,0x83,0x2c,0x1a,0x1b,0x6e,0x5a,0xa0,0x52,0x3b,0xd6,0xb3,0x29,0xe3,0x2f,0x84,0x53,0xd1,0x00,0xed,0x20,0xfc,0xb1,0x5b,0x6a,0xcb,0xbe,0x39,0x4a,0x4c,0x58,0xcf,0xd0,0xef,0xaa,0xfb,0x43,0x4d,0x33,0x85,0x45,0xf9,0x02,0x7f,0x50,0x3c,0x9f,0xa8,0x51,0xa3,0x40,0x8f,0x92,0x9d,0x38,0xf5,0xbc,0xb6,0xda,0x21,0x10,0xff,0xf3,0xd2,0xcd,0x0c,0x13,0xec,0x5f,0x97,0x44,0x17,0xc4,0xa7,0x7e,0x3d,0x64,0x5d,0x19,0x73,0x60,0x81,0x4f,0xdc,0x22,0x2a,0x90,0x88,0x46,0xee,0xb8,0x14,0xde,0x5e,0x0b,0xdb,0xe0,0x32,0x3a,0x0a,0x49,0x06,0x24,0x5c,0xc2,0xd3,0xac,0x62,0x91,0x95,0xe4,0x79,0xe7,0xc8,0x37,0x6d,0x8d,0xd5,0x4e,0xa9,0x6c,0x56,0xf4,0xea,0x65,0x7a,0xae,0x08,0xba,0x78,0x25,0x2e,0x1c,0xa6,0xb4,0xc6,0xe8,0xdd,0x74,0x1f,0x4b,0xbd,0x8b,0x8a,0x70,0x3e,0xb5,0x66,0x48,0x03,0xf6,0x0e,0x61,0x35,0x57,0xb9,0x86,0xc1,0x1d,0x9e,0xe1,0xf8,0x98,0x11,0x69,0xd9,0x8e,0x94,0x9b,0x1e,0x87,0xe9,0xce,0x55,0x28,0xdf,0x8c,0xa1,0x89,0x0d,0xbf,0xe6,0x42,0x68,0x41,0x99,0x2d,0x0f,0xb0,0x54,0xbb,0x16]
+RCON=[0x01,0x02,0x04,0x08,0x10,0x20,0x40,0x80,0x1b,0x36]
+def xt(a): return ((a<<1)^0x1B)&0xFF if a&0x80 else (a<<1)
+def gmul(a,b):
+    r=0
+    while b:
+        if b&1: r^=a
+        a=xt(a); b>>=1
+    return r
+def key_expand(key):
+    rk=[list(key)]
+    for i in range(1,11):
+        p=rk[-1]; t=[SBOX[p[13]],SBOX[p[14]],SBOX[p[15]],SBOX[p[12]]]; t[0]^=RCON[i-1]
+        c=[0]*16
+        for j in range(4): c[j]=p[j]^t[j]
+        for j in range(4,16): c[j]=p[j]^c[j-4]
+        rk.append(c)
+    return rk
+def shift(s):
+    s[1],s[5],s[9],s[13]=s[5],s[9],s[13],s[1]
+    s[2],s[6],s[10],s[14]=s[10],s[14],s[2],s[6]
+    s[3],s[7],s[11],s[15]=s[15],s[3],s[7],s[11]
+def enc_block(pt,rk):
+    s=list(pt)
+    def ark(k):
+        for i in range(16): s[i]^=k[i]
+    ark(rk[0])
+    for r in range(1,10):
+        s=[SBOX[x] for x in s]; shift(s)
+        for c in range(4):
+            a0,a1,a2,a3=s[4*c],s[4*c+1],s[4*c+2],s[4*c+3]
+            s[4*c]=gmul(a0,2)^gmul(a1,3)^a2^a3
+            s[4*c+1]=a0^gmul(a1,2)^gmul(a2,3)^a3
+            s[4*c+2]=a0^a1^gmul(a2,2)^gmul(a3,3)
+            s[4*c+3]=gmul(a0,3)^a1^a2^gmul(a3,2)
+        ark(rk[r])
+    s=[SBOX[x] for x in s]; shift(s); ark(rk[10])
+    return bytes(s)
+rk=key_expand(list(aes_key))
+def build(page,ts):
+    payload=("page=%d&ts=%d"%(page,ts)).encode()+b"\x00"*(32-len("page=%d&ts=%d"%(page,ts)))
+    ct=b"".join(enc_block(payload[i:i+16],rk) for i in range(0,32,16))
+    enc=ct.hex()
+    sign=hmac.new(mac,enc.encode(),hashlib.sha256).hexdigest()
+    return enc,sign
+
+# 离线取数（与服务端 SEED_KL16=20260116 完全一致）
+SEED=20260116; rng=random.Random(SEED)
+total=sum(rng.randint(1,100) for _ in range(1000))
+print("SUM =", total)
+print("SUM_HASH =", hashlib.sha256(str(total).encode()).hexdigest())
+# 实战联网：enc,sign = build(page,ts) 后带去 GET /api/kl16?page=&ts=&enc=&sign=
+```
+> 联网取数只需把 `build(page,ts)` 的 enc/sign 带去 `GET /api/kl16?page=&ts=&enc=&sign=`；上面的离线分支用于不依赖服务端的自测，结果应与线上一致。
+
+#### 服务端取数结果（离线可复现）
+- `SEED_KL16 = 20260116`，`random.Random(SEED)` 生成 100×10 个 1–100 整数
+- **总和 = 51495**
+- **SUM_HASH = `ec806594f8a8ea937168d438694b994cfe6f5fc94e57c4868032e61f50bed933`**
+
+把 `51495` 填进 `gladeActivity` 的输入框 → `sha256("51495")==SUM_HASH` → 放行，弹出 `FLAG_18_KL16{husk_shed}`。
 
 #### 坑位提醒
+1. **真标记不在静态字符串**：`Fatdog_unveil` 只出现在 so 注释里，编译后不在二进制字符串表；`Fatdog_unveils` 才是明文字面量（诱饵）。想拿真标记必须让 `JNI_OnLoad` 跑完两段加载。
+2. **AES 是标准轮常量**：别像 KL6 那样去找"换血"的 Rcon——本关 RCON 是 `0x01,0x02,...,0x1b,0x36` 标准表，魔改点不在这。
+3. **两段用不同密钥/旋转**：阶段1 `ror3+XOR KEYA`，阶段2 `ror1+XOR KEYB`，拼错一段标记就对不上，进而 aes/mac 钥全错。
+4. **诱饵即 403**：用 `Fatdog_unveils` 派生密钥，服务端 `_kl16_try` 命中 decoy 分支直接 403。
+5. **载荷零填充 32 字节**：`page=N&ts=T` 不足 32 字节要补 `\x00`，AES-ECB 分两块；服务端按 `\x00` 截断解析。
 
-1. **不要直接看 Application 类** → 壳的 Application 只是 stub，真实代码在加密的 DEX 中。
-2. **XOR_KEY 不在 Java 层** → 密钥硬编码在 so 的 .rodata 段，Java 层看不到。
-3. **解密有三轮** → 只做 XOR 不够，还有循环移位和组内累积，少一步结果都不对。
-4. **诱饵标记** → `Fatdog_packer`（多一个 er）是假的，用它计算会得到错误答案。
-5. **加密数据的位置** → 在 so 的 .rodata 段全局数组中，不在 assets 里（简化设计）。
-
-**flag**：`FLAG_18_KL16{shell_broken}`
+**flag**：`FLAG_18_KL16{husk_shed}`
 
 ---
 
@@ -4202,7 +4279,7 @@ console.log('直接计算:', Gk.nativeDirect(20280915));
 
 | 层 | 技术 | 对应关卡 |
 |---|---|---|
-| 外层 | XOR + Base64 加密 | KL16/17 |
+| 外层 | XOR + Base64 加密 | KL17（KL16 已改为标准 AES-128-ECB 取数） |
 | 中层 | OLLVM 状态机混淆 | KL18 |
 | 内层 | VMP 字节码执行 | KL19 |
 | 额外 | 反调试 + CRC 自校验 | — |
@@ -4231,7 +4308,7 @@ console.log('直接计算:', Gk.nativeDirect(20280915));
 
 | 前关 | 复用点 |
 |---|---|
-| KL16 | XOR 轮转密钥、Base64 编码 |
+| KL16 | 两阶段动态加载标记 + 标准 AES-128-ECB（一代壳取数） |
 | KL17 | 反调试（ptrace/TracerPid） |
 | KL18 | OLLVM 状态机（简化版） |
 | KL19 | VMP 字节码执行（简化版） |
@@ -4995,7 +5072,7 @@ frida -U -n com.fatdog.reverse -l hook_l10.js
 | KL13 | `FLAG_18_KL13{crc_cannot_protect}` |
 | KL14 | `FLAG_18_KL14{mesh_of_three}` |
 | KL15 | `FLAG_18_KL15{all_methods_converge}` |
-| KL16 | `FLAG_18_KL16{shell_broken}` |
+| KL16 | `FLAG_18_KL16{husk_shed}` |
 | KL17 | `FLAG_18_KL17{hotpatch_defeated}` |
 | KL18 | `FLAG_18_KL18{ollvm_deflattened}` |
 | KL19 | `FLAG_18_KL19{vm_cracked}` |

@@ -109,8 +109,8 @@
         <!-- Native大陆 L53：焚天火域（魔改 AES + Feistel + 异常控制流 · 最终关） -->
         <activity android:name=".x53Activity" android:exported="false" />
 
-        <!-- 太玄之初 KL16：破壳新生（一代壳 DEX 静态加密） -->
-        <activity android:name=".y53Activity" android:exported="false" />
+        <!-- 太玄之初 KL16：破壳新生（一代壳 DEX 分片动态加载） -->
+        <activity android:name=".gladeActivity" android:exported="false" />
 
         <!-- 太玄之初 KL17：金蝉脱壳（二代壳 DEX 热加载 + 反调试） -->
         <activity android:name=".z54Activity" android:exported="false" />

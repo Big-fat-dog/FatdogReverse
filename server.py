@@ -510,6 +510,167 @@ def api_kl6(page: int = Query(...), ts: int = Query(...), enc: str = Query(...),
     return {"page": page, "nums": []}
 
 
+# ---------------- 关卡 45（KL16）破壳新生：标准 AES-128-ECB（一代壳，不魔改） ----------------
+# 仿梆梆一代：so 在 JNI_OnLoad 分两阶段动态拼出真标记 Fatdog_unveil（不落盘），
+# 标记派生标准 AES/HMAC 钥匙，加密 "page=N&ts=T" 后带 HMAC 签名取数。
+# 与 KL6 不同：这里用标准算法（轮常量未做手脚），难度在前置的“壳内动态拼标记”。
+KL16_MASTER = "Fatdog_unveil"
+DECOY_KL16 = ["Fatdog_unveils"]  # 一字之差诱饵：命中即 403
+PAGES_KL16, PER_PAGE_KL16, SEED_KL16 = 100, 10, 20260116
+_rng_kl16 = random.Random(SEED_KL16)
+NUMS_KL16 = [_rng_kl16.randint(1, 100) for _ in range(PAGES_KL16 * PER_PAGE_KL16)]
+
+_AES_SBOX = [
+    0x63,0x7c,0x77,0x7b,0xf2,0x6b,0x6f,0xc5,0x30,0x01,0x67,0x2b,0xfe,0xd7,0xab,0x76,
+    0xca,0x82,0xc9,0x7d,0xfa,0x59,0x47,0xf0,0xad,0xd4,0xa2,0xaf,0x9c,0xa4,0x72,0xc0,
+    0xb7,0xfd,0x93,0x26,0x36,0x3f,0xf7,0xcc,0x34,0xa5,0xe5,0xf1,0x71,0xd8,0x31,0x15,
+    0x04,0xc7,0x23,0xc3,0x18,0x96,0x05,0x9a,0x07,0x12,0x80,0xe2,0xeb,0x27,0xb2,0x75,
+    0x09,0x83,0x2c,0x1a,0x1b,0x6e,0x5a,0xa0,0x52,0x3b,0xd6,0xb3,0x29,0xe3,0x2f,0x84,
+    0x53,0xd1,0x00,0xed,0x20,0xfc,0xb1,0x5b,0x6a,0xcb,0xbe,0x39,0x4a,0x4c,0x58,0xcf,
+    0xd0,0xef,0xaa,0xfb,0x43,0x4d,0x33,0x85,0x45,0xf9,0x02,0x7f,0x50,0x3c,0x9f,0xa8,
+    0x51,0xa3,0x40,0x8f,0x92,0x9d,0x38,0xf5,0xbc,0xb6,0xda,0x21,0x10,0xff,0xf3,0xd2,
+    0xcd,0x0c,0x13,0xec,0x5f,0x97,0x44,0x17,0xc4,0xa7,0x7e,0x3d,0x64,0x5d,0x19,0x73,
+    0x60,0x81,0x4f,0xdc,0x22,0x2a,0x90,0x88,0x46,0xee,0xb8,0x14,0xde,0x5e,0x0b,0xdb,
+    0xe0,0x32,0x3a,0x0a,0x49,0x06,0x24,0x5c,0xc2,0xd3,0xac,0x62,0x91,0x95,0xe4,0x79,
+    0xe7,0xc8,0x37,0x6d,0x8d,0xd5,0x4e,0xa9,0x6c,0x56,0xf4,0xea,0x65,0x7a,0xae,0x08,
+    0xba,0x78,0x25,0x2e,0x1c,0xa6,0xb4,0xc6,0xe8,0xdd,0x74,0x1f,0x4b,0xbd,0x8b,0x8a,
+    0x70,0x3e,0xb5,0x66,0x48,0x03,0xf6,0x0e,0x61,0x35,0x57,0xb9,0x86,0xc1,0x1d,0x9e,
+    0xe1,0xf8,0x98,0x11,0x69,0xd9,0x8e,0x94,0x9b,0x1e,0x87,0xe9,0xce,0x55,0x28,0xdf,
+    0x8c,0xa1,0x89,0x0d,0xbf,0xe6,0x42,0x68,0x41,0x99,0x2d,0x0f,0xb0,0x54,0xbb,0x16,
+]
+_AES_RSBOX = [0] * 256
+for _i, _v in enumerate(_AES_SBOX):
+    _AES_RSBOX[_v] = _i
+_AES_RCON = [0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80, 0x1b, 0x36]  # 标准，未魔改
+
+
+def _aes_xt(a: int) -> int:
+    return ((a << 1) ^ 0x1B) & 0xFF if a & 0x80 else (a << 1)
+
+
+def _aes_gmul(a: int, b: int) -> int:
+    r = 0
+    while b:
+        if b & 1:
+            r ^= a
+        a = _aes_xt(a)
+        b >>= 1
+    return r
+
+
+def _aes_key_expand_std(key16: bytes) -> list:
+    rk = [list(key16)]
+    for i in range(1, 11):
+        prev = rk[-1]
+        cur = [0] * 16
+        t = [_AES_SBOX[prev[13]], _AES_SBOX[prev[14]], _AES_SBOX[prev[15]], _AES_SBOX[prev[12]]]
+        t[0] ^= _AES_RCON[i - 1]
+        for j in range(4):
+            cur[j] = prev[j] ^ t[j]
+        for j in range(4, 16):
+            cur[j] = prev[j] ^ cur[j - 4]
+        rk.append(cur)
+    return rk
+
+
+def aes_kl16_ecb_decrypt(key16: bytes, data: bytes) -> bytes:
+    """标准 AES-128-ECB 解密（与 libash.so 的手写实现互为镜像，轮常量未魔改）"""
+    rk = _aes_key_expand_std(key16)
+    out = b""
+    for off in range(0, len(data), 16):
+        s = bytearray(data[off:off + 16])
+        for i in range(16):
+            s[i] ^= rk[10][i]
+        for r in range(9, 0, -1):
+            # 逆 ShiftRows（加密 ShiftRows 的逆）
+            t = s[1]; s[1] = s[13]; s[13] = s[9]; s[9] = s[5]; s[5] = t
+            t = s[2]; s[2] = s[10]; s[10] = t
+            t = s[6]; s[6] = s[14]; s[14] = t
+            t = s[3]; s[3] = s[7]; s[7] = s[11]; s[11] = s[15]; s[15] = t
+            for i in range(16):
+                s[i] = _AES_RSBOX[s[i]]
+            for i in range(16):
+                s[i] ^= rk[r][i]
+            for c in range(4):
+                a0, a1, a2, a3 = s[4*c], s[4*c+1], s[4*c+2], s[4*c+3]
+                s[4*c]   = _aes_gmul(a0,14) ^ _aes_gmul(a1,11) ^ _aes_gmul(a2,13) ^ _aes_gmul(a3,9)
+                s[4*c+1] = _aes_gmul(a0,9)  ^ _aes_gmul(a1,14) ^ _aes_gmul(a2,11) ^ _aes_gmul(a3,13)
+                s[4*c+2] = _aes_gmul(a0,13) ^ _aes_gmul(a1,9)  ^ _aes_gmul(a2,14) ^ _aes_gmul(a3,11)
+                s[4*c+3] = _aes_gmul(a0,11) ^ _aes_gmul(a1,13) ^ _aes_gmul(a2,9)  ^ _aes_gmul(a3,14)
+        t = s[1]; s[1] = s[13]; s[13] = s[9]; s[9] = s[5]; s[5] = t
+        t = s[2]; s[2] = s[10]; s[10] = t
+        t = s[6]; s[6] = s[14]; s[14] = t
+        t = s[3]; s[3] = s[7]; s[7] = s[11]; s[11] = s[15]; s[15] = t
+        for i in range(16):
+            s[i] = _AES_RSBOX[s[i]]
+        for i in range(16):
+            s[i] ^= rk[0][i]
+        out += bytes(s)
+    return out
+
+
+def _kl16_try(master: str, page: int, ts: int, enc: str, sign: str) -> bool:
+    mk = master.encode()
+    akey = hashlib.sha256(mk + b"|aes").digest()[:16]
+    mack = hashlib.sha256(mk + b"|mac").digest()
+    if not hmac.compare_digest(sign, hmac.new(mack, enc.encode(), hashlib.sha256).hexdigest()):
+        return False
+    try:
+        p = aes_kl16_ecb_decrypt(akey, bytes.fromhex(enc))
+        plain = p.split(b"\x00")[0].decode("utf-8", "ignore")
+    except Exception:
+        return False
+    m = re.fullmatch(r"page=(\d+)&ts=(\d+)", plain or "")
+    return bool(m) and int(m.group(1)) == page and int(m.group(2)) == ts
+
+
+@app.get("/api/kl16")
+def api_kl16(page: int = Query(...), ts: int = Query(...), enc: str = Query(...),
+            sign: str = Query(...)):
+    _check_ts(ts)
+    if _kl16_try(KL16_MASTER, page, ts, enc, sign):
+        _check_page(page, PAGES_KL16)
+        idx = (page - 1) * PER_PAGE_KL16
+        return {"page": page, "nums": NUMS_KL16[idx:idx + PER_PAGE_KL16]}
+    for dk in DECOY_KL16:
+        if _kl16_try(dk, page, ts, enc, sign):
+            raise HTTPException(status_code=403, detail="sign invalid")
+    return {"page": page, "nums": []}
+
+
+# ---------------- 关卡 46（KL17）金蝉脱壳：HMAC-SHA256（二代壳·类抽取，不魔改） ----------------
+# 仿 360 加固保：so 把标记拆成 4 段散布 rodata 不同函数，stub「加载」时回填拼回完整标记
+# （模拟类抽取回填）。标记派生 HMAC 密钥对 "page=N&ts=T" 签名取数。
+# 与 KL16 不同：本关不再 AES 加密请求体，只做标准 HMAC-SHA256 验签；难度在前置的「类抽取回填」。
+KL17_MASTER = "Fatdog_reclaim"
+DECOY_KL17 = ["Fatdog_reclaims"]  # 一字之差诱饵：命中即 403
+PAGES_KL17, PER_PAGE_KL17, SEED_KL17 = 100, 10, 20260117
+_rng_kl17 = random.Random(SEED_KL17)
+NUMS_KL17 = [_rng_kl17.randint(1, 100) for _ in range(PAGES_KL17 * PER_PAGE_KL17)]
+
+
+def _kl17_sign(master: str, page: int, ts: int) -> str:
+    key = hashlib.sha256(master.encode() + b"kl17").digest()[:32]
+    return hmac.new(key, f"page={page}&ts={ts}".encode(), hashlib.sha256).hexdigest()
+
+
+def _kl17_try(master: str, page: int, ts: int, sign: str) -> bool:
+    return hmac.compare_digest(sign, _kl17_sign(master, page, ts))
+
+
+@app.get("/api/kl17")
+def api_kl17(page: int = Query(...), ts: int = Query(...), sign: str = Query(...)):
+    _check_ts(ts)
+    if _kl17_try(KL17_MASTER, page, ts, sign):
+        _check_page(page, PAGES_KL17)
+        idx = (page - 1) * PER_PAGE_KL17
+        return {"page": page, "nums": NUMS_KL17[idx:idx + PER_PAGE_KL17]}
+    for dk in DECOY_KL17:
+        if _kl17_try(dk, page, ts, sign):
+            raise HTTPException(status_code=403, detail="sign invalid")
+    return {"page": page, "nums": []}
+
+
 # ---------------- 关卡 44（KL7）裂魂之匣：魔改 DES（IP 首尾互换 + S3 换位 + FP 重算） ----------------
 KL7_MASTER = "Fatdog_shatter"
 DECOY_KL7 = ["Fatdog_scatter"]
