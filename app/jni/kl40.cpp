@@ -11,7 +11,7 @@
  * 密钥体系：
  *   - 主密钥：Fatdog_reflect（UTF-8: 70,97,116,100,111,103,95,114,101,102,108,101,99,116）
  *   - 诱饵：Fatdog_echo
- *   - HMAC 密钥 = SHA256("Fatdog_reflect|hmac")
+ *   - HMAC 密钥 = 主密钥（裸密钥，不经 SHA256 派生；与 server.py hmac.new(KEY_KL40, msg) 一致）
  *   - RC4 密钥 = SHA256("Fatdog_reflect|rc4")[:16]
  *   - AOT 密钥 = SHA256("Fatdog_reflect|aot")[:16]
  *   - 解码异或：^0x55（区分 kl38 的 ^0x3C、kl39 的 ^0x42）
@@ -28,6 +28,7 @@
  */
 
 #include <jni.h>
+#include "mt_rng.h"
 #include <string>
 #include <cstring>
 #include <cstdint>
@@ -583,9 +584,9 @@ static jboolean nativeVerifyIntegrity(JNIEnv *env, jclass clazz) {
 }
 
 // 4. nativeAnswer() -> String
-//    SHA256(str(sum)) 前 8 位 hex（sum=52005）
+//    SHA256(str(sum)) 前 8 位 hex，sum 由 SEED_KL40=20280720 现场复算
 static jstring nativeAnswer(JNIEnv *env, jclass clazz) {
-    std::string ans = sha256Hex("52005");
+    std::string ans = sha256Hex(std::to_string(mt_rng::kl_server_sum(20280720)));
     return env->NewStringUTF(ans.substr(0, 8).c_str());
 }
 

@@ -41,3 +41,5 @@ SKILL.md
 *.md
 !README.md
 !SOLUTIONS.md
+
+.workbuddy/

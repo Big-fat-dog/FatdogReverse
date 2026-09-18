@@ -1,6 +1,7 @@
 // kl36.cpp —— KL36 云中锦书（碧落天 · Flutter/Dart 常量池模拟）
 // C++17 特性：类、模板、std::vector、std::unordered_map、std::unique_ptr、lambda
 #include <jni.h>
+#include "mt_rng.h"
 #include <string>
 #include <vector>
 #include <unordered_map>
@@ -430,8 +431,9 @@ Java_com_fatdog_reverse_FlutterBridge_nativeVerify(JNIEnv* env, jobject thiz,
 JNIEXPORT jstring JNICALL
 Java_com_fatdog_reverse_FlutterBridge_nativeAnswer(JNIEnv* env, jobject thiz) {
     sha256_detail::Sha256 hasher;
-    // 与服务端 100 页数据一致：SHA256(str(49495)) 的前 8 位 hex。
-    std::string total = "49495";
+    // 与服务端一致：sum 由 SEED_KL36=20271125 现场复算（random.Random(SEED) 生成 1000 个 randint(1,100) 求和）
+    uint64_t sum = mt_rng::kl_server_sum(20271125);
+    std::string total = std::to_string(sum);
     hasher.update(reinterpret_cast<const uint8_t*>(total.data()), total.size());
     uint8_t digest[32];
     hasher.finalize(digest);

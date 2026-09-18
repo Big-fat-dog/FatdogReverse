@@ -1,6 +1,7 @@
 // kl37.cpp —— KL37 风中鸢尾（碧落天 · Dart Kernel 字节码逆向）
 // C++17 + 反逆向对抗：ptrace/TracerPid/maps/端口/线程名/CRC 自校验 + 混合 JNI 注册
 #include <jni.h>
+#include "mt_rng.h"
 #include <string>
 #include <vector>
 #include <array>
@@ -677,10 +678,10 @@ static jstring nativeAnswer(JNIEnv* env, jobject thiz) {
         return env->NewStringUTF("guard_failed");
     }
 
-    // 答案：SHA256(str(sum))[:8]，sum=49958（seed=20280615 的 1000 个数之和）
+    // 答案：SHA256(str(sum))[:8]，sum 由 SEED_KL37=20280615 现场复算
     uint8_t digest[32];
-    const char* sumStr = "49958";
-    sha256_ns::hash(reinterpret_cast<const uint8_t*>(sumStr), strlen(sumStr), digest);
+    std::string sumStr = std::to_string(mt_rng::kl_server_sum(20280615));
+    sha256_ns::hash(reinterpret_cast<const uint8_t*>(sumStr.data()), sumStr.size(), digest);
     std::string ans = sha256_ns::hexEncode(digest, 32).substr(0, 8);
     return env->NewStringUTF(ans.c_str());
 }

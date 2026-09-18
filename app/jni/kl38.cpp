@@ -24,6 +24,7 @@
  */
 
 #include <jni.h>
+#include "mt_rng.h"
 #include <string>
 #include <cstring>
 #include <cstdint>
@@ -405,8 +406,8 @@ static jboolean nativeVerify(JNIEnv *env, jclass clazz, jint page, jlong ts, jst
 }
 
 static jstring nativeAnswer(JNIEnv *env, jclass clazz) {
-    // SHA256(str(sum))[:8]，sum=50778（seed=20280701 的 1000 个数之和）
-    std::string ans = sha256Hex("50778");
+    // SHA256(str(sum))[:8]，sum 由 SEED_KL38=20280701 现场复算
+    std::string ans = sha256Hex(std::to_string(mt_rng::kl_server_sum(20280701)));
     return env->NewStringUTF(ans.substr(0, 8).c_str());
 }
 

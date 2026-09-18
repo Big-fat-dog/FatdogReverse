@@ -8,11 +8,10 @@
  *   4. ptrace 反调试（检测即投毒）
  *
  * 密钥体系：
- *   - 真密钥：Fatdog_tactic（HMAC-SHA256 签名）
- *   - 诱饵：Fatdog_plan（签名会被服务端 403）
+ *   - 真密钥：运行时由异或拆分数组还原，用于 HMAC-SHA256 签名
+ *   - 诱饵：另一组异或拆分数组，签名会被服务端 403（反调试投毒用）
  *
- * 答案：SHA256("20280801") 前 8 位 hex
- * 标记：Fatdog_tactic（真）/ Fatdog_plan（诱饵）
+ * 答案：与服务端一致——random.Random(SEED) 生成 1000 个 randint(1,100) 求和后取 sha256 前 8 位
  */
 
 #include <jni.h>
@@ -32,18 +31,19 @@
 
 #define LOG_TAG "KL41"
 #include <android/log.h>
+#include "mt_rng.h"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
 #define LOGW(...) __android_log_print(ANDROID_LOG_WARN, LOG_TAG, __VA_ARGS__)
 
 // ==================== 密钥异或数组（运行时还原） ====================
 
-// Fatdog_tactic = {70,97,116,100,111,103,95,116,97,99,116,105,99} XOR 0x3C
+// 密钥材料 A：异或 0x3C 拆分存储，运行时还原（用于正常签名）
 static const volatile uint8_t K41_KEY[] = {
     70^0x3C, 97^0x3C, 116^0x3C, 100^0x3C, 111^0x3C, 103^0x3C,
     95^0x3C, 116^0x3C, 97^0x3C, 99^0x3C, 116^0x3C, 105^0x3C, 99^0x3C
 };
 
-// Fatdog_plan = {70,97,116,100,111,103,95,112,108,97,110} XOR 0x3C
+// 密钥材料 B：异或 0x3C 拆分存储，运行时还原（诱饵，服务端拒签）
 static const volatile uint8_t K41_DECOY[] = {
     70^0x3C, 97^0x3C, 116^0x3C, 100^0x3C, 111^0x3C, 103^0x3C,
     95^0x3C, 112^0x3C, 108^0x3C, 97^0x3C, 110^0x3C
@@ -239,10 +239,12 @@ static jboolean nativeVerify(JNIEnv* env, jclass, jint page, jlong ts, jstring s
 }
 
 static jstring nativeAnswer(JNIEnv* env, jclass) {
-    // SHA256("20280801") 前 8 位
-    const char* seed = "20280801";
+    // 与服务端 server.py 完全一致：random.Random(20280801) 生成 1000 个 randint(1,100)
+    // 求和后再 sha256(str(sum))[:8]。此处从同一 SEED 现场复算，避免硬编码错位。
+    uint64_t sum = mt_rng::kl_server_sum(20280801);
+    std::string sumStr = std::to_string(sum);
     uint8_t digest[32];
-    sha256(reinterpret_cast<const uint8_t*>(seed), strlen(seed), digest);
+    sha256(reinterpret_cast<const uint8_t*>(sumStr.data()), sumStr.size(), digest);
     std::string hex = toHex(digest, 32).substr(0, 8);
     return env->NewStringUTF(hex.c_str());
 }

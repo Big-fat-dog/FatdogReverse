@@ -25,6 +25,7 @@
  */
 
 #include <jni.h>
+#include "mt_rng.h"
 #include <string>
 #include <cstring>
 #include <cstdint>
@@ -526,9 +527,9 @@ static jboolean nativeVerify(JNIEnv *env, jclass clazz, jint page, jlong ts, jst
 }
 
 // 5. nativeAnswer() -> String
-//    SHA256(str(sum)) 前 8 位 hex（sum=49978）
+//    SHA256(str(sum)) 前 8 位 hex，sum 由 SEED_KL39=20280715 现场复算
 static jstring nativeAnswer(JNIEnv *env, jclass clazz) {
-    std::string ans = sha256Hex("49978");
+    std::string ans = sha256Hex(std::to_string(mt_rng::kl_server_sum(20280715)));
     return env->NewStringUTF(ans.substr(0, 8).c_str());
 }
 
