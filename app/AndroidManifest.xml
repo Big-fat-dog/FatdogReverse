@@ -150,6 +150,8 @@
         <activity android:name=".surfActivity" android:exported="false" />
         <activity android:name=".reefActivity" android:exported="false" />
         <activity android:name=".coralActivity" android:exported="false" />
+        <activity android:name=".pearlActivity" android:exported="false" />
+        <activity android:name=".hybridActivity" android:exported="false" />
 
         <!-- Native大陆 L48：落日平原（operator+ 重载） -->
         <activity android:name=".x48Activity" android:exported="false" />

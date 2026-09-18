@@ -483,3 +483,19 @@ LOCAL_SRC_FILES := jsbridge.cpp
 LOCAL_CPPFLAGS := -std=c++17 -fexceptions -frtti
 LOCAL_LDLIBS := -llog
 include $(BUILD_SHARED_LIBRARY)
+
+# KL44 须弥界 暗流涌动（JSBridge 签名拦截 + JS 层加密 + 反调试）
+include $(CLEAR_VARS)
+LOCAL_MODULE := signbridge
+LOCAL_SRC_FILES := signbridge.cpp
+LOCAL_CPPFLAGS := -std=c++17 -fexceptions -frtti
+LOCAL_LDLIBS := -llog
+include $(BUILD_SHARED_LIBRARY)
+
+# KL45 须弥界 深渊合璧（综合收官卷：JS 层 AES + native 普通 MD5 + 反调试）
+include $(CLEAR_VARS)
+LOCAL_MODULE := hybrid
+LOCAL_SRC_FILES := hybrid.cpp
+LOCAL_CPPFLAGS := -std=c++17 -fexceptions -frtti
+LOCAL_LDLIBS := -llog
+include $(BUILD_SHARED_LIBRARY)

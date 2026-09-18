@@ -5462,6 +5462,40 @@ frida -U -n com.fatdog.reverse -l hook_l10.js
 
 > 须弥界覆盖 Hybrid App / H5 壳逆向：WebView 承载 H5、JSBridge 注入定位、H5 资源加密、JS 层加密逻辑还原、bridge 协议与签名拦截。（原 RN / Weex / Uni-app 方向已废除，编号沿用 KL41-KL45。）
 
+### JS 逆向通用流程（KL42 / KL43 / KL44 的混淆页都适用）
+
+> 这三关的前端脚本都用 `javascript-obfuscator`（obfuscator.io 同款）混淆：字符串进“字符串数组”并按 **RC4 编码**、控制流平坦化、变量名十六进制化。还原套路一致，先吃透这一节，再看各关细节。
+
+**第 1 步 · 拿到页面源码**
+- 静态：解包 APK 取 `assets/h5/*.html`（KL42 的是 RC4 密文，先按该关“资源层”解容器）。
+- 动态（可互相印证）：Frida 挂 WebView 载入点直接打源码：
+```javascript
+Java.perform(function () {
+    var W = Java.use("android.webkit.WebView");
+    W.loadDataWithBaseURL.overload('java.lang.String','java.lang.String','java.lang.String','java.lang.String','java.lang.String')
+     .implementation = function (b, h, m, e, d) { console.log("[html]\n" + h); return this.loadDataWithBaseURL(b, h, m, e, d); };
+    W.loadUrl.overload('java.lang.String').implementation = function (u) { console.log("[url] " + u); return this.loadUrl(u); };
+});
+```
+  也可以等 `onPageFinished` 后 `evaluateJavascript("document.documentElement.outerHTML")` 回读。
+
+**第 2 步 · 认出混淆**
+- 变量名形如 `_0x4f2a`；代码里有**一个大字符串数组** `['...','...']`；
+- 到处是 `_0x4f2a(0x12)` 这种“取数组第 N 项”的调用 → obfuscator.io 的 **stringArray**；
+- 数组元素是 **base64 串**（如 `ZXZhbA==`）→ 用了 `stringArrayEncoding: ['rc4']`，另有一小段解码函数做 base64 → RC4 → 明文。
+
+**第 3 步 · 反混淆（三选一）**
+1. **一键工具**：把整段 `<script>` 贴进 **de4js**（在线）/ obfuscator 配套还原脚本，勾 “String Array” + “String Array Encoding: RC4”，直接出明文。
+2. **格式化后手工**：`js-beautify a.js > a.pretty.js`，找到字符串数组与解码函数，把 `_0x4f2a(0x12)` 逐处替换成明文（可写个 Node 小脚本自动跑）。
+3. **动态偷明文**：不还原也能干活——在页内 hook 取串函数打印返回值，或直接 hook 你关心的那处（见各关）。
+
+**第 4 步 · 找密钥与算法**
+- 明文里搜 `page=` / `&ts=` / `cmd=` 这类拼接片段，往上追它的输入变量 → 就是密钥常量；
+- 认算法：**RC4** 有“256 次 `S[i]=i` 初始化 + 双指针交换”的典型结构；**HMAC-SHA256** 有 64 个 32 位常量 `0x428a2f98, 0x71374491, …` 与 `0x36 / 0x5c` 两个 pad 常量。
+
+**第 5 步 · Python 复刻并对拍**
+- 复刻后在真机抓一次实际请求，比对自己的 enc/sign 与 App 发出的**是否逐字节相同**（ts 取同值）。
+
 ### KL41：浅滩拾贝（libh5shell.so · H5 壳 / JSBridge 注入定位）
 
 **考点**：WebView 加载本地 H5 → Java 侧 `addJavascriptInterface` 注入 bridge 对象 → bridge 的 `@JavascriptInterface` 方法（getToken/sign/verify/version）→ 真钥匙藏在 `libh5shell.so` 的异或数组里、运行时才拼出 → HMAC-SHA256 签名。
@@ -5578,6 +5612,19 @@ Java.perform(function () {
 });
 ```
 
+**JS 逆向详解（本关的混淆页）**：
+1. 先过**资源层**拿明文页：`html = rc4(b"Fatdog_vault", open("vault_kl42.bin","rb").read())`。
+2. 抠出页里 `<script>` 的脚本（约 20KB，清一色 `_0x…` 变量 + 一个大字符串数组）。
+3. 反混淆（de4js 勾 RC4 编码；或手工：数组元素是 base64，解码函数里含 `atob` 与 RC4 轮）→ 得到原始逻辑：
+```javascript
+var SECRET = "Fatdog_reef";
+function hmacSha256Hex(key, msg) { /* JS 版 HMAC-SHA256 */ }
+function fdSign(page, ts) { return hmacSha256Hex(SECRET, "page=" + page + "&ts=" + ts); }
+```
+4. 结论：**第一层密钥 = `Fatdog_reef`，算法 = HMAC-SHA256，签名原文 = `page=<N>&ts=<T>`**。
+5. Python 复刻：`sign = hmac.new(b"Fatdog_reef", f"page={page}&ts={ts}".encode(), hashlib.sha256).hexdigest()`。
+6. 动态偷懒：页面里函数挂在 `window.fdSign`，直接 `evaluateJavascript("window.fdSign(1, 1700000000)")` 就能拿一份真签；或 hook `WebVault.nativeDecryptAsset` 拿明文页。
+
 **答案**：100 页共 1000 个数求和 = **51229**，提交该加和即通关。flag `FLAG_19_KL42{sand_hidden_shell}`。真钥 `Fatdog_reef`（在混淆 JS 里）/ 诱饵 `Fatdog_shore`（服务端 403）。
 
 **坑位**：
@@ -5626,6 +5673,21 @@ Java.perform(function () {
 });
 ```
 
+**JS 逆向详解（本关的混淆页）**：
+1. 页面 `assets/h5/bridge_kl43.html` **不加密**，直接抠 `<script>` 反混淆即可（套用「JS 逆向通用流程」）。
+2. 还原后得到：
+```javascript
+var MSG_KEY = "Fatdog_coral";
+function buildMsg(cmd, page, ts) {
+    var sign = hmacSha256Hex(MSG_KEY, "cmd=" + cmd + "&page=" + page + "&ts=" + ts);
+    return JSON.stringify({ cmd: cmd, page: page, ts: ts, sign: sign });
+}
+function fdMsg(page, ts) { return buildMsg("q", page, ts); }
+```
+3. 结论：**密钥 = `Fatdog_coral`，算法 = HMAC-SHA256，签名原文 = `cmd=q&page=<N>&ts=<T>`**（注意带 `cmd=` 前缀，别漏）。
+4. Python 复刻：`sign = hmac.new(b"Fatdog_coral", f"cmd=q&page={page}&ts={ts}".encode(), hashlib.sha256).hexdigest()`。
+5. 动态：hook `WebView.evaluateJavascript` 看 App 取到的消息 JSON（含 sign）；或 `Java.use("…JsBridge").nativeGetDispatchTable()` 直接拿 cmd 分发表。
+
 **答案**：100 页共 1000 个数求和 = **51155**。flag `FLAG_19_KL43{wind_on_the_bridge}`。真钥 `Fatdog_coral`（混淆 JS 里）/ 诱饵 `Fatdog_tidepool`（403）。
 
 **坑位**：
@@ -5633,11 +5695,233 @@ Java.perform(function () {
 - 篡改 cmd 会被本地 dispatch 拦下（返回 `unknown`）——重放时别乱改指令。
 - SEED_KL43=20280903，启动日志打印 `KL43=51155`。
 
+### KL44：暗流涌动（libsignbridge.so · JSBridge 签名拦截 + JS 层加密）
+
+**考点（双层）**：第一层在**前端脚本**里——用 RC4 把明文参数搅成密文 `enc`（密钥藏在混淆 JS）；第二层在 **native**——对 `page=..&ts=..&enc=..` 再做一次 HMAC-SHA256（密钥藏在 so）。两层钥不同、算法不同，缺一层都取不到数。另加 **ptrace + maps 反调试**：判定被调试则改用诱饵钥签名。
+
+**协议**：POST `https://10.0.2.2:8443/api/kl44`，表单 `page=N&ts=T&enc=<hex>&sign=<hex>`
+
+**两层拆解**：
+| 层 | 做什么 | 钥（在哪） | 算法 |
+|---|---|---|---|
+| 第一层 | `enc = RC4(明文 "page=N&ts=T")` | `Fatdog_pearl`（混淆 JS 里） | RC4 |
+| 第二层 | `sign = HMAC(明文 + enc)` | `Fatdog_surge`（so 里，异或藏） | HMAC-SHA256 |
+
+- 签名原文：`page=<N>&ts=<T>&enc=<enc>`。
+- 诱饵钥 `Fatdog_foam`（so 的诱饵数组 + `FoamKit`），签了 403。
+- 反调试：三路信号（TracerPid / ptrace 失败 / maps 含 frida|gdb|lldb|gum-js）各记 1 分，**≥2 才判定**（评分制防误杀）；判定成立 → 用诱饵钥签名。
+
+**路线一 · 静态复刻（Python）**：
+```python
+import requests, time, hmac, hashlib
+
+def rc4(key, data):                                   # 第一层：JS 侧那把钥的算法
+    S = list(range(256)); j = 0
+    for i in range(256):
+        j = (j + S[i] + key[i % len(key)]) & 0xFF
+        S[i], S[j] = S[j], S[i]
+    out = bytearray(); i = j = 0
+    for ch in data:
+        i = (i + 1) & 0xFF; j = (j + S[i]) & 0xFF
+        S[i], S[j] = S[j], S[i]
+        out.append(ch ^ S[(S[i] + S[j]) & 0xFF])
+    return bytes(out)
+
+JSKEY = b"Fatdog_pearl"     # 第一层钥（从混淆 JS 还原）
+NKEY  = b"Fatdog_surge"     # 第二层钥（从 so 的异或数组还原）
+BASE  = "https://10.0.2.2:8443"
+s = requests.Session(); s.verify = False
+
+total = 0
+for page in range(1, 101):
+    ts = int(time.time())
+    enc = rc4(JSKEY, f"page={page}&ts={ts}".encode()).hex()           # 第一层
+    sign = hmac.new(NKEY, f"page={page}&ts={ts}&enc={enc}".encode(),
+                    hashlib.sha256).hexdigest()                        # 第二层
+    r = s.post(f"{BASE}/api/kl44", data={"page": page, "ts": ts, "enc": enc, "sign": sign})
+    total += sum(r.json()["nums"])
+print("sum =", total)                                  # 50424
+```
+
+**JS 逆向详解（本关的第一层）**：
+1. 页面 `assets/h5/sign_kl44.html` 不加密，直接抠 `<script>`（约 8.7KB，`_0x…` 变量 + 大字符串数组，base64 元素）→ 套用「JS 逆向通用流程」反混淆。
+2. 还原后得到：
+```javascript
+var ENC_KEY = "Fatdog_pearl";
+function rc4(key, data) { /* 256 初始化 + 双指针交换 */ }
+function fdEnc(page, ts) { return hex(rc4(s2b(ENC_KEY), s2b("page=" + page + "&ts=" + ts))); }
+```
+3. 结论：**第一层钥 = `Fatdog_pearl`，算法 = RC4，明文 = `page=<N>&ts=<T>`，输出 hex**。
+4. 只要钥和算法对上，`enc` 逐字节可复现（本关 `enc(1,1787013761) = 10505b4d47fd3c00d52415a5b364f140791b705b`）。
+5. 动态：页面函数挂在 `window.fdEnc`，`evaluateJavascript("window.fdEnc(1, 1700000000)")` 直接拿密文；或 hook `SignBridge.nativeBridgeSign` 看 native 入参（就是 enc）。
+
+**路线二 · Frida 动态**：
+```javascript
+Java.perform(function () {
+    var SB = Java.use("com.fatdog.reverse.SignBridge");
+    console.log("guard = " + SB.nativeStatus());            // 反调试自检（只读）
+    // 第二层签名：入参就是第一层的密文 enc
+    SB.nativeBridgeSign.implementation = function (page, ts, enc) {
+        var r = this.nativeBridgeSign(page, ts, enc);
+        console.log("page=" + page + " ts=" + ts + " enc=" + enc + "\n -> sign=" + r);
+        return r;
+    };
+});
+```
+
+**反调试绕过要点**：本关反调试是**评分制**（≥2 分才判定）——正常设备最多命中 1 项，不会误杀。挂了调试器时 TracerPid 与 ptrace 会同时中招。想绕过：hook `nativeStatus` 只读不判胜（无用），真正要改的是判定结果——用 Frida 拦 `SignBridge.nativeBridgeSign` 并在**未被调试的进程**里算（或直接静态复刻两层）。**注意**：`nativeStatus()` 只做只读展示，不参与判胜、也不吐钥。
+
+**答案**：100 页共 1000 个数求和 = **50424**。flag `FLAG_19_KL44{undertow_surging}`。真钥 `Fatdog_pearl`（JS 层）/ `Fatdog_surge`（native 层）；诱饵 `Fatdog_foam`（403）。
+
+**坑位**：
+- 两层**都要**还原：只解 JS 层没 native 钥、只逆 so 没 JS 钥，都拿不到数。
+- `sign` 的原文里**含 `enc`**（`page=..&ts=..&enc=..`），enc 变了 sign 也得重算。
+- SEED_KL44=20280904，启动日志打印 `KL44=50424`。
+
+### KL45：深渊合璧（libhybrid.so · 综合收官卷：JS 层 AES + native 普通 MD5）
+
+**考点（收官综合）**：须弥界收官卷，把前四关手段收束成两道锁——第一层在**前端脚本**里，用 **AES-128-ECB** 把明文参数加密成密文 `enc`（密钥藏在 ob 混淆的 JS）；第二层在 **native**，对「真钥 + 明文参数 + 密文」取一次**普通 MD5** 作为签名。另加 **ptrace + maps 反调试**（评分制）：判定被调试则改用诱饵钥，签了也白签。
+
+**协议**：POST `https://10.0.2.2:8443/api/kl45`，表单 `page=N&ts=T&enc=<hex>&sign=<hex>`
+
+**两层拆解**：
+
+| 层 | 做什么 | 钥（在哪） | 算法 |
+|---|---|---|---|
+| 第一层 | `enc = AES-ECB(明文 "page=N&ts=T")` | `Fatdog_abyss`（混淆 JS 里，补零到 16B） | AES-128-ECB + PKCS#7 |
+| 第二层 | `sign = MD5(钥 + "\|" + "page=N&ts=T&enc=" + enc)` | `Fatdog_abyss`（so 里，异或藏） | 普通 MD5 |
+
+- 签名原文：`Fatdog_abyss|page=<N>&ts=<T>&enc=<enc>`——注意前缀是**钥 + 竖线**，格式与钥都得还原。
+- 诱饵钥 `Fatdog_deep`（so 的诱饵数组 + `DepthKit` 类），签了 403。
+- 反调试：三路信号（TracerPid / ptrace 失败 / maps 含 frida\|gdb\|lldb\|gum-js）各记 1 分，**≥2 才判定**（评分制防误杀）；判定成立 → 用诱饵钥签名。
+
+**路线一 · 静态复刻（Python，完整可跑）**：
+```python
+import requests, time, hashlib
+
+# --- 纯标准库 AES-128-ECB（第一层；与 server.py 的 _aes_* 同一份实现） ---
+SBOX = bytes.fromhex(
+    "637c777bf26b6fc53001672bfed7ab76ca82c97dfa5947f0add4a2af9ca472c0"
+    "b7fd9326363ff7cc34a5e5f171d8311504c723c31896059a071280e2eb27b275"
+    "09832c1a1b6e5aa0523bd6b329e32f8453d100ed20fcb15b6acbbe394a4c58cf"
+    "d0efaafb434d338545f9027f503c9fa851a3408f929d38f5bcb6da2110fff3d2"
+    "cd0c13ec5f974417c4a77e3d645d197360814fdc222a908846eeb814de5e0bdb"
+    "e0323a0a4906245cc2d3ac629195e479e7c8376d8dd54ea96c56f4ea657aae08"
+    "ba78252e1ca6b4c6e8dd741f4bbd8b8a703eb5664803f60e613557b986c11d9e"
+    "e1f8981169d98e949b1e87e9ce5528df8ca1890dbfe6426841992d0fb054bb16")
+RCON = [1, 2, 4, 8, 16, 32, 64, 128, 27, 54]
+
+def gm(a, b):                      # GF(2^8) 乘法
+    p = 0
+    for _ in range(8):
+        if b & 1: p ^= a
+        hi = a & 0x80; a = (a << 1) & 0xFF
+        if hi: a ^= 0x1B
+        b >>= 1
+    return p & 0xFF
+
+def expand(key):                   # 密钥扩展 → 11 组轮密钥
+    w = list(key)
+    for i in range(4, 44):
+        t = w[(i-1)*4:(i-1)*4+4]
+        if i % 4 == 0:
+            t = t[1:] + t[:1]
+            t = [SBOX[b] for b in t]
+            t[0] ^= RCON[i//4 - 1]
+        w += [w[(i-4)*4]^t[0], w[(i-4)*4+1]^t[1], w[(i-4)*4+2]^t[2], w[(i-4)*4+3]^t[3]]
+    return w
+
+def encrypt_block(rk, blk):
+    s = list(blk)
+    def add(r):
+        for i in range(16): s[i] ^= rk[r*16+i]
+    def sb():
+        for i in range(16): s[i] = SBOX[s[i]]
+    def sh():
+        t = s[:]
+        for r in range(4):
+            for c in range(4): s[r+4*c] = t[r+4*((c+r)%4)]
+    def mx():
+        for c in range(4):
+            i0 = c*4; a0,a1,a2,a3 = s[i0],s[i0+1],s[i0+2],s[i0+3]
+            s[i0]   = gm(2,a0)^gm(3,a1)^a2^a3
+            s[i0+1] = a0^gm(2,a1)^gm(3,a2)^a3
+            s[i0+2] = a0^a1^gm(2,a2)^gm(3,a3)
+            s[i0+3] = gm(3,a0)^a1^a2^gm(2,a3)
+    add(0)
+    for r in range(1, 10): sb(); sh(); mx(); add(r)
+    sb(); sh(); add(10)
+    return bytes(s)
+
+KEY  = b"Fatdog_abyss"             # 真钥（混淆 JS + so 两处还原）
+AKEY = (KEY + b"\x00" * 16)[:16]   # AES-128 钥 = 标记补零到 16 字节
+
+def aes_ecb(data):
+    rk = expand(AKEY); out = bytearray()
+    for i in range(0, len(data), 16): out += encrypt_block(rk, data[i:i+16])
+    return bytes(out)
+
+def pkcs7(b):                      # PKCS#7 补齐
+    n = 16 - len(b) % 16
+    return b + bytes([n]) * n
+
+BASE = "https://10.0.2.2:8443"
+s = requests.Session(); s.verify = False       # 自签证书
+total = 0
+for page in range(1, 101):
+    ts  = int(time.time())
+    enc = aes_ecb(pkcs7(f"page={page}&ts={ts}".encode())).hex()                  # 第一层
+    sign = hashlib.md5(KEY + f"|page={page}&ts={ts}&enc={enc}".encode()).hexdigest()  # 第二层
+    r = s.post(f"{BASE}/api/kl45", data={"page": page, "ts": ts, "enc": enc, "sign": sign})
+    total += sum(r.json()["nums"])
+print("sum =", total)             # 50517
+```
+
+**JS 逆向详解（本关第一层）**：
+1. 页面 `assets/h5/hybrid_kl45.html` 不加密，直接抠 `<script>`（约 **22.5KB**，ob 混淆：`fd` 前缀十六进制标识符 + 字符串数组 + rc4 编码 + 控制流平坦化 + 数字表达式化）→ 套用「JS 逆向通用流程」反混淆（`de4js` 一键 / `js-beautify` 后手工替换 `fd0x…(0x…)` 取串调用）。
+2. 还原后得到：
+```javascript
+var AES_KEY = "Fatdog_abyss";                 // 第一层钥（真源里可见，混淆后藏进字符串数组）
+function fdPack(page, ts) {                    // 挂在 window.fdPack
+  var pt = "page=" + page + "&ts=" + ts;
+  return toHex(aesEcbEncrypt(padZero16(AES_KEY), pkcs7(strToBytes(pt))));   // AES-128-ECB + PKCS#7 → hex
+}
+```
+3. 结论：**第一层钥 = `Fatdog_abyss`（补零到 16 字节），算法 = AES-128-ECB，明文 = `page=<N>&ts=<T>`，输出 hex**（16 字节 → 1 块 → 32 hex；本例明文 22 字节 → 补齐 32 字节 → 2 块 → 64 hex）。
+4. 对拍：本关 `enc(1,1787013761) = fde4cf8e74b7234e9b74a8518d68f45104e418d80767db6e8276cdc6dc4a3c21`（可用它验证你的 AES 实现对不对）。
+5. 动态：页面函数挂在 `window.fdPack`，`evaluateJavascript("window.fdPack(1,1700000000)")` 直接拿密文；或 hook `HybridCore.nativeFullSign` 看 native 入参（就是 enc）。
+
+**路线二 · Frida 动态**：
+```javascript
+Java.perform(function () {
+    var HC = Java.use("com.fatdog.reverse.HybridCore");
+    console.log("guard = " + HC.nativeStatus());          // 反调试自检（只读）
+    HC.nativeFullSign.implementation = function (page, ts, enc) {
+        var r = this.nativeFullSign(page, ts, enc);
+        console.log("page=" + page + " ts=" + ts + " enc=" + enc + "\n -> sign=" + r);
+        return r;
+    };
+});
+```
+
+**反调试绕过要点**：评分制（≥2 分才判定），正常设备最多命中 1 项，不会误杀；挂调试器时 TracerPid 与 ptrace 同时中招。省事做法是静态复刻两层；`nativeStatus()` 只做只读展示，不参与判胜、也不吐钥。
+
+**答案**：100 页共 1000 个数求和 = **50517**。flag `FLAG_19_KL45{abyssal_union}`。真钥 `Fatdog_abyss`；诱饵 `Fatdog_deep`（403）。
+
+**坑位**：
+- AES 是**分组密码**：明文必须 PKCS#7 补齐到 16 字节整倍数；密钥须 **16 字节**（`Fatdog_abyss` 只有 12 字节，须补 4 个零字节）。
+- 第二层签名原文前缀是**钥 + 竖线**（`Fatdog_abyss|page=..`），漏前缀或漏竖线都验不过。
+- 密文是 **hex**；ECB 无 IV——相同明文得到相同密文，这也是识别「ECB 模式」的线索。
+- SEED_KL45=20280905，启动日志打印 `KL45=50517`。
+
+
 | 关卡 | Flag |
 |------|------|
 | KL41 | `FLAG_19_KL41{shallow_shell_found}` |
 | KL42 | `FLAG_19_KL42{sand_hidden_shell}` |
 | KL43 | `FLAG_19_KL43{wind_on_the_bridge}` |
+| KL44 | `FLAG_19_KL44{undertow_surging}` |
+| KL45 | `FLAG_19_KL45{abyssal_union}` |
 
 
 > 备注：L43-L45 现版源码庆祝串均为 `FLAG_18_L48{mirror_tells_true}`（L48 为历史编号残留、三关复制未改），上表按关卡语义区分；L47 以当前 App 庆祝串 `FLAG_18_L47{guard_matrix_crc_aes}` 为准。关卡 9 有两个变体串（`single_gate_not_enough` 是只过一重门时的诱饵/半程提示）。

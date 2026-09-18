@@ -700,8 +700,8 @@ public class MainActivity extends Activity {
             }
         } else if (kunlunCat == 7) {
             /* 须弥界：KL41 起 */
-            String[] names = {"浅滩拾贝", "沙中藏贝", "桥上听风"};
-            int[] klNums = {41, 42, 43};
+            String[] names = {"浅滩拾贝", "沙中藏贝", "桥上听风", "暗流涌动", "深渊合璧"};
+            int[] klNums = {41, 42, 43, 44, 45};
             for (int i = 0; i < names.length; i++) {
                 final int kl = klNums[i];
                 boolean open = PassLog.isDone(this, "KL" + kl);
@@ -714,7 +714,7 @@ public class MainActivity extends Activity {
                         LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
                 lp.topMargin = Ui.dp(12);
                 list.addView(b, lp);
-                final Class<?> target = kl == 41 ? surfActivity.class : kl == 42 ? reefActivity.class : coralActivity.class;
+                final Class<?> target = kl == 41 ? surfActivity.class : kl == 42 ? reefActivity.class : kl == 43 ? coralActivity.class : kl == 44 ? pearlActivity.class : hybridActivity.class;
                 b.setOnClickListener(new View.OnClickListener() {
                     @Override public void onClick(View v) {
                         startActivity(new Intent(MainActivity.this, target));

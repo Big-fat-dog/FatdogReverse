@@ -2949,6 +2949,229 @@ def api_kl43(cmd: str = Form(...), page: int = Form(...), ts: int = Form(...),
     return {"page": page, "nums": []}
 
 
+# ---------------- 关卡 KL44（须弥界）暗流涌动：JSBridge 签名拦截 + JS 层加密（双层） ----------
+JSKEY_KL44 = b"Fatdog_pearl"   # 第一层：JS 侧 RC4 钥
+KEY_KL44 = b"Fatdog_surge"     # 第二层：native 侧 HMAC 钥
+DECOY_KL44 = [b"Fatdog_foam"]
+PAGES_KL44, PER_PAGE_KL44, SEED_KL44 = 100, 10, 20280904
+_rng_kl44 = random.Random(SEED_KL44)
+NUMS_KL44 = [_rng_kl44.randint(1, 100) for _ in range(PAGES_KL44 * PER_PAGE_KL44)]
+KL44_SUM = sum(NUMS_KL44)
+KL44_SUM_HASH = hashlib.sha256(str(KL44_SUM).encode()).hexdigest()
+
+
+def _kl44_rc4(key, data):
+    S = list(range(256))
+    j = 0
+    for i in range(256):
+        j = (j + S[i] + key[i % len(key)]) % 256
+        S[i], S[j] = S[j], S[i]
+    out = bytearray()
+    i = j = 0
+    for ch in data:
+        i = (i + 1) % 256
+        j = (j + S[i]) % 256
+        S[i], S[j] = S[j], S[i]
+        out.append(ch ^ S[(S[i] + S[j]) % 256])
+    return bytes(out)
+
+
+def _kl44_try(key, page, ts, enc, sign):
+    msg = f"page={page}&ts={ts}&enc={enc}"
+    expected = hmac.new(key, msg.encode(), hashlib.sha256).hexdigest()
+    return hmac.compare_digest(sign, expected)
+
+
+@app.post("/api/kl44")
+def api_kl44(page: int = Form(...), ts: int = Form(...),
+             enc: str = Form(...), sign: str = Form(...)):
+    _check_page(page, PAGES_KL44)
+    _check_ts(ts)
+    # 第一层：JS 层密文必须还原一致
+    want_enc = _kl44_rc4(JSKEY_KL44, f"page={page}&ts={ts}".encode()).hex()
+    if enc == want_enc and _kl44_try(KEY_KL44, page, ts, enc, sign):
+        idx = (page - 1) * PER_PAGE_KL44
+        return {"page": page, "nums": NUMS_KL44[idx:idx + PER_PAGE_KL44]}
+    for dk in DECOY_KL44:
+        if _kl44_try(dk, page, ts, enc, sign):
+            raise HTTPException(status_code=403, detail="sign invalid")
+    return {"page": page, "nums": []}
+
+
+# ---------------- 关卡 KL45（须弥界）深渊合璧：综合收官卷（JS 层 AES + native 普通 MD5） ----------
+KEY_KL45 = b"Fatdog_abyss"        # 真钥：JS 层 AES 密钥来源 + native 签名前缀
+DECOY_KL45 = [b"Fatdog_deep"]     # 诱饵钥（反调试命中时 native 改用）
+PAGES_KL45, PER_PAGE_KL45, SEED_KL45 = 100, 10, 20280905
+_rng_kl45 = random.Random(SEED_KL45)
+NUMS_KL45 = [_rng_kl45.randint(1, 100) for _ in range(PAGES_KL45 * PER_PAGE_KL45)]
+KL45_SUM = sum(NUMS_KL45)
+KL45_SUM_HASH = hashlib.sha256(str(KL45_SUM).encode()).hexdigest()
+
+# --- 纯标准库 AES-128-ECB（零第三方依赖，与 JS 层 / 生成器同参数） ---
+_AES_SBOX = bytes.fromhex(
+    "637c777bf26b6fc53001672bfed7ab76ca82c97dfa5947f0add4a2af9ca472c0"
+    "b7fd9326363ff7cc34a5e5f171d8311504c723c31896059a071280e2eb27b275"
+    "09832c1a1b6e5aa0523bd6b329e32f8453d100ed20fcb15b6acbbe394a4c58cf"
+    "d0efaafb434d338545f9027f503c9fa851a3408f929d38f5bcb6da2110fff3d2"
+    "cd0c13ec5f974417c4a77e3d645d197360814fdc222a908846eeb814de5e0bdb"
+    "e0323a0a4906245cc2d3ac629195e479e7c8376d8dd54ea96c56f4ea657aae08"
+    "ba78252e1ca6b4c6e8dd741f4bbd8b8a703eb5664803f60e613557b986c11d9e"
+    "e1f8981169d98e949b1e87e9ce5528df8ca1890dbfe6426841992d0fb054bb16"
+)
+_AES_INV_SBOX = bytes.fromhex(
+    "52096ad53036a538bf40a39e81f3d7fb7ce339829b2fff87348e4344c4dee9cb"
+    "547b9432a6c2233dee4c950b42fac34e082ea16628d924b2765ba2496d8bd125"
+    "72f8f66486689816d4a45ccc5d65b6926c704850fdedb9da5e154657a78d9d84"
+    "90d8ab008cbcd30af7e45805b8b34506d02c1e8fca3f0f02c1afbd0301138a6b"
+    "3a9111414f67dcea97f2cfcef0b4e67396ac7422e7ad3585e2f937e81c75df6e"
+    "47f11a711d29c5896fb7620eaa18be1bfc563e4bc6d279209adbc0fe78cd5af4"
+    "1fdda8338807c731b11210592780ec5f60517fa919b54a0d2de57a9f93c99cef"
+    "a0e03b4dae2af5b0c8ebbb3c83539961172b047eba77d626e169146355210c7d"
+)
+_AES_RCON = [0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80, 0x1b, 0x36]
+
+
+def _aes_gm(a, b):
+    p = 0
+    for _ in range(8):
+        if b & 1:
+            p ^= a
+        hi = a & 0x80
+        a = (a << 1) & 0xff
+        if hi:
+            a ^= 0x1b
+        b >>= 1
+    return p & 0xff
+
+
+def _aes_key_expand(key):
+    w = list(key)
+    for i in range(4, 44):
+        t = w[(i - 1) * 4:(i - 1) * 4 + 4]
+        if i % 4 == 0:
+            t = t[1:] + t[:1]
+            t = [_AES_SBOX[b] for b in t]
+            t[0] ^= _AES_RCON[i // 4 - 1]
+        w += [w[(i - 4) * 4] ^ t[0], w[(i - 4) * 4 + 1] ^ t[1],
+              w[(i - 4) * 4 + 2] ^ t[2], w[(i - 4) * 4 + 3] ^ t[3]]
+    return w
+
+
+def _aes_enc_block(rk, blk):
+    s = list(blk)
+
+    def addrk(r):
+        for i in range(16):
+            s[i] ^= rk[r * 16 + i]
+
+    def sb():
+        for i in range(16):
+            s[i] = _AES_SBOX[s[i]]
+
+    def sh():
+        t = s[:]
+        for r in range(4):
+            for c in range(4):
+                s[r + 4 * c] = t[r + 4 * ((c + r) % 4)]
+
+    def mx():
+        for c in range(4):
+            i0 = c * 4
+            a0, a1, a2, a3 = s[i0], s[i0 + 1], s[i0 + 2], s[i0 + 3]
+            s[i0] = _aes_gm(2, a0) ^ _aes_gm(3, a1) ^ a2 ^ a3
+            s[i0 + 1] = a0 ^ _aes_gm(2, a1) ^ _aes_gm(3, a2) ^ a3
+            s[i0 + 2] = a0 ^ a1 ^ _aes_gm(2, a2) ^ _aes_gm(3, a3)
+            s[i0 + 3] = _aes_gm(3, a0) ^ a1 ^ a2 ^ _aes_gm(2, a3)
+
+    addrk(0)
+    for r in range(1, 10):
+        sb(); sh(); mx(); addrk(r)
+    sb(); sh(); addrk(10)
+    return bytes(s)
+
+
+def _aes_dec_block(rk, blk):
+    s = list(blk)
+
+    def addrk(r):
+        for i in range(16):
+            s[i] ^= rk[r * 16 + i]
+
+    def isb():
+        for i in range(16):
+            s[i] = _AES_INV_SBOX[s[i]]
+
+    def ish():
+        t = s[:]
+        for r in range(4):
+            for c in range(4):
+                s[r + 4 * c] = t[r + 4 * ((c - r) % 4)]
+
+    def imx():
+        for c in range(4):
+            i0 = c * 4
+            a0, a1, a2, a3 = s[i0], s[i0 + 1], s[i0 + 2], s[i0 + 3]
+            s[i0] = _aes_gm(14, a0) ^ _aes_gm(11, a1) ^ _aes_gm(13, a2) ^ _aes_gm(9, a3)
+            s[i0 + 1] = _aes_gm(9, a0) ^ _aes_gm(14, a1) ^ _aes_gm(11, a2) ^ _aes_gm(13, a3)
+            s[i0 + 2] = _aes_gm(13, a0) ^ _aes_gm(9, a1) ^ _aes_gm(14, a2) ^ _aes_gm(11, a3)
+            s[i0 + 3] = _aes_gm(11, a0) ^ _aes_gm(13, a1) ^ _aes_gm(9, a2) ^ _aes_gm(14, a3)
+
+    addrk(10)
+    for r in range(9, 0, -1):
+        ish(); isb(); addrk(r); imx()
+    ish(); isb(); addrk(0)
+    return bytes(s)
+
+
+def _aes_ecb_decrypt(key, data):
+    rk = _aes_key_expand(key)
+    out = bytearray()
+    for i in range(0, len(data), 16):
+        out += _aes_dec_block(rk, data[i:i + 16])
+    return bytes(out)
+
+
+def _aes_unpad(b):
+    if not b:
+        return b
+    n = b[-1]
+    if 1 <= n <= 16 and all(x == n for x in b[-n:]):
+        return b[:-n]
+    return b
+
+
+def _kl45_aes_key():
+    return (KEY_KL45 + b"\x00" * 16)[:16]
+
+
+def _kl45_sign(master, page, ts, enc):
+    msg = bytes(master) + f"|page={page}&ts={ts}&enc={enc}".encode()
+    return hashlib.md5(msg).hexdigest()
+
+
+def _kl45_try(master, page, ts, enc, sign):
+    return hmac.compare_digest(sign, _kl45_sign(master, page, ts, enc))
+
+
+@app.post("/api/kl45")
+def api_kl45(page: int = Form(...), ts: int = Form(...),
+             enc: str = Form(...), sign: str = Form(...)):
+    _check_page(page, PAGES_KL45)
+    _check_ts(ts)
+    # 第一层：真钥 AES 解密 enc，明文必须等于 "page=<page>&ts=<ts>"
+    try:
+        pt = _aes_unpad(_aes_ecb_decrypt(_kl45_aes_key(), bytes.fromhex(enc))).decode("utf-8", "ignore")
+    except Exception:
+        pt = ""
+    if pt == f"page={page}&ts={ts}" and _kl45_try(KEY_KL45, page, ts, enc, sign):
+        idx = (page - 1) * PER_PAGE_KL45
+        return {"page": page, "nums": NUMS_KL45[idx:idx + PER_PAGE_KL45]}
+    for dk in DECOY_KL45:
+        if _kl45_try(dk, page, ts, enc, sign):
+            raise HTTPException(status_code=403, detail="sign invalid")
+    return {"page": page, "nums": []}
+
+
 if __name__ == "__main__":
     cert_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "certs")
     print(f"FatdogReverse 服务端（FastAPI）：http://{HOST}:{PORT_HTTP}（15-20） https://{HOST}:{PORT_HTTPS}（21-27）")
@@ -2961,7 +3184,7 @@ if __name__ == "__main__":
           f"KKL2={sum(NUMS_KKL2)} KKL3={sum(NUMS_KKL3)} KKL4={sum(NUMS_KKL4)} "
           f"L43={sum(NUMS43)} L44={sum(NUMS44)} L45={sum(NUMS45)} L46={sum(NUMS46)} L47={sum(NUMS47)} "
           f"L48={sum(NUMS48)} L49={sum(NUMS49)} L50={sum(NUMS50)} L51={sum(NUMS51)} L52={sum(NUMS52)} L53={sum(NUMS53)} "
-          f"KL36={KL36_SUM} KL37={KL37_SUM} KL38={KL38_SUM} KL39={KL39_SUM} KL40={KL40_SUM} KL41={KL41_SUM} KL42={KL42_SUM} KL43={KL43_SUM}")
+          f"KL36={KL36_SUM} KL37={KL37_SUM} KL38={KL38_SUM} KL39={KL39_SUM} KL40={KL40_SUM} KL41={KL41_SUM} KL42={KL42_SUM} KL43={KL43_SUM} KL44={KL44_SUM} KL45={KL45_SUM}")
     http_cfg = uvicorn.Config(app, host=HOST, port=PORT_HTTP, log_level="info")
     threading.Thread(target=uvicorn.Server(http_cfg).run, daemon=True).start()
     https_cfg = uvicorn.Config(app, host=HOST, port=PORT_HTTPS,
