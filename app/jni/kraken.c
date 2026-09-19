@@ -27,6 +27,9 @@ static const jchar DECOY[] = {
 };
 #define DECOY_LEN 12
 
+/* 标记留存：防止 --gc-sections 把未引用的 MARKER/DECOY 整体删除（题解声称它们躺在 so 里，必须真保留） */
+static volatile uint32_t g_marker_proof = 0;
+
 /* --- 魔数：seal 内嵌常量 --- */
 #define SEAL_MAGIC 0x1337CAFE
 
@@ -34,16 +37,16 @@ static const jchar DECOY[] = {
 #define XOR_KEY 0x0000BEEF
 
 /*
- * seal()：内嵌常量，初始返回错误值 0x1337C411，hook 后返回真值 0x1337CAFE。
+ * seal()：内嵌常量，未 hook 时返回错误值 0x13377411，hook 后由 Frida 强制返回真值 0x1337CAFE。
  *
  * Frida 解法（本关主解）：
- *   Interceptor.attach(Module.findExportByName("libm11.so","seal"), {
+ *   Interceptor.attach(Module.findExportByName("libkraken.so","seal"), {
  *     onLeave: function(r) { r.replace(ptr(0x1337CAFE)); }
  *   });
  *   一行搞定——hook 返回值比改二进制容易得多。
  */
 int seal(void) {
-    return SEAL_MAGIC ^ XOR_KEY; /* 未 hook 时返回 0x1337C411，check 保持关闭 */
+    return SEAL_MAGIC ^ XOR_KEY; /* 未 hook 时返回 0x13377411，check 保持关闭 */
 }
 
 /*
@@ -81,5 +84,10 @@ Java_com_fatdog_reverse_Uk_nativeCheck(JNIEnv *env, jclass clazz, jint val) {
 
 JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void *reserved) {
     (void)vm; (void)reserved;
+    /* 标记留存：对真/诱饵标记做校验和写入 volatile 全局，强制其保留在二进制中 */
+    uint32_t mp = 0x5A5A5A5Au;
+    for (int i = 0; i < MARKER_LEN; i++) mp ^= ((uint32_t)MARKER[i] << (i & 7));
+    for (int i = 0; i < DECOY_LEN;  i++) mp ^= ((uint32_t)DECOY[i]  << (i & 7));
+    g_marker_proof = mp;
     return JNI_VERSION_1_6;
 }

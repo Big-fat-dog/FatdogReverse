@@ -2691,7 +2691,8 @@ async def api_kkl5(page: int = Form(...), ts: int = Form(...), enc: str = Form(.
     return {"iv": rsp_iv_hex, "d": rsp_d, "sign": rsp_sign}
 
 
-# ---------------- 关卡 KL36（碧落天）云中锦书：Dart AOT 常量池模拟 ----------
+# ---------------- 关卡 KL36（碧落天）云中锦书：真实 Flutter 载荷 · Dart AOT 快照对象池 ----------
+# 本关只用 MD5：sign = md5("page=N&ts=T&k=<KEY>")（非 HMAC）
 KEY_KL36 = b"Fatdog_scroll"
 DECOY_KL36 = [b"Fatdog_roll"]
 PAGES_KL36, PER_PAGE_KL36, SEED_KL36 = 100, 10, 20271125
@@ -2701,11 +2702,12 @@ KL36_SUM = sum(NUMS_KL36)
 KL36_SUM_HASH = hashlib.sha256(str(KL36_SUM).encode()).hexdigest()
 
 
+def _kl36_sign(key, page, ts):
+    return hashlib.md5(b"page=%d&ts=%d&k=%s" % (page, ts, key)).hexdigest()
+
+
 def _kl36_try(key, page, ts, sign):
-    msg = f"page={page}&ts={ts}"
-    derived = hashlib.sha256(key + b"|hmac").digest()
-    expected = hmac.new(derived, msg.encode(), hashlib.sha256).hexdigest()
-    return hmac.compare_digest(sign, expected)
+    return hmac.compare_digest(sign, _kl36_sign(key, page, ts))
 
 
 @app.get("/api/kl36")
@@ -2721,7 +2723,8 @@ def api_kl36(page: int = Query(...), ts: int = Query(...), sign: str = Query(...
     return {"page": page, "nums": []}
 
 
-# ---------------- 关卡 KL37（碧落天）风中鸢尾：Dart Kernel 字节码逆向 ----------
+# ---------------- 关卡 KL37（碧落天）风中鸢尾：Dart AOT 还原 + 混淆对抗（AES-128-ECB） ----------
+# 本关只用一种对称加密：enc = AES-128-ECB-PKCS7(key, "page=N&ts=T")，key = 真标记补零 16B
 KEY_KL37 = b"Fatdog_kite"
 DECOY_KL37 = [b"Fatdog_sail"]
 PAGES_KL37, PER_PAGE_KL37, SEED_KL37 = 100, 10, 20280615
@@ -2731,27 +2734,43 @@ KL37_SUM = sum(NUMS_KL37)
 KL37_SUM_HASH = hashlib.sha256(str(KL37_SUM).encode()).hexdigest()
 
 
-def _kl37_try(key, page, ts, sign):
-    msg = f"page={page}&ts={ts}"
-    derived = hashlib.sha256(key + b"|hmac").digest()
-    expected = hmac.new(derived, msg.encode(), hashlib.sha256).hexdigest()
-    return hmac.compare_digest(sign, expected)
+def _kl37_aes_key(master):
+    return (master + b"\x00" * 16)[:16]
+
+
+def _kl37_try(master, page, ts, enc):
+    """用该密钥解 enc，能还原出本页明文帧才算通过。"""
+    try:
+        raw = bytes.fromhex(enc)
+    except ValueError:
+        return False
+    if not raw or len(raw) % 16 != 0 or len(raw) > 4096:
+        return False
+    pt = _aes_unpad(_aes_ecb_decrypt(_kl37_aes_key(master), raw))
+    try:
+        return pt.decode("utf-8") == f"page={page}&ts={ts}"
+    except UnicodeDecodeError:
+        return False
 
 
 @app.get("/api/kl37")
-def api_kl37(page: int = Query(...), ts: int = Query(...), sign: str = Query(...)):
+def api_kl37(page: int = Query(...), ts: int = Query(...), enc: str = Query(...)):
     _check_page(page, PAGES_KL37)
     _check_ts(ts)
-    if _kl37_try(KEY_KL37, page, ts, sign):
+    if _kl37_try(KEY_KL37, page, ts, enc):
         idx = (page - 1) * PER_PAGE_KL37
         return {"page": page, "nums": NUMS_KL37[idx:idx + PER_PAGE_KL37]}
     for dk in DECOY_KL37:
-        if _kl37_try(dk, page, ts, sign):
-            raise HTTPException(status_code=403, detail="sign invalid")
+        if _kl37_try(dk, page, ts, enc):
+            raise HTTPException(status_code=403, detail="enc invalid")
     return {"page": page, "nums": []}
 
 
-# ---------------- 关卡 KL38（碧落天）雾里观花：Flutter 网络层 Hook ----------
+# ---------------- 关卡 KL38（碧落天）雾里观花：Flutter 证书固定绕过 ----------
+# 口径（摘要 + 对称，无 HMAC）：
+#   aeskey = SHA256("<主密钥>|aes") 的前 16 字节
+#   enc    = AES-128-CBC-PKCS7(aeskey, iv||"page=N&ts=T")  → hex（前 16 字节是 IV）
+#   sign   = SHA256(enc + "<主密钥>") 的十六进制前 16 位
 KEY_KL38 = b"Fatdog_haze"
 DECOY_KL38 = [b"Fatdog_fog"]
 PAGES_KL38, PER_PAGE_KL38, SEED_KL38 = 100, 10, 20280701
@@ -2761,21 +2780,36 @@ KL38_SUM = sum(NUMS_KL38)
 KL38_SUM_HASH = hashlib.sha256(str(KL38_SUM).encode()).hexdigest()
 
 
-def _kl38_try(key, page, ts, sign):
-    msg = f"page={page}&ts={ts}"
-    expected = hmac.new(key, msg.encode(), hashlib.sha256).hexdigest()
-    return hmac.compare_digest(sign, expected)
+def _kl38_aes_key(master):
+    return hashlib.sha256(master + b"|aes").digest()[:16]
+
+
+def _kl38_try(master, page, ts, enc, sign):
+    # ① 摘要：sign == SHA256(enc + master) 的前 16 位 hex
+    expected = hashlib.sha256(enc.encode() + master).hexdigest()[:16]
+    if not hmac.compare_digest(sign, expected):
+        return False
+    # ② 解密：剥下前 16 字节 IV，CBC 解出明文帧必须与 page/ts 相符
+    try:
+        raw = bytes.fromhex(enc)
+    except ValueError:
+        return False
+    if len(raw) < 32 or len(raw) % 16 != 0:
+        return False
+    pt = _aes_unpad(_aes_cbc_decrypt(_kl38_aes_key(master), raw[:16], raw[16:]))
+    return pt.decode("utf-8", "ignore") == f"page={page}&ts={ts}"
 
 
 @app.get("/api/kl38")
-def api_kl38(page: int = Query(...), ts: int = Query(...), sign: str = Query(...)):
+def api_kl38(page: int = Query(...), ts: int = Query(...),
+             enc: str = Query(...), sign: str = Query(...)):
     _check_page(page, PAGES_KL38)
     _check_ts(ts)
-    if _kl38_try(KEY_KL38, page, ts, sign):
+    if _kl38_try(KEY_KL38, page, ts, enc, sign):
         idx = (page - 1) * PER_PAGE_KL38
         return {"page": page, "nums": NUMS_KL38[idx:idx + PER_PAGE_KL38]}
     for dk in DECOY_KL38:
-        if _kl38_try(dk, page, ts, sign):
+        if _kl38_try(dk, page, ts, enc, sign):
             raise HTTPException(status_code=403, detail="sign invalid")
     return {"page": page, "nums": []}
 
@@ -2790,28 +2824,42 @@ KL39_SUM = sum(NUMS_KL39)
 KL39_SUM_HASH = hashlib.sha256(str(KL39_SUM).encode()).hexdigest()
 
 
-def _kl39_try(key, page, ts, sign):
-    msg = f"page={page}&ts={ts}"
-    expected = hmac.new(key, msg.encode(), hashlib.sha256).hexdigest()
-    return hmac.compare_digest(sign, expected)
+def _kl39_try(master, page, ts, enc):
+    """摘要 + 对称（无 HMAC）：解密 enc 应得 MD5("page=N&ts=T") 的 16 字节原始摘要。
+
+    密钥在客户端被掰成两瓣（FRAG_DART 在载荷、FRAG_C 在 native），拼回即 master，
+    这里直接用拼好的 master 补零 16 字节作 AES 密钥。
+    """
+    try:
+        raw = bytes.fromhex(enc)
+    except ValueError:
+        return False
+    if not raw or len(raw) % 16 != 0:
+        return False
+    key = (master + b"\x00" * 16)[:16]
+    d = _aes_unpad(_aes_ecb_decrypt(key, raw))
+    return d == hashlib.md5(f"page={page}&ts={ts}".encode()).digest()
 
 
 @app.post("/api/kl39")
-def api_kl39(page: int = Form(...), ts: int = Form(...),
-             enc: str = Form(...), sign: str = Form(...)):
+def api_kl39(page: int = Form(...), ts: int = Form(...), enc: str = Form(...)):
     _check_page(page, PAGES_KL39)
     _check_ts(ts)
-    # 验证签名
-    if _kl39_try(KEY_KL39, page, ts, sign):
+    if _kl39_try(KEY_KL39, page, ts, enc):
         idx = (page - 1) * PER_PAGE_KL39
         return {"page": page, "nums": NUMS_KL39[idx:idx + PER_PAGE_KL39]}
     for dk in DECOY_KL39:
-        if _kl39_try(dk, page, ts, sign):
-            raise HTTPException(status_code=403, detail="sign invalid")
+        if _kl39_try(dk, page, ts, enc):
+            raise HTTPException(status_code=403, detail="enc invalid")
     return {"page": page, "nums": []}
 
 
 # ---------------- 关卡 KL40（碧落天）星河倒影：综合收官卷 ----------
+# 三原语叠加（无 HMAC）：
+#   KREQ  = SHA256("<主标记>|req")        → AES-256-GCM（请求，带完整性标签）
+#   KRESP = SHA256("<主标记>|resp")[:16]  → AES-128-CBC（响应，**换了一把钥**）
+#   enc   = hex(nonce(12) || ct || tag(16))
+#   sign  = MD5("page=<p>&ts=<t>&enc=<enc>&k=<主标记>")      ← 普通 MD5，非 HMAC
 KEY_KL40 = b"Fatdog_reflect"
 DECOY_KL40 = [b"Fatdog_echo"]
 PAGES_KL40, PER_PAGE_KL40, SEED_KL40 = 100, 10, 20280720
@@ -2821,44 +2869,60 @@ KL40_SUM = sum(NUMS_KL40)
 KL40_SUM_HASH = hashlib.sha256(str(KL40_SUM).encode()).hexdigest()
 
 
-def _kl40_try(key, page, ts, sign):
-    msg = f"page={page}&ts={ts}"
-    expected = hmac.new(key, msg.encode(), hashlib.sha256).hexdigest()
-    return hmac.compare_digest(sign, expected)
+def _kl40_req_key(master):
+    """请求钥：AES-256（32 字节）。"""
+    return hashlib.sha256(master + b"|req").digest()
+
+
+def _kl40_resp_key(master):
+    """响应钥：AES-128（16 字节）——与请求钥不同，这就是"换钥"。"""
+    return hashlib.sha256(master + b"|resp").digest()[:16]
+
+
+def _kl40_sign(master, page, ts, enc):
+    return hashlib.md5(
+        f"page={page}&ts={ts}&enc={enc}&k={master.decode()}".encode()
+    ).hexdigest()
+
+
+def _kl40_try(master, page, ts, enc, sign):
+    # ① 普通 MD5 摘要
+    if not hmac.compare_digest(sign, _kl40_sign(master, page, ts, enc)):
+        return False
+    # ② GCM 解密 + 标签校验（失败即拒，改一个字节都不认）
+    try:
+        raw = bytes.fromhex(enc)
+    except ValueError:
+        return False
+    if len(raw) < 28:
+        return False
+    nonce, ct, tag = raw[:12], raw[12:-16], raw[-16:]
+    try:
+        pt = _aes_gcm_decrypt(_kl40_req_key(master), nonce, ct, tag)
+    except Exception:
+        return False
+    return pt == f"page={page}&ts={ts}".encode()
 
 
 @app.post("/api/kl40")
 def api_kl40(page: int = Form(...), ts: int = Form(...),
-             sign: str = Form(...)):
+             enc: str = Form(...), sign: str = Form(...)):
     _check_page(page, PAGES_KL40)
     _check_ts(ts)
-    if _kl40_try(KEY_KL40, page, ts, sign):
+    if _kl40_try(KEY_KL40, page, ts, enc, sign):
         idx = (page - 1) * PER_PAGE_KL40
-        body = json.dumps({"page": page, "nums": NUMS_KL40[idx:idx + PER_PAGE_KL40]})
-        # RC4 加密响应（与 KL38 同构）
-        rc4_key = hashlib.sha256(KEY_KL40 + b"|rc4").digest()[:16]
-        encrypted = _rc4_40(rc4_key, body.encode())
-        return {"d": encrypted.hex()}
+        body = json.dumps({"page": page, "nums": NUMS_KL40[idx:idx + PER_PAGE_KL40]},
+                          separators=(",", ":"))
+        # 响应换一把钥：AES-128-CBC（iv 前置）
+        iv = os.urandom(16)
+        raw = body.encode()
+        pad = 16 - len(raw) % 16
+        ct = _aes_cbc_encrypt(_kl40_resp_key(KEY_KL40), iv, raw + bytes([pad]) * pad)
+        return {"d": (iv + ct).hex()}
     for dk in DECOY_KL40:
-        if _kl40_try(dk, page, ts, sign):
+        if _kl40_try(dk, page, ts, enc, sign):
             raise HTTPException(status_code=403, detail="sign invalid")
     return {"page": page, "nums": []}
-
-
-def _rc4_40(key, data):
-    S = list(range(256))
-    j = 0
-    for i in range(256):
-        j = (j + S[i] + key[i % len(key)]) % 256
-        S[i], S[j] = S[j], S[i]
-    x = y = 0
-    result = bytearray(data)
-    for i in range(len(data)):
-        x = (x + 1) % 256
-        y = (y + S[x]) % 256
-        S[x], S[y] = S[y], S[x]
-        result[i] ^= S[(S[x] + S[y]) % 256]
-    return bytes(result)
 
 
 # ---------------- 关卡 KL41（须弥界）浅滩拾贝：H5 壳 / JSBridge 注入定位 ----------
@@ -3131,6 +3195,19 @@ def _aes_ecb_decrypt(key, data):
     return bytes(out)
 
 
+def _aes_cbc_decrypt(key, iv, data):
+    """AES-128-CBC 解密（纯标准库）：data 不含 IV，长度须为 16 的倍数。"""
+    rk = _aes_key_expand(key)
+    out = bytearray()
+    prev = bytes(iv)[:16]
+    for i in range(0, len(data), 16):
+        blk = data[i:i + 16]
+        dec = _aes_dec_block(rk, blk)
+        out += bytes(a ^ b for a, b in zip(dec, prev))
+        prev = blk
+    return bytes(out)
+
+
 def _aes_unpad(b):
     if not b:
         return b
@@ -3138,6 +3215,119 @@ def _aes_unpad(b):
     if 1 <= n <= 16 and all(x == n for x in b[-n:]):
         return b[:-n]
     return b
+
+
+# ---- 通用 AES（128/256 轮数参数化；KL40 的 AES-256-GCM 用它） ----
+
+def _aes_key_expand_generic(key):
+    """AES 密钥扩展：支持 16/32 字节密钥，返回 (字数组, 轮数)。"""
+    nk = len(key) // 4
+    nr = nk + 6
+    w = list(key)
+    total = 4 * (nr + 1)
+    for i in range(nk, total):
+        t = w[(i - 1) * 4:(i - 1) * 4 + 4]
+        if i % nk == 0:
+            t = t[1:] + t[:1]
+            t = [_AES_SBOX[b] for b in t]
+            t[0] ^= _AES_RCON[i // nk - 1]
+        elif nk > 6 and i % nk == 4:
+            t = [_AES_SBOX[b] for b in t]
+        w += [w[(i - nk) * 4 + k] ^ t[k] for k in range(4)]
+    return w, nr
+
+
+def _aes_enc_block_generic(rk, nr, blk):
+    s = list(blk)
+
+    def addrk(r):
+        for i in range(16):
+            s[i] ^= rk[r * 16 + i]
+
+    def sb():
+        for i in range(16):
+            s[i] = _AES_SBOX[s[i]]
+
+    def sh():
+        t = s[:]
+        for r in range(4):
+            for c in range(4):
+                s[r + 4 * c] = t[r + 4 * ((c + r) % 4)]
+
+    def mx():
+        for c in range(4):
+            i0 = c * 4
+            a0, a1, a2, a3 = s[i0], s[i0 + 1], s[i0 + 2], s[i0 + 3]
+            s[i0] = _aes_gm(2, a0) ^ _aes_gm(3, a1) ^ a2 ^ a3
+            s[i0 + 1] = a0 ^ _aes_gm(2, a1) ^ _aes_gm(3, a2) ^ a3
+            s[i0 + 2] = a0 ^ a1 ^ _aes_gm(2, a2) ^ _aes_gm(3, a3)
+            s[i0 + 3] = _aes_gm(3, a0) ^ a1 ^ a2 ^ _aes_gm(2, a3)
+
+    addrk(0)
+    for r in range(1, nr):
+        sb(); sh(); mx(); addrk(r)
+    sb(); sh(); addrk(nr)
+    return bytes(s)
+
+
+def _aes_cbc_encrypt(key, iv, data):
+    """AES-128-CBC 加密（纯标准库）：data 须为 16 的倍数。"""
+    rk = _aes_key_expand(key)
+    out = bytearray()
+    prev = bytes(iv)[:16]
+    for i in range(0, len(data), 16):
+        blk = bytes(a ^ b for a, b in zip(data[i:i + 16], prev))
+        enc = _aes_enc_block(rk, blk)
+        out += enc
+        prev = enc
+    return bytes(out)
+
+
+def _gf_mul(x, y):
+    """GF(2^128) 乘法（GCM 约定，位序按 NIST SP 800-38D）。"""
+    z, v = 0, y
+    for i in range(128):
+        if (x >> (127 - i)) & 1:
+            z ^= v
+        if v & 1:
+            v = (v >> 1) ^ (0xE1 << 120)
+        else:
+            v >>= 1
+    return z
+
+
+def _ghash(h_int, data):
+    y = 0
+    for i in range(0, len(data), 16):
+        blk = data[i:i + 16]
+        if len(blk) < 16:
+            blk = blk + b"\x00" * (16 - len(blk))
+        y = _gf_mul(y ^ int.from_bytes(blk, "big"), h_int)
+    return y
+
+
+def _aes_gcm_decrypt(key, nonce, ct, tag):
+    """AES-GCM 解密 + 校验 tag（AAD 为空）。key 支持 16/32 字节。"""
+    rk, nr = _aes_key_expand_generic(key)
+    h = int.from_bytes(_aes_enc_block_generic(rk, nr, b"\x00" * 16), "big")
+    j0 = bytes(nonce) + b"\x00\x00\x00\x01"
+    ctr = bytearray(j0)
+    pt = bytearray()
+    for off in range(0, len(ct), 16):
+        for i in range(15, 11, -1):
+            ctr[i] = (ctr[i] + 1) & 0xFF
+            if ctr[i]:
+                break
+        ks = _aes_enc_block_generic(rk, nr, bytes(ctr))
+        blk = ct[off:off + 16]
+        pt += bytes(a ^ b for a, b in zip(blk, ks))
+    pad = (16 - len(ct) % 16) % 16
+    data = bytes(ct) + b"\x00" * pad + (0).to_bytes(8, "big") + (len(ct) * 8).to_bytes(8, "big")
+    e0 = int.from_bytes(_aes_enc_block_generic(rk, nr, j0), "big")
+    want = (_ghash(h, data) ^ e0).to_bytes(16, "big")
+    if not hmac.compare_digest(want, bytes(tag)):
+        raise ValueError("gcm tag mismatch")
+    return bytes(pt)
 
 
 def _kl45_aes_key():

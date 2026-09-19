@@ -1,150 +1,351 @@
 package com.fatdog.reverse;
 
 import android.app.Activity;
-import android.graphics.Color;
-import android.graphics.Typeface;
+import android.app.AlertDialog;
 import android.os.Bundle;
+import android.graphics.drawable.GradientDrawable;
 import android.view.Gravity;
 import android.view.View;
 import android.widget.Button;
 import android.widget.EditText;
+import android.widget.GridLayout;
+import android.widget.HorizontalScrollView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
+import android.widget.Toast;
 
-/**
- * KL38 雾里观花（碧落天 · Flutter 网络层 Hook）
- *
- * 考点：
- *   1. Flutter 自定义 HttpClient 请求构建与拦截
- *   2. Dart 层 SSL Pinning（证书 SHA-256 校验）
- *   3. Dart Isolate 内签名计算 + FFI 边界
- *   4. 反调试检测 + 静默投毒
- *
- * 破解路线：
- *   ① Frida hook libflutter.so 的 Dart_Invoke 系列函数
- *   ② 绕过 Dart 层 SSL Pinning
- *   ③ 拦截 Isolate 间消息获取密钥
- *   ④ Python 复刻 HMAC-SHA256 签名
- *
- * 标记：Fatdog_haze（真）/ Fatdog_fog（诱饵）
- */
+import java.io.InputStream;
+import java.security.MessageDigest;
+
+import org.json.JSONObject;
+
+// 碧落天 KL38「雾里观花」：Flutter 自带网络栈 + 证书固定绕过。
+// 取数链路是网络求和：伴生 so 把 "page=N&ts=T" 加密并签名后随请求发出，
+// 服务端解出明文才放数。TLS 之上还压着一层证书固定——不绕过就一条数据也拿不到。
 public class hazeActivity extends Activity {
+    static final String SUM_HASH = "5c8a0ad4292040b13934237f5743c7f05cf912dbac123c7faf1d1c9f022b87b9";
+    static final int PAGES = 100;
+    static final int PER_PAGE = 10;
+
+    private TextView status;
+    private TextView guard;
+    private TextView pinView;
+    private final TextView[] cells = new TextView[10];
+    private LinearLayout pageBar;
+    private int currentPage = 1;
+    private int loadedMax = 0;
+    private boolean loading = false;
+    private String base;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        base = baseUrl();
 
-        // 根布局（遵循 KL 活动页 UI 排版规范）
-        LinearLayout root = new LinearLayout(this);
-        root.setOrientation(LinearLayout.VERTICAL);
-        root.setGravity(Gravity.CENTER_HORIZONTAL);
-        root.setPadding(Ui.dp(16), Ui.dp(20), Ui.dp(16), Ui.dp(12));
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setGravity(Gravity.CENTER_HORIZONTAL);
+        box.setPadding(Ui.dp(16), Ui.dp(14), Ui.dp(16), Ui.dp(12));
 
-        // 顶部说明文字
         TextView tv = new TextView(this);
-        tv.setText("碧落天 KL38 · 雾里观花（★★★）\n\n" +
-                "雾气弥漫的网络层，Flutter 引擎自行构建 HTTP 请求。\n" +
-                "证书锁定如迷雾中的灯塔，签名在 Dart Isolate 深处计算。\n" +
-                "唯有穿透迷雾，识破网络层的真实面目。\n\n" +
-                "求取数字，提交答案。");
-        tv.setTextSize(14);
-        tv.setTextColor(Color.WHITE);
+        tv.setText("网络层的雾比别处更浓——这里不走别人的路。\n"
+                + "门口的灯只认一张脸，来客对不上就被挡在雾外。\n"
+                + "雾散之后，数字才肯现身。");
         tv.setGravity(Gravity.CENTER);
-        root.addView(tv, Ui.wrap(6));
+        box.addView(tv, Ui.wrap(4));
 
-        // 状态显示
-        final TextView statusTv = new TextView(this);
-        statusTv.setText("就绪");
-        statusTv.setTextSize(12);
-        statusTv.setTextColor(Color.LTGRAY);
-        statusTv.setTypeface(Typeface.MONOSPACE);
-        root.addView(statusTv, Ui.fullWidth(6));
+        // 只读自检：只报密码原语、载荷来源与检测评分，不吐密钥、不判胜
+        guard = new TextView(this);
+        guard.setText("算法自检：—");
+        guard.setGravity(Gravity.CENTER);
+        guard.setTextSize(12);
+        guard.setTypeface(android.graphics.Typeface.MONOSPACE);
+        guard.setTextColor(ThemeKit.muted(ThemeKit.isDark(this)));
+        box.addView(guard, Ui.wrap(4));
 
-        // 构建请求按钮
-        Button buildBtn = new Button(this);
-        buildBtn.setText("构建网络请求");
-        Ui.styleButton(buildBtn);
-        buildBtn.setOnClickListener(new View.OnClickListener() {
+        // 牌坊上刻的那张脸（pin 前缀）——公开信息，不是密钥
+        pinView = new TextView(this);
+        pinView.setText("门上认的脸：—");
+        pinView.setGravity(Gravity.CENTER);
+        pinView.setTextSize(12);
+        pinView.setTypeface(android.graphics.Typeface.MONOSPACE);
+        pinView.setTextColor(ThemeKit.muted(ThemeKit.isDark(this)));
+        box.addView(pinView, Ui.wrap(6));
+
+        Button refresh = new Button(this);
+        refresh.setText("刷新自检");
+        Ui.styleButton(refresh);
+        refresh.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                long ts = System.currentTimeMillis() / 1000;
-                byte[] req = FlutterNet.nativeBuildRequest(1, ts);
-                String pin = FlutterNet.nativeGetPinHash();
-                statusTv.setText("请求参数: " + req.length + " 字节\nSSL Pin: " + pin);
+                refreshGuard();
             }
         });
-        root.addView(buildBtn, Ui.wrap(10));
+        box.addView(refresh, Ui.wrap(6));
 
-        // 哨兵自检按钮
-        Button statusBtn = new Button(this);
-        statusBtn.setText("哨兵自检");
-        Ui.styleButton(statusBtn);
-        statusBtn.setOnClickListener(new View.OnClickListener() {
+        status = new TextView(this);
+        status.setText("准备中…");
+        status.setGravity(Gravity.CENTER);
+        status.setTextColor(ThemeKit.muted(ThemeKit.isDark(this)));
+        box.addView(status, Ui.wrap(8));
+
+        GridLayout grid = new GridLayout(this);
+        grid.setColumnCount(5);
+        grid.setRowCount(2);
+        for (int i = 0; i < 10; i++) {
+            TextView c = new TextView(this);
+            c.setGravity(Gravity.CENTER);
+            c.setTextSize(17);
+            c.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+            c.setTextColor(0xFFECECF2);
+            GradientDrawable bg = new GradientDrawable();
+            bg.setShape(GradientDrawable.RECTANGLE);
+            bg.setCornerRadius(Ui.dp(10));
+            bg.setColor(0xFF24242B);
+            c.setBackground(bg);
+            c.setPadding(0, Ui.dp(8), 0, Ui.dp(8));
+            GridLayout.LayoutParams lp = new GridLayout.LayoutParams();
+            lp.width = 0;
+            lp.height = GridLayout.LayoutParams.WRAP_CONTENT;
+            lp.columnSpec = GridLayout.spec(i % 5, 1f);
+            lp.rowSpec = GridLayout.spec(i / 5);
+            lp.setMargins(Ui.dp(3), Ui.dp(3), Ui.dp(3), Ui.dp(3));
+            grid.addView(c, lp);
+            cells[i] = c;
+        }
+        box.addView(grid, Ui.fullWidth(12));
+
+        LinearLayout navRow = new LinearLayout(this);
+        navRow.setOrientation(LinearLayout.HORIZONTAL);
+        navRow.setGravity(Gravity.CENTER_VERTICAL);
+
+        Button prev = new Button(this);
+        prev.setText("◀ 上一页");
+        Ui.styleButton(prev);
+        navRow.addView(prev, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+        prev.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                String status = FlutterNet.nativeGetStatus();
-                new android.app.AlertDialog.Builder(hazeActivity.this)
-                    .setTitle("哨兵状态")
-                    .setMessage(status)
-                    .setPositiveButton("知道了", null)
-                    .show();
+                if (currentPage > 1) loadPage(currentPage - 1);
             }
         });
-        root.addView(statusBtn, Ui.wrap(10));
 
-        // 答案输入框
-        final EditText ansIn = new EditText(this);
-        ansIn.setHint("输入答案（8位hex）");
-        ansIn.setTextColor(Color.WHITE);
-        ansIn.setTypeface(Typeface.MONOSPACE);
-        ansIn.setBackgroundColor(0x33FFFFFF);
-        root.addView(ansIn, Ui.fullWidth(10));
+        HorizontalScrollView hsv = new HorizontalScrollView(this);
+        hsv.setHorizontalScrollBarEnabled(false);
+        pageBar = new LinearLayout(this);
+        pageBar.setOrientation(LinearLayout.HORIZONTAL);
+        hsv.addView(pageBar);
+        navRow.addView(hsv, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
 
-        // 提交按钮
-        Button subBtn = new Button(this);
-        subBtn.setText("提交答案");
-        Ui.styleButton(subBtn);
-        subBtn.setOnClickListener(new View.OnClickListener() {
+        Button next = new Button(this);
+        next.setText("下一页 ▶");
+        Ui.styleButton(next);
+        navRow.addView(next, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+        next.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                String input = ansIn.getText().toString().trim();
-                String expected = FlutterNet.nativeAnswer();
-                if (input.equalsIgnoreCase(expected)) {
-                    Celebration.show(hazeActivity.this, "FLAG_18_KL38{flower_in_mist}");
-                    PassLog.mark(hazeActivity.this, "KL38");
-                    statusTv.setText("恭喜通关！");
-                } else {
-                    statusTv.setText("答案不对，请重试");
+                if (currentPage < PAGES) loadPage(currentPage + 1);
+            }
+        });
+
+        box.addView(navRow, Ui.fullWidth(14));
+
+        LinearLayout jumpRow = new LinearLayout(this);
+        jumpRow.setOrientation(LinearLayout.HORIZONTAL);
+        jumpRow.setGravity(Gravity.CENTER_VERTICAL);
+        final EditText pageIn = new EditText(this);
+        pageIn.setHint("页码 1-" + PAGES);
+        pageIn.setLayoutParams(new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+        jumpRow.addView(pageIn);
+        Button jump = new Button(this);
+        jump.setText("跳转");
+        Ui.styleButton(jump);
+        jumpRow.addView(jump);
+        jump.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                String s = pageIn.getText().toString().trim();
+                try {
+                    int p = Integer.parseInt(s);
+                    if (p >= 1 && p <= PAGES) loadPage(p);
+                    else Toast.makeText(hazeActivity.this, "页码超出范围 1-" + PAGES, Toast.LENGTH_SHORT).show();
+                } catch (Exception e) {
+                    Toast.makeText(hazeActivity.this, "请输入页码", Toast.LENGTH_SHORT).show();
                 }
             }
         });
-        root.addView(subBtn, Ui.wrap(10));
+        box.addView(jumpRow, Ui.fullWidth(10));
 
-        // 提示按钮
-        Button hintBtn = new Button(this);
-        hintBtn.setText("提示");
-        Ui.styleButton(hintBtn);
-        hintBtn.setOnClickListener(new View.OnClickListener() {
+        final EditText ansIn = new EditText(this);
+        ansIn.setHint("输入 1000 个数字的总和");
+        ansIn.setLayoutParams(Ui.fullWidth(22));
+        box.addView(ansIn);
+
+        Button subBtn = new Button(this);
+        subBtn.setText("提交答案");
+        Ui.styleButton(subBtn);
+        box.addView(subBtn, Ui.wrap(14));
+
+        Button hint = new Button(this);
+        hint.setText("提示");
+        hint.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                new android.app.AlertDialog.Builder(hazeActivity.this)
-                    .setTitle("提示")
-                    .setMessage("Flutter 引擎绕过 Java 网络栈，自行构建 HTTP 请求。\n\n" +
-                                "迷雾之中，两个标记若隐若现——\n" +
-                                "一个是网络层的真面目，一个是海市蜃楼。\n" +
-                                "仔细辨别拼写差异，穿透迷雾方见真章。\n\n" +
-                                "密钥藏于网络层深处，签名在 Dart 世界中诞生。")
-                    .setPositiveButton("知道了", null)
-                    .show();
+                new AlertDialog.Builder(hazeActivity.this)
+                        .setTitle("提示")
+                        .setMessage("这座门不看你是谁，只看你带来的那张脸——\n"
+                                + "门楣上刻着的，和训练场里的脸根本对不上，所以门一直关着。\n"
+                                + "想让门开，先得让守门的眼睛闭上（记下那张脸的用处）。\n\n"
+                                + "雾里还藏着听风的人：一旦察觉有人附身窥探，\n"
+                                + "递出去的密文就会悄悄换一副样子，对面的账房自然不认。\n"
+                                + "把密文的做法弄明白，自己备一份，也不必再问门开不开。")
+                        .setPositiveButton("好的", null)
+                        .show();
             }
         });
-        root.addView(hintBtn, Ui.wrap(8));
+        box.addView(hint, Ui.wrap(10));
 
-        // banner 图片（固定在最底部）
-        root.addView(Ui.banner(this, R.drawable.level_kl38, 140));
+        box.addView(Ui.banner(this, R.drawable.level_kl38, 150));
 
-        // 设置内容视图（包裹在 ScrollView 中）
-        setContentView(Ui.wrapScroll(root));
+        setContentView(Ui.wrapScroll(box));
         ThemeKit.apply(this);
+
+        subBtn.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                String ans = ansIn.getText().toString().trim();
+                if (sha256Hex(ans).equals(SUM_HASH)) {
+                    Celebration.show(hazeActivity.this, "FLAG_18_KL38{flower_in_mist}");
+                    PassLog.mark(hazeActivity.this, "KL38");
+                } else {
+                    Toast.makeText(hazeActivity.this,
+                            "加和不对，再取数算一遍。", Toast.LENGTH_SHORT).show();
+                }
+            }
+        });
+
+        refreshGuard();
+        loadPage(1);
+    }
+
+    private void refreshGuard() {
+        try {
+            guard.setText("算法自检：" + FlutterNet.nativeGetStatus());
+        } catch (Throwable t) {
+            guard.setText("算法自检：不可用");
+        }
+        try {
+            pinView.setText("门上认的脸：" + FlutterNet.nativeGetPin() + "…");
+        } catch (Throwable t) {
+            pinView.setText("门上认的脸：不可用");
+        }
+    }
+
+    private void loadPage(final int page) {
+        if (loading) return;
+        loading = true;
+        status.setText("正在请求第 " + page + " 页…");
+        FlutterNet.fetchPage(base, page, new FlutterNet.Cb() {
+            @Override
+            public void onPage(final int got, final int[] nums) {
+                runOnUiThread(new Runnable() {
+                    @Override
+                    public void run() {
+                        loading = false;
+                        currentPage = got;
+                        if (got > loadedMax) loadedMax = got;
+                        render(nums);
+                        renderNav();
+                        if (nums.length == 0) {
+                            status.setText("第 " + got + " 页没有拿到数字——密文大概没被认可。");
+                        } else {
+                            status.setText("已加载第 " + got + " / " + PAGES + " 页，本页 " + nums.length + " 个数字");
+                        }
+                    }
+                });
+            }
+
+            @Override
+            public void onError(final String msg) {
+                runOnUiThread(new Runnable() {
+                    @Override
+                    public void run() {
+                        loading = false;
+                        status.setText("请求失败: " + msg + "（可重试）");
+                    }
+                });
+            }
+        });
+    }
+
+    private void render(int[] nums) {
+        for (int i = 0; i < cells.length; i++) {
+            if (i < nums.length) {
+                cells[i].setText(String.valueOf(nums[i]));
+                cells[i].setVisibility(View.VISIBLE);
+            } else {
+                cells[i].setVisibility(View.INVISIBLE);
+            }
+        }
+    }
+
+    private void renderNav() {
+        pageBar.removeAllViews();
+        int win = 3;
+        int start = Math.max(1, currentPage - win);
+        int end = Math.min(PAGES, currentPage + win);
+        for (int p = start; p <= end; p++) {
+            final int fp = p;
+            TextView chip = new TextView(this);
+            chip.setText(String.valueOf(p));
+            chip.setTextSize(14);
+            chip.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+            chip.setGravity(Gravity.CENTER);
+            chip.setPadding(Ui.dp(12), Ui.dp(6), Ui.dp(12), Ui.dp(6));
+            GradientDrawable g = new GradientDrawable();
+            g.setShape(GradientDrawable.RECTANGLE);
+            g.setCornerRadius(Ui.dp(14));
+            boolean sel = (p == currentPage);
+            g.setColor(sel ? 0xFFFB7299 : (ThemeKit.isDark(this) ? 0xFF2A2A33 : 0xFFF1F1F4));
+            chip.setBackground(g);
+            chip.setTextColor(sel ? 0xFFFFFFFF : (ThemeKit.isDark(this) ? 0xFFD8D8E0 : 0xFF3A3A42));
+            chip.setOnClickListener(new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    if (fp != currentPage) loadPage(fp);
+                }
+            });
+            pageBar.addView(chip, new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+        }
+    }
+
+    private String readAssets(String name) throws Exception {
+        InputStream is = getAssets().open(name);
+        byte[] buf = new byte[4096];
+        int n = is.read(buf);
+        is.close();
+        return new String(buf, 0, n, "UTF-8");
+    }
+
+    private String baseUrl() {
+        try {
+            JSONObject cfg = new JSONObject(readAssets("config.json"));
+            return NetHost.resolve(cfg.getJSONObject("server").getString("api_base_url"), true);
+        } catch (Exception e) {
+            return FlutterNet.BASE;
+        }
+    }
+
+    static String sha256Hex(String s) {
+        try {
+            MessageDigest md = MessageDigest.getInstance("SHA-256");
+            byte[] d = md.digest(s.getBytes("UTF-8"));
+            StringBuilder sb = new StringBuilder();
+            for (byte b : d) sb.append(String.format("%02x", b & 0xff));
+            return sb.toString();
+        } catch (Exception e) {
+            return "";
+        }
     }
 }

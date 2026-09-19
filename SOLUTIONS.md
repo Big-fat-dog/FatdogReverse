@@ -5108,231 +5108,441 @@ def lcg_ans(seed):                      # KL24-28：libice 之后统一 LCG 伪 
 
 ## 天地秘境 · 碧落天（KL36-40）
 
-> 碧落天五关围绕 Flutter/Dart 引擎逆向：KL36 是 AOT 常量池提取入门，KL37 进阶到 Dart Kernel 字节码逆向+四路哨兵反调试，KL38 深入 Flutter 网络层 Hook+SSL Pinning，KL39 攻克 Dart FFI 双向往调+密钥分片，KL40 综合收官六重防线。
+> 碧落天五关围绕**真实 Flutter 产物**（`lib/arm64-v8a/libapp.so`、`libflutter.so`、`assets/flutter_assets/`）逆向：KL36 识别 + Dart AOT 快照对象池（MD5 签名），KL37 AOT 代码还原 + `--obfuscate` 混淆对抗（AES-128-ECB），KL38 Flutter TLS 证书固定（BoringSSL）绕过，KL39 dart:ffi 双向往调 + 密钥分片，KL40 综合收官。工具链：Blutter / reFlutter / Frida / IDA·Ghidra / radare2。产物由 `tools/flutter_probe/`（Dart 源）+ `tools/build_flutter_artifacts.py` 生成（本机 Flutter 3.47.5 / Dart 3.13.4，走国内镜像）。
 
-### KL36：云中锦书（libflutterbridge.so · Dart AOT 常量池）
+### KL36：云中锦书（真实 Flutter 产物 · Dart AOT 快照对象池 · MD5）
 
-**考点**：从模拟 Flutter 引擎的 SO 中提取 Dart AOT 编译后的常量池。`libflutterbridge.so`（桥 `FlutterBridge`）导出：
+**本关产物**：APK 里带了**真实的 Flutter 产物**——`lib/arm64-v8a/libapp.so`（Dart AOT 快照，业务代码所在）、`lib/arm64-v8a/libflutter.so`（引擎，含 Dart VM / BoringSSL / Skia）、`assets/flutter_assets/`。主 App 只是宿主，题眼在载荷里。
 
-- `byte[] nativeGetConstantPool()` → 返回模拟 Dart 常量池 byte[]（含魔数 `Dart\x00` + 条目）；
-- `String nativeSign(page, ts)` → 用常量池中提取的密钥算 HMAC-SHA256 签名。
+**一、识别与版本指纹**
 
-**解法**：
-1. **静态路线**：IDA 看 `nativeGetConstantPool` 返回的 byte[]，找到 XOR 密钥（`^0x3C`）还原出真密钥 `Fatdog_scroll`（诱饵 `Fatdog_roll`）；
-2. **动态路线**：Frida hook `nativeSign` 直接拿 (page, ts, sign) 三元组，Python 复刻；
-3. **Python 复刻**：`derived = SHA256(b"Fatdog_scroll|hmac").digest()`，再 `HMAC-SHA256(derived, f"page={page}&ts={ts}")`，收集 100 页×10 个数求和。
-
-**Python 复刻**（先 `python server.py`）：
-```python
-import hmac, hashlib, requests
-KEY = b"Fatdog_scroll"
-def sign(page, ts):
-    derived = hashlib.sha256(KEY + b"|hmac").digest()
-    return hmac.new(derived, f"page={page}&ts={ts}".encode(), hashlib.sha256).hexdigest()
-# 逐页请求 https://<host>/api/kl36?page=&ts=&sign= ，收集 1000 个数求和
+```bash
+unzip -l target.apk | grep -E "(libflutter|libapp|flutter_assets|kernel_blob)"
+# 命中 libflutter.so + libapp.so + flutter_assets/ → 判定为 Flutter 应用
+strings lib/arm64-v8a/libflutter.so | grep -E "^[0-9]+\.[0-9]+\.[0-9]+"   # Flutter/Dart 版本
 ```
 
-**答案**：100 页共 1000 个数求和，`sha256(str(sum))` 即通关哈希。flag `FLAG_18_KL36{cloud_letter_unrolled}`。真标记 `Fatdog_scroll` / 诱饵 `Fatdog_roll`。
+> `jadx` 打开只会看到一层空壳（一个类 + `LoadLibrary("app")`）——Dart 业务代码不在 DEX 里。
 
-**坑位提醒**：常量池里的密钥是 XOR 混淆的，直接 strings 看不到明文；诱饵只差一个字母，仔细辨别。
+**二、静态路线（主推）：Blutter 解快照对象池**
 
-### KL37：风中鸢尾（libfluttercore.so · Dart Kernel 字节码 + 四路哨兵）
-
-**考点**：Dart Kernel 字节码逆向 + 四路哨兵反调试+ CRC 自校验 + 密钥投毒。`libfluttercore.so`（桥 `FlutterCore`）混合注册：
-
-- **静态注册**：`nativeGetBytecodeBlob()` → 返回模拟 Dart Kernel 字节码 byte[]（魔数 `Drt\x00`）；`nativeGetAlgorithmInfo()` → 算法描述；
-- **动态注册**（JNI_OnLoad → RegisterNatives）：
-  - `nativeExecute(page, ts)` → 四路哨兵自检 + HMAC-SHA256 签名（检测触发返回 `guard_failed`）；
-  - `nativeVerify(page, ts, sign)` → 验签；
-  - `nativeAnswer()` → 本地答案比对；
-  - `nativeGetStatus()` → 哨兵自检状态详情。
-
-**四路哨兵**：
-1. ptrace/TracerPid 检测调试附加；
-2. `/proc/self/maps` 扫描 Frida 特征（gum-js-loop/gmain/gdbus/pool-frida）；
-3. 27042-27044 端口探测；
-4. 线程名扫描（comm 字段匹配）。
-
-**CRC 自校验**：`.text` 段 CRC-32 校验，函数头 inline hook 检测。检测命中即静默投毒密钥一字节（key[7] ^= 0x40），服务端 HMAC 验签 403。
-
-**解法**：
-1. **Frida 路线**：hook `nativeGetStatus` 绕过哨兵 → hook `nativeExecute` 直接拿签名 → Python 复刻；
-2. **静态路线**：IDA 读字节码 blob → 还原常量池 → 提取 XOR 密钥 → Python 复刻；
-3. **patch 路线**：patch CRC 校验器 + 废哨兵 → 重打包。
-
-**Python 复刻**（先 `python server.py`）：
-```python
-import hmac, hashlib
-KEY = b"Fatdog_kite"  # 真密钥（诱饵 Fatdog_sail）
-def sign(page, ts):
-    derived = hashlib.sha256(KEY + b"|hmac").digest()
-    return hmac.new(derived, f"page={page}&ts={ts}".encode(), hashlib.sha256).hexdigest()
-# 逐页请求 https://<host>/api/kl37?page=&ts=&sign= ，收集 1000 个数求和
+```bash
+git clone https://github.com/worawit/blutter && cd blutter
+python3 blutter.py <dir>/libapp.so <dir>/libflutter.so ./out
+# out/asm/     → 带符号注释的汇编（Dart 库名/函数名已恢复）
+# out/pp.txt   → 对象池 dump（字符串常量都在这里）
+# out/objs.txt → 对象清单            out/blutter_frida.js → Frida hook stub
+grep -n "Fatdog_" out/pp.txt        # 真钥 Fatdog_scroll / 诱饵 Fatdog_roll
 ```
 
-**答案**：100 页共 1000 个数求和（seed=20280615），`sha256(str(sum))` 即通关哈希。flag `FLAG_18_KL37{iris_in_the_wind}`。真标记 `Fatdog_kite` / 诱饵 `Fatdog_sail`。
+> Blutter 需要**与目标一致的 Dart SDK 版本**（它从 libflutter.so 自动检测；失败时可 `--dart-version X.Y.Z_android_arm64`）。本关产物由 **Flutter 3.47.5 / Dart 3.13.4** 构建。
+
+**三、动态路线**：`frida -U -f com.fatdog.reverse -l out/blutter_frida.js`，在 Blutter 恢复出的 Dart 函数地址上打点，直接观察 (page, ts, sign)。
+
+**四、签名口径（本关只有一个摘要原语：MD5，不用 HMAC）**
+
+```
+sign = md5("page=<page>&ts=<ts>&k=<KEY>")
+```
+
+**五、Python 复刻**
+
+```python
+import hashlib, requests, time
+KEY = "Fatdog_scroll"                     # 真钥（诱饵 Fatdog_roll → 服务端 403）
+def sign(page, ts):
+    return hashlib.md5(f"page={page}&ts={ts}&k={KEY}".encode()).hexdigest()
+ts = int(time.time())
+total = 0
+for p in range(1, 101):
+    r = requests.get(f"https://<host>/api/kl36?page={p}&ts={ts}&sign={sign(p, ts)}", verify=False)
+    total += sum(r.json()["nums"])
+print(total)                              # 49495
+```
+
+对拍值：`sign(1, 1787013761) = 7299ee3ec8e2da29f775da0094ad2044`
+
+**答案**：1000 个数求和 **49495**，`sha256("49495")` = `f13984c09b7e1be91122083721a200d57fc1e211980760643c5f5992e19d8312`。flag `FLAG_18_KL36{cloud_letter_unrolled}`。真标记 `Fatdog_scroll` / 诱饵 `Fatdog_roll`。
+
+**六、兜底路线**
+
+宿主侧伴生 so（`FlutterBridge`）在运行时**优先从 `libapp.so` 的对象池读密钥**（搜哨兵 `FDK36|`），读不到才退回镜像常量（异或藏匿）。所以直接逆伴生 so 也能拿到同一把钥——但那就绕开了本关想练的 Flutter 载荷分析。
 
 **坑位提醒**：
-- 四路哨兵同时在线，任一检测命中即投毒密钥——Frida 必须 spawn 抢跑或 patch 掉检测函数；
-- 诱饵 `Fatdog_sail` 与真标记只差一个字母，用错即 403；
-- `nativeGetStatus` 只读不判胜，可安全调用查看哨兵状态；
-- 字节码 blob 里的常量池是 XOR 混淆的，需要还原才能提取密钥。
+- 认准 `arm64-v8a`；拿错架构的 libapp.so，Blutter 会解析失败；
+- 对象池里的字符串是**明文**（Flutter 混淆只改符号名、不加密字符串），但**诱饵只差一个字母**，用错即 403；
+- 别指望 Java 层 hook 找路径——Dart 逻辑不在 DEX 里。
 
-### KL38：雾里观花（libflutternet.so · Flutter 网络层 Hook + SSL Pinning + 四路哨兵）
+### KL37：风中鸢尾（真实 Flutter 产物 · AOT 代码还原 + 混淆对抗 · AES-128-ECB）
 
-**考点**：Flutter 自定义 HttpClient 网络层模拟 + Dart 层 SSL Pinning（证书 SHA-256 校验）+ Dart Isolate 签名 + FFI 边界 + 四路哨兵反调试 + 密钥投毒。`libflutternet.so`（桥 `FlutterNet`）混合注册：
+**与 KL36 的差别**：同一份 Flutter 载荷，但**符号名被 `--obfuscate` 抹掉**（类/函数变成 `a.b()`），
+并且**密钥被拆成两瓣分别存放**——`strings` 只能看到半截。
 
-- **静态注册**：`nativeBuildRequest(page, ts)` → 构建带签名的 HTTP 请求 byte[]；`nativeGetPinHash()` → 返回 SSL Pin 证书 SHA-256 哈希；
-- **动态注册**（JNI_OnLoad → RegisterNatives）：
-  - `nativeSign(page, ts)` → 四路哨兵自检 + HMAC-SHA256 签名（检测触发返回 `guard_failed`）；
-  - `nativeVerify(page, ts, sign)` → 验签；
-  - `nativeAnswer()` → 本地答案比对；
-  - `nativeGetStatus()` → 哨兵自检状态详情。
+**一、确认混淆**
 
-**Flutter 网络层模拟**：
-- 自定义 `HttpClient` 实现，绕过 Java OkHttp 栈，直接构建 HTTP 请求；
-- SSL Pinning：在 Dart 层校验证书 SHA-256 哈希（`K38_PIN` 常量）；
-- 请求签名在 Dart Isolate 中计算，通过 FFI 调用 native HMAC-SHA256；
-- 密钥 `Fatdog_haze` 以 XOR 字节数组拆段藏匿（`K38_KEY_PART`），运行时拼装。
-
-**四路哨兵**（与 KL37 同构）：
-1. ptrace/TracerPid 检测调试附加；
-2. `/proc/self/maps` 扫描 Frida 特征（frida/gadget/gum-js/linjector）；
-3. 27042-27044 端口探测（300ms 超时）；
-4. 线程名扫描（comm 字段匹配 gum-js-loop/gmain/gdbus/pool-frida）。
-
-**密钥投毒**：任一哨兵命中即静默投毒（`g_key_poisoned = true`），后续所有签名返回 `guard_failed`，服务端 HMAC 验签 403。
-
-**解法**：
-1. **Frida 路线**：spawn 抢跑 → hook `anti_debug::run_all` 空实现绕过哨兵 → hook `nativeSign` 直接拿签名 → Python 复刻；
-2. **静态路线**：IDA 读 `K38_KEY_PART` XOR 数组 → XOR 0x3C 还原密钥 → Python 复刻 HMAC-SHA256；
-3. **patch 路线**：patch `anti_debug::run_all` 返回 0 + patch `guard_check` 恒返回 true → 重打包。
-
-**Python 复刻**（先 `python server.py`）：
-```python
-import hmac, hashlib
-KEY = b"Fatdog_haze"  # 真密钥（诱饵 Fatdog_fog）
-def sign(page, ts):
-    return hmac.new(KEY, f"page={page}&ts={ts}".encode(), hashlib.sha256).hexdigest()
-# 逐页请求 https://<host>/api/kl38?page=&ts=&sign= ，收集 100 页×10 个数求和
+```bash
+python3 blutter.py <dir>/libapp.so <dir>/libflutter.so ./out
+# out/asm/ 里符号已成 a.b()；out/pp.txt 仍是字符串对象池（**混淆不加密字符串**）
+grep -n "Fatdog" out/pp.txt      # 只出半截：Fatdog_
+grep -n "kite"  out/pp.txt       # 抓不到——第二瓣不是字符串
 ```
 
-**答案**：100 页共 1000 个数求和（seed=20280701），`sha256(str(sum))` 前 8 位 hex 即答案。flag `FLAG_18_KL38{flower_in_mist}`。真标记 `Fatdog_haze` / 诱饵 `Fatdog_fog`。
+**二、找第二瓣**
 
-**坑位提醒**：
-- Flutter 绕过 Java 网络栈，传统 OkHttp hook 无效——需 hook libflutter.so 的 `Dart_Invoke` 系列或直接分析 native 层；
-- SSL Pinning 在 Dart 层实现，Java 层 TrustManager hook 无效；
-- 四路哨兵同时在线，Frida 必须 spawn 抢跑或 patch 掉检测函数；
-- 诱饵 `Fatdog_fog` 与真标记只差三个字母，用错即 403；
-- `nativeGetStatus` 只读不判胜，可安全调用查看哨兵状态；
-- 答案是 SHA256(str(sum)) 前 8 位 hex（sum 为 1000 个数之和），需要自行计算。
+第二瓣以**码元数组**存在对象池里（整数数组，不在字符串区）。在 Blutter 的 `objs.txt`（对象清单）
+里能找到一个长度 4 的整数数组 `[0x6b, 0x69, 0x74, 0x65]`，用 `String.fromCharCodes` 还原即 `kite`。
+两瓣拼接：`Fatdog_` + `kite` = `Fatdog_kite`。
 
-### KL39：月下独酌（libbow.so · Dart FFI 双向往调 + 密钥分片 + FFI 注册表 + 四路哨兵）
+**三、定位业务函数（符号已失）**
 
-**考点**：Dart FFI 双向往调——Dart→C 加密，C→Dart 回调取密钥碎片；密钥分两侧各存一半运行时拼装；FFI 函数注册表（DartNativeFunction 数组）逆向；四路哨兵反调试 + 静默投毒。`libbow.so`（桥 `FlutterFFI`）动态注册（JNI_OnLoad → RegisterNatives）：
+在 `asm/` 里按调用链找：谁引用了池里的 `page=` 模板、谁调用了 AES 的初始化/轮函数。
+定位到之后确认它对每页参数做了什么。
 
-- `nativeEncRequest(page, ts)` → XOR 加密请求参数 byte[]（模拟 Dart→C FFI 调用链）；
-- `nativeDeriveKey()` → C→Dart 回调拼装完整密钥（四路哨兵自检 + 拼装 FRAG_DART + FRAG_C）；
-- `nativeSign(page, ts)` → HMAC-SHA256 签名（检测触发返回 `guard_failed`）；
-- `nativeVerify(page, ts, sign)` → 验签；
-- `nativeAnswer()` → 本地答案比对；
-- `nativeGetStatus()` → 哨兵状态 + FFI 注册表信息。
+**四、加密口径（本关只有一种对称加密，无摘要、无 HMAC）**
 
-**密钥分片设计**：
-- Dart 侧持有 `FRAG_DART`（16 字节，前 11 字节 = "Fatdog_moon"，后 5 字节 Dart 填充）；
-- C 侧持有 `FRAG_C`（16 字节，C 侧碎片）；
-- 运行时拼装：`FRAG_DART + FRAG_C` = 32 字节完整 HMAC 密钥；
-- XOR 编码键 `^0x42`（区别于 KL38 的 `^0x3C`）。
-
-**FFI 注册表**：静态 `FFI_REGISTRY[]` 数组包含 3 个真实函数 + 3 个诱饵入口，IDA 中可见但调用会崩溃。
-
-**四路哨兵**（与 KL37/38 同构）：
-1. ptrace/TracerPid 检测调试附加；
-2. `/proc/self/maps` 扫描 Frida 特征；
-3. 27042-27044 端口探测；
-4. 线程名扫描。
-
-**解法**：
-1. **Frida 路线**：spawn 抢跑 → hook `anti_debug::run_all` 空实现 → hook `nativeDeriveKey` 直接拿完整密钥 → Python 复刻；
-2. **静态路线**：IDA 读 `FRAG_DART` 和 `FRAG_C` XOR 数组 → XOR 0x42 还原 → 拼装 → Python 复刻 HMAC-SHA256；
-3. **FFI 注册表路线**：IDA 分析 `FFI_REGISTRY[]` 数组 → 找到 `nativeEncRequest` 和 `nativeDeriveKey` 入口 → Hook 拿密钥。
-
-**Python 复刻**（先 `python server.py`）：
-```python
-import hmac, hashlib
-KEY = b"Fatdog_moon"  # 真密钥（诱饵 Fatdog_star）
-def sign(page, ts):
-    return hmac.new(KEY, f"page={page}&ts={ts}".encode(), hashlib.sha256).hexdigest()
-# POST /api/kl39 表单 page=&ts=&enc=&sign= ，收集 100 页×10 个数求和
+```
+enc = AES-128-ECB-PKCS7(key, "page=<page>&ts=<ts>")   # key = "Fatdog_kite" 补零到 16B
 ```
 
-**答案**：100 页共 1000 个数求和（seed=20280715），`sha256(str(sum))` 前 8 位 hex 即答案。flag `FLAG_18_KL39{drinking_alone_moonlight}`。真标记 `Fatdog_moon` / 诱饵 `Fatdog_star`。
+对拍值：`enc(1, 1787013761) = 090bc733f1ed59870c72957a2d3fd8fc97d41e467b8d9eb8fe880c4a20682d35`
 
-**坑位提醒**：
-- Dart FFI 边界是双向的——不仅 Dart 调 C，C 也会回调 Dart 取密钥碎片，传统单向 hook 不够；
-- 密钥分两侧存储，单独提取任一片都无法还原完整密钥；
-- FFI 注册表中有诱饵入口，盲目调用会崩溃；
-- 诱饵 `Fatdog_star` 与真标记只差四个字母，用错即 403；
-- 答案是 SHA256(str(sum)) 前 8 位 hex（sum 为 1000 个数之和），需要自行计算。
+**五、Python 复刻**
 
-### KL40：星河倒影（librig.so · 碧落天综合收官卷 · 多层安全叠加）
-
-**考点**：六重防线综合收官——①AOT 编译产物加密 ②FFI 动态链接 ③Dart Isolate 多线程签名 ④反调试（ptrace + timing）⑤证书锁定 + HMAC 签名链 ⑥响应体 RC4 加密。`librig.so`（桥 `FlutterMirror`）动态注册（JNI_OnLoad → RegisterNatives）：
-
-- `nativeFullSign(page, ts)` → 全链签名（反调试 + 自校验 + HMAC-SHA256）；
-- `nativeDecryptRsp(hex_data)` → RC4 解密响应体；
-- `nativeVerifyIntegrity()` → .text 段哈希 + 函数指针校验；
-- `nativeAnswer()` → 本地答案比对；
-- `nativeGetStatus()` → 完整状态信息。
-
-**多层安全叠加**：
-- 反调试：ptrace/TracerPid + /proc/self/maps + 27042-27044 端口 + 线程名扫描（四路同构）；
-- 自校验：函数指针 + .text 段哈希验证代码完整性；
-- 密钥派生：`Fatdog_reflect` 直接用于 HMAC 签名；SHA256(master+"|rc4").digest()[:16] → RC4 密钥；SHA256(master+"|aot").digest()[:16] → AOT 密钥；
-- 响应加密：服务端用 RC4 加密 JSON 响应，客户端用 `nativeDecryptRsp` 解密。
-
-**解法**：
-1. **Frida 路线**：spawn 抢跑 → hook `anti_debug::run_all` + `guard_check` 空实现 → hook `nativeFullSign` 拿签名 → hook `nativeDecryptRsp` 拿解密 → Python 复刻；
-2. **静态路线**：IDA 读 XOR 数组还原密钥 → 派生 HMAC/RC4/AOT 子密钥 → Python 复刻签名 + RC4 解密；
-3. **patch 路线**：patch 反调试 + patch 自校验 → 重打包。
-
-**Python 复刻**（先 `python server.py`）：
 ```python
-import hmac, hashlib
-KEY = b"Fatdog_reflect"  # 真密钥（诱饵 Fatdog_echo）
-rc4_key = hashlib.sha256(KEY + b"|rc4").digest()[:16]  # 二进制 16 字节
-def sign(page, ts):
-    return hmac.new(KEY, f"page={page}&ts={ts}".encode(), hashlib.sha256).hexdigest()
-def rc4_decrypt(key, data):
-    S = list(range(256)); j = 0
-    for i in range(256): j = (j + S[i] + key[i % len(key)]) % 256; S[i], S[j] = S[j], S[i]
-    x = y = 0; r = bytearray(data)
-    for i in range(len(data)):
-        x = (x + 1) % 256; y = (y + S[x]) % 256; S[x], S[y] = S[y], S[x]
-        r[i] ^= S[(S[x] + S[y]) % 256]
-    return bytes(r)
-# POST /api/kl40 表单 page=&ts=&sign= → 返回 {"d": "hex密文"}
-# 解密 d 得到 page=N|nums=1,2,...
+from Crypto.Cipher import AES
+import requests, time
+KEY = b"Fatdog_kite" + b"\x00" * 5          # 补零到 16 字节
+def enc(page, ts):
+    pt = f"page={page}&ts={ts}".encode()
+    pad = 16 - len(pt) % 16
+    return AES.new(KEY, AES.MODE_ECB).encrypt(pt + bytes([pad]) * pad).hex()
+ts = int(time.time()); total = 0
+for p in range(1, 101):
+    r = requests.get(f"https://<host>/api/kl37?page={p}&ts={ts}&enc={enc(p, ts)}", verify=False)
+    total += sum(r.json()["nums"])
+print(total)                                 # 49958
 ```
 
-**答案**：100 页共 1000 个数求和（seed=20280720），`sha256(str(sum))` 前 8 位 hex 即答案。flag `FLAG_18_KL40{galaxy_reflected}`。真标记 `Fatdog_reflect` / 诱饵 `Fatdog_echo`。
+**答案**：1000 个数求和 **49958**，`sha256("49958")` = `1a8c6e655a3eaa77a3c989aa78847e5fc85c223dc4d6d61b96175329b8f3d81c`。
+flag `FLAG_18_KL37{iris_in_the_wind}`。真标记 `Fatdog_kite` / 诱饵 `Fatdog_sail`。
 
 **坑位提醒**：
-- 这是碧落天收官卷，综合了前面所有技术——反调试、FFI、签名、RC4 全部在线；
-- 任一层被绕过即静默投毒，必须全部正确才能通过；
-- 诱饵 `Fatdog_echo` 与真标记只差四个字母，用错即 403；
-- 响应体是 RC4 加密的，不是明文 JSON——需要先解密再解析；
-- 答案是 SHA256(str(sum)) 前 8 位 hex（sum 为 1000 个数之和），需要自行计算。
+- 混淆只改符号，**字符串仍在对象池**——别以为 obfuscate 之后就没戏了；
+- 第二瓣不是字符串，`strings` / 字符串区抓不到，要在对象池的**数组**里认出来；
+- 诱饵 `Fatdog_sail` 也在池里，用错 → 服务端解出乱码 → 403；
+- 同样认准 `arm64-v8a` 的载荷；
+- 宿主伴生 so 走的是**镜像实现**（同样两瓣拼接），逆 so 是兜底路线。
+
+### KL38：雾里观花（真实 Flutter 产物 · BoringSSL 证书固定绕过 · AES-128-CBC + SHA-256）
+
+**本关产物**：与前两关共用同一份真实 Flutter 载荷（`lib/arm64-v8a/libapp.so` / `libflutter.so` / `assets/flutter_assets/`）。本关**题眼是 TLS 证书固定**——Flutter 自带网络栈，既不认系统 CA，也不认 Java 的 TrustManager。
+
+**一、为什么"装证书 / hook OkHttp"都没用**
+
+`dart:io` 的 `HttpClient` 在 Android 上**不走 Java 的 `javax.net.ssl`**，它把 **BoringSSL** 直接编进 `libflutter.so`；证书链校验的入口是 `ssl_crypto_x509_session_verify_cert_chain()`（源码 `ssl/ssl_x509.cc`）。所以：
+
+- 把 CA 装进系统信任库 → 无效；
+- hook Java 层 `TrustManager` / `OkHttp` → 无效；
+- 改 `network_security_config.xml` → 无效。
+
+**二、定位证书固定（三条常用手法）**
+
+1. **字符串交叉引用**（看雪实证手法）：IDA 载入 `libflutter.so`，搜 `[ssl_client]` 等字符串，顺交叉引用回到校验函数；
+2. **pattern scan**：取校验函数**首 10+ 字节**，Frida 里 `Memory.scanSync(Module.findBaseAddress('libflutter.so'), size, '<hex>')` 定位，再 `Interceptor.attach(addr, {onLeave: r => r.replace(1)})` 强制放行；
+3. **reFlutter**：自动 patch 引擎让证书校验恒真，重打包 + `uber-apk-signer` 重签名。
+
+> ⚠️ Frida 一把梭会被本关的反调试抓到（见下），所以更稳的是**静态 patch** 或**纯 Python 复刻**。
+
+**三、本关的实际落地（把 BoringSSL 那一层用伴生 so 代替）**
+
+宿主 App 不是 Flutter 运行时，因此用**伴生 so `libflutternet.so`**（JNI 桥 `FlutterNet`）站在与 BoringSSL 相同的位置做事：
+
+1. TLS 握手后取**叶子证书 DER** → `SHA256(DER)`；
+2. 与 so 内置的 pin（`pin_store::PIN_XOR`，逐字节 `^0x3C` 藏匿）比对；
+3. **pin 锁的是"线上证书"**——训练环境是自签 CA，指纹**必然对不上**，于是 App 自己的请求被自己拒掉（报 `pin: certificate mismatch`）。
+
+**结论：不绕过 pinning，一条数据也拿不到。** 这也是本关与 KL36/KL37 最大的不同——前两关"能发请求，只是算不出参数"，本关是"请求根本发不出去"。
+
+**四、算法口径（摘要 + 对称，无 HMAC）**
+
+| 项 | 值 |
+|---|---|
+| 主密钥 | `Fatdog_haze`（真）/ `Fatdog_fog`（诱饵，服务端 403） |
+| AES 密钥 | `SHA256("<主密钥>|aes")` 的前 **16** 字节 |
+| 密文 | `enc = AES-128-CBC-PKCS7(aeskey, IV \|\| "page=N&ts=T")` → hex（**前 16 字节是 IV**） |
+| 摘要 | `sign = SHA256(enc + "<主密钥>")` 的十六进制前 **16** 位 |
+| 请求 | `GET /api/kl38?page=N&ts=T&enc=<hex>&sign=<16hex>` |
+| SEED | 20280701（100 页 × 10 数，共 1000 个数） |
+| 求和 | **50778**；`SUM_HASH = 5c8a0ad4292040b13934237f5743c7f05cf912dbac123c7faf1d1c9f022b87b9` |
+| flag | `FLAG_18_KL38{flower_in_mist}` |
+
+**密钥在载荷里**：`libapp.so` 对象池里的哨兵是整串 `FDK38|Fatdog_haze|END`（`strings` 就能看到；KL38 的难处不在密钥隐藏，而在证书固定）。伴生 so 的读钥顺序同 KL36：**先从 libapp.so 对象池搜 `FDK38|` 取钥，读不到才退镜像常量**。
+
+**五、反调试（评分制，不是单点定罪）**
+
+三个信号各记 1 分，**≥2 分**才判定"被注入"，判定成立即**静默换用诱饵钥**（`Fatdog_fog`）出密文与摘要，服务端解密/验签自然不认 → 403：
+
+1. `/proc/self/status` 的 `TracerPid` 非 0；
+2. `/proc/self/maps` 含 `frida` / `gadget` / `gum-js` / `linjector`；
+3. 线程名含 `gum-js-loop` / `pool-frida` / `linjector`（**只用 frida 专属名**，`gmain`/`gdbus` 这类通用名不计，避免误报）。
+
+> 之所以用评分制：KL19/KL28 的教训——部分 ROM 的 seccomp 会让单点检测直接误判，把正常玩家锁死。
+
+**六、绕过路线（三条）**
+
+**路线 A：纯复刻（最干净，不碰 App）**
+从 `libapp.so` 拿主密钥 → 按上表算 `enc`/`sign` → 自己发请求 → 求和提交。App 里的 pin 校验与反调试都绕过了。
+
+**路线 B：Frida 绕过 pinning（App 内取数）**
+```javascript
+Java.perform(function () {
+  var FN = Java.use('com.fatdog.reverse.FlutterNet');
+  // 让证书固定恒通过
+  FN.nativeCheckPin.implementation = function (der) { return true; };
+});
+```
+> 只用这一条会被反调试抓到（maps + 线程名 ≥2 分）→ 密文被换成诱饵钥 → 403。
+> 所以还要把检测压掉：`Interceptor.attach(Module.findExportByName('libflutternet.so', ...))`
+> 或直接 hook 掉 `nativeEnc`/`nativeSign` 返回自己算的值（那就等价于路线 A 了）。
+
+**路线 C：静态 patch 之后重打包**
+把 `libflutternet.so` 里 `pin_store::verify` 改成恒 `1`、`guard::tripped` 改成恒 `0`，
+`uber-apk-signer` 重签名后安装。
+
+**七、Python 复刻脚本（路线 A，可直接跑）**
+
+```python
+# pip install pycryptodome  （或无第三方时改用 server.py 里的 _aes_cbc_decrypt 纯标准库实现）
+import hashlib, json, urllib.request
+from Crypto.Cipher import AES
+
+HOST = "https://10.0.2.2:8443"          # 真机改 127.0.0.1:8443
+KEY  = b"Fatdog_haze"                   # 真主密钥（诱饵 Fatdog_fog 会被 403）
+AESKEY = hashlib.sha256(KEY + b"|aes").digest()[:16]
+
+def pkcs7(b):
+    p = 16 - len(b) % 16
+    return b + bytes([p]) * p
+
+def make_params(page, ts, iv=None):
+    iv = iv or os.urandom(16)                       # 真实运行时 IV 随机并前置
+    pt = f"page={page}&ts={ts}".encode()
+    ct = AES.new(AESKEY, AES.MODE_CBC, iv).encrypt(pkcs7(pt))
+    enc = (iv + ct).hex()
+    sign = hashlib.sha256(enc.encode() + KEY).hexdigest()[:16]
+    return enc, sign
+
+import os, time
+total = 0
+for page in range(1, 101):
+    ts = int(time.time())
+    enc, sign = make_params(page, ts)
+    url = f"{HOST}/api/kl38?page={page}&ts={ts}&enc={enc}&sign={sign}"
+    with urllib.request.urlopen(url, context=SSL_CTX) as r:   # 训练环境需信任自签 CA
+        total += sum(json.loads(r.read())["nums"])
+print(total)
+# 提交 App：sha256(str(total))[:8]
+```
+
+> 静态自检对拍值（固定 IV = `00..0f`，用于验证自己的 CBC 实现）：
+> - `enc(1, 1787013761) = 000102030405060708090a0b0c0d0e0f7d4dbd188ea323504608cb166b18fad84f00fb5f1c2b0d2fd8c6561bcf0b2366`
+> - `sign(1, 1787013761) = 50dd0bc6a11aef2e`
+> - `enc(7, 1700000000) = 000102030405060708090a0b0c0d0e0f45d8692b9d51b0d750852f46481ece6d90c61f05a30574a487c3447529a1b83a`
+
+**八、坑位提醒**
+
+- **pin 锁的是线上证书**，训练环境自签必然不匹配——App 里点"取数"必然报 `pin: certificate mismatch`，这是**设计如此**，不是环境坏了；
+- 绕过 pinning 后若仍 403，看界面上的「算法自检」——**检测评分 ≥2/2** 说明被反调试抓到，密文已被换成诱饵钥；
+- 诱饵 `Fatdog_fog` 与真钥只差后三个字母（`haze` → `fog`），用错即 403；
+- IV 是**随机**的且**前置**在密文里，别拿固定 IV 去乘服务端算出的密文；
+- 答案同样是 `sha256(str(sum))` 前 8 位 hex，`sum` 为 1000 个数之和。
+
+### KL39：月下独酌（真实 Flutter 产物 · dart:ffi 双向往调 + 密钥分片 · MD5 + AES-128-ECB）
+
+**本关产物**：与前几关共用同一份真实 Flutter 载荷。本关的题眼是 **dart:ffi 边界**——摘要由 Dart 侧算，对称加密交给 C 侧，而**主密钥被掰成两瓣**：一瓣在 Dart 的对象池里，一瓣编在 native so 里。
+
+**一、算法口径（摘要 + 对称，无 HMAC）**
+
+| 项 | 值 |
+|---|---|
+| 摘要（Dart 侧） | `d = MD5("page=<page>&ts=<ts>")` → **16 字节原始摘要** |
+| 主密钥 | 两瓣拼回：`FRAG_DART` + `FRAG_C` = `Fatdog_moon` |
+| AES 密钥 | 主密钥补零到 **16** 字节 |
+| 密文（native 侧） | `enc = AES-128-ECB-PKCS7(aeskey, d)` → hex（`d` 16B → 补齐 32B → 64 hex 字符） |
+| 请求 | `POST /api/kl39`（表单 `page` / `ts` / `enc`） |
+| SEED | 20280715（100 页 × 10 数） |
+| 求和 | **49978**；`SUM_HASH = 0e84adc50365026b35f3595727df3d7ab5833873247dc9c639675259e08e4eb5` |
+| flag | `FLAG_18_KL39{drinking_alone_moonlight}` |
+
+**二、密钥分片（本关的核心设计）**
+
+| 瓣 | 内容 | 在哪 |
+|---|---|---|
+| `FRAG_DART` | 8 字节 | `libapp.so` **对象池**：哨兵 `FDK39|Fatdog_m|END`（`strings` 只看到前半截） |
+| `FRAG_C` | 3 字节 | `libbow.so` 内部（`^0x42` 藏匿） |
+
+拼回后是 `Fatdog_moon`，补零 16 字节作 AES 密钥。**只逆一侧拿不到完整密钥**——这是本关与 KL36/KL38 最大的不同（那两关密钥整条在载荷里）。
+
+**三、dart:ffi 调用点定位（Blutter）**
+
+1. 用 Blutter 解 `libapp.so`：`blutter.py <libapp.so> <flutter_assets>`;
+2. 产物里 `asm/` 是带符号的汇编、`pp.txt` 是对象池 dump；
+3. 在 `asm/` 里搜 `DynamicLibrary` / `lookupFunction`（本关导出符号名是 **`fd_moon_enc`**），即可定位 Dart→C 的调用点；
+4. native 侧 `nm -D libbow.so` 能看到 `fd_moon_enc` 与三个 JNI 方法；
+5. 拿到的 `FRAG_DART` 是 `Fatdog_m`（**半截**），要跟 native 里那 3 字节接起来。
+
+**四、Python 复刻脚本（可直接跑）**
+
+```python
+import hashlib, json, os, time, urllib.request, urllib.parse
+from Crypto.Cipher import AES
+
+HOST   = "https://10.0.2.2:8443"        # 真机改 127.0.0.1:8443
+FRAG_DART = b"Fatdog_m"                 # 载荷对象池里那半截
+FRAG_C    = b"oon"                      # native 里那半截
+KEY16 = (FRAG_DART + FRAG_C + b"\x00" * 16)[:16]
+
+def pkcs7(b):
+    p = 16 - len(b) % 16
+    return b + bytes([p]) * p
+
+def make_enc(page, ts):
+    d = hashlib.md5(f"page={page}&ts={ts}".encode()).digest()   # 16 字节原始摘要
+    return AES.new(KEY16, AES.MODE_ECB).encrypt(pkcs7(d)).hex()
+
+total = 0
+for page in range(1, 101):
+    ts = int(time.time())
+    body = urllib.parse.urlencode({"page": page, "ts": ts, "enc": make_enc(page, ts)}).encode()
+    with urllib.request.urlopen(urllib.request.Request(HOST + "/api/kl39", data=body),
+                                context=SSL_CTX) as r:      # 训练环境需信任自签 CA
+        total += sum(json.loads(r.read())["nums"])
+print(total)
+# 提交 App：sha256(str(total))[:8]
+```
+
+> **自检对拍值**（验证自己的实现是否对）：
+> - `md5("page=1&ts=1787013761") = eca5d3dcb2dd82e9036ada197f3dcbed`
+> - `enc(1, 1787013761) = cffd009355f00094f0cf7a69b5f35c8b74b22287afa36e098a4c282f985d68d6`
+> - `enc(7, 1700000000) = 51ece1f3a4e3198dc9ff794b835d3bf074b22287afa36e098a4c282f985d68d6`
+
+**五、动态路线（Frida）**
+
+```javascript
+Java.perform(function () {
+  var FFI = Java.use('com.fatdog.reverse.FlutterFFI');
+  // 直接读 native 出的密文，再用本地复刻的算法对照
+  console.log(FFI.nativeEnc(1, 1787013761, FFI.md5Of(1, 1787013761)));
+  // 或回到 Dart 侧：hook fd_moon_enc 的返回
+  var p = Module.findExportByName('libbow.so', 'fd_moon_enc');
+  Interceptor.attach(p, { onLeave: function (r) { console.log(r.readUtf8String()); } });
+});
+```
+
+**六、坑位提醒**
+
+- `FRAG_DART` 在对象池里只有 **8 字节**（`Fatdog_m`），别以为拿到整条密钥了——剩下 3 字节只在 native 里；
+- 摘要传的是 **16 字节原始值**，不是 hex 字符串：写成 `md5(...).hexdigest()` 会得到完全不同的密文；
+- 密钥要**补零到 16 字节**（`Fatdog_moon` 只有 11 字节）；
+- 诱饵 `Fatdog_star` 与真钥只差第 8 个字母（`m`→`s`），用错即 403；
+- 服务端**只比对解密出的摘要**，`enc` 长度必须是 16 的倍数（`d` 16B + PKCS#7 补齐 → 32B）；
+- 答案同样是 `sha256(str(sum))` 前 8 位 hex。
+
+### KL40：星河倒影（真实 Flutter 产物 · 综合收官卷 · AES-256-GCM + MD5 + 换钥 AES 解密）
+
+**本关产物**：与前四关共用同一份真实 Flutter 载荷。收官卷把前面几关的手艺叠在一起——**三原语 + 换钥**。
+
+**一、算法口径（三原语叠加，无 HMAC）**
+
+| 环节 | 算法 | 密钥 |
+|---|---|---|
+| 请求加密 | **AES-256-GCM**（nonce 12B 前置 + ct + **tag 16B**） | `KREQ = SHA256("Fatdog_reflect\|req")`（32 字节） |
+| 签名 | **普通 MD5**（非 HMAC） | `sign = md5("page=N&ts=T&enc=<enc>&k=<主标记>")` |
+| 响应解密 | **AES-128-CBC**（iv 16B 前置）——**换了一把钥** | `KRESP = SHA256("Fatdog_reflect\|resp")[:16]` |
+
+- 请求 `POST /api/kl40`（表单 `page/ts/enc/sign`），响应 `{"d": "<hex>"}`；
+- `enc = hex(nonce(12) ‖ ct ‖ tag(16))`；主标记 `Fatdog_reflect`（诱饵 `Fatdog_echo` → 403）；
+- SEED 20280720，1000 个数求和 **52005**；flag `FLAG_18_KL40{galaxy_reflected}`。
+
+**二、三道锁各是什么**
+
+1. **GCM 的完整性**：改动 `ct` 或 `tag` 里任意一个字节，服务端**直接拒收**（不是"解出来乱码"）——这是它与前面 CBC/ECB 关卡最大的不同。
+2. **MD5 只是凭据**：普通摘要，明文里夹着主标记，作用是"证明你会算"；它**不提供完整性**，别当成 MAC。
+3. **换钥**：回来的数据用**另一把** AES 钥（CBC）锁着。要先意识到"回来的钥和去的那把不是同一把"，再从同一主标记派生响应钥。
+
+**三、密钥与定位**
+
+主标记在 `libapp.so` 对象池：哨兵 `FDK40|Fatdog_reflect|END`（`strings` 直接可见）。两把钥都由它派生：
+
+```
+KREQ  = SHA256("Fatdog_reflect|req")        # 32 字节（AES-256）
+KRESP = SHA256("Fatdog_reflect|resp")[:16]  # 16 字节（AES-128）
+```
+
+Blutter 路线：`blutter.py libapp.so flutter_assets` → 在 `asm/` 里找 GCM 调用点与两处 SHA256 派生；
+native 侧 `nm -D librig.so` 能看到 `nativeEnc` / `nativeSign` / `nativeDecryptRsp`。
+
+**四、Python 复刻脚本（可直接跑）**
+
+```python
+import hashlib, json, os, time, urllib.request, urllib.parse
+from Crypto.Cipher import AES
+
+HOST   = "https://10.0.2.2:8443"          # 真机改 127.0.0.1:8443
+MASTER = b"Fatdog_reflect"
+KREQ   = hashlib.sha256(MASTER + b"|req").digest()
+KRESP  = hashlib.sha256(MASTER + b"|resp").digest()[:16]
+
+total = 0
+for page in range(1, 101):
+    ts = int(time.time())
+    nonce = os.urandom(12)
+    c = AES.new(KREQ, AES.MODE_GCM, nonce=nonce)
+    ct, tag = c.encrypt_and_digest(f"page={page}&ts={ts}".encode())
+    enc = (nonce + ct + tag).hex()
+    sign = hashlib.md5(f"page={page}&ts={ts}&enc={enc}&k={MASTER.decode()}".encode()).hexdigest()
+    body = urllib.parse.urlencode({"page": page, "ts": ts, "enc": enc, "sign": sign}).encode()
+    with urllib.request.urlopen(urllib.request.Request(HOST + "/api/kl40", data=body),
+                                context=SSL_CTX) as r:      # 训练环境需信任自签 CA
+        d = bytes.fromhex(json.loads(r.read())["d"])
+    pt = AES.new(KRESP, AES.MODE_CBC, d[:16]).decrypt(d[16:])   # ← 换钥解密
+    total += sum(json.loads(pt[:-pt[-1]])["nums"])
+print(total)
+# 提交 App：sha256(str(total))[:8]
+```
+
+> **自检对拍值**（固定 nonce = `00..0b`，用来验证自己的实现）：
+> - `KREQ  = 29242857cf181d625daae8382d884665f181e93300b765d8f6f4697d290ceb6e`
+> - `KRESP = 86eb74c2e8e5e1c3be77f62a6396e6ee`
+> - `enc(1, 1787013761) = 000102030405060708090a0bfca4e4823b0690e6ae7f0e72f523021cfb493137d5361668ad86cb7bbfbac307efb927b4`
+> - `sign(1, 1787013761) = d2b77110728e5bb259dd144b8452e021`
+
+**五、其它层（与前面几关同源）**
+
+- **识别 / 快照还原**：Blutter（`pp.txt` 对象池 + `asm/` 符号化汇编）；
+- **BoringSSL pinning**：本关仍只信任项目自签 CA，抓包同其余 HTTPS 关（Charles 导入 `certs/ca.crt` + `ca.key`）；
+- **反调试**：评分制（`TracerPid` / maps 的 frida 特征 / frida 专属线程名，各 1 分，**≥2 才判定**），判定成立即静默改用诱饵钥 `Fatdog_echo` → 服务端 403。
+
+**六、坑位提醒**
+
+- **GCM 与 CBC 的差别**：GCM 改一字节直接**拒收**，CBC 是"解出来乱码"——别混为一谈；
+- **MD5 不是 MAC**：只做凭据，真正防篡改的是 GCM 的 tag；
+- **nonce 12 字节、iv 16 字节**都随机且**前置**在密文之前，别拿固定值去解服务端回来的密文；
+- 请求钥 **32 字节**、响应钥 **16 字节**——长度不同是刻意的（AES-256 / AES-128）；
+- 诱饵 `Fatdog_echo` 与真钥只差后半截，用错即 403；
+- 答案同样是 `sha256(str(sum))` 前 8 位 hex。
+
+**七、静态 patch / 重打包**
 
 ```text
-apktool d FatdogReverse.apk -o out       # 单 classes.dex → out/smali（已无 classes2/3）
+apktool d FatdogReverse.apk -o out
+# 改 librig.so：把 guard::tripped 改成恒 0（或直接把 nativeDecryptRsp 的钥换掉）
 apktool b out -o rebuilt.apk
 zipalign -f 4 rebuilt.apk aligned.apk
 apksigner sign --ks keystore/debug.keystore --ks-key-alias androiddebugkey \
         --ks-pass pass:android --key-pass pass:android --out patched.apk aligned.apk
 adb install -r patched.apk
 ```
-
 
 ### 附 2 · Frida 通用速查
 

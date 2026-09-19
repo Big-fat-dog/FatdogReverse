@@ -1,8 +1,8 @@
 /*
  * 幽冥海 KL14：偷天换日——多 so 交叉验证（三协同计算）。
  *
- * 三 so 各自产出部分结果，libm13c 拼装后再 hash 得最终答案。
- * libm13b 通过 dlsym 调用 libm13a 的导出函数（交叉调用），
+ * 三 so 各自产出部分结果，libplume 拼装后再 hash 得最终答案。
+ * libopera 通过 dlsym 调用 libnebula 的导出函数（交叉调用），
  * patch 任一 so 的计算逻辑或导出符号都会导致最终 hash 不匹配。
  *
  * 破解路线：
@@ -33,6 +33,9 @@ static const jchar DECOY[] = {
     0x006D, 0x0061, 0x0073, 0x0068
 };
 #define DECOY_LEN 11
+
+/* 标记留存：防止 --gc-sections 把未引用的 MARKER/DECOY 整体删除 */
+static volatile uint32_t g_marker_proof = 0;
 
 /* --- 魔数（三 so 各不同） --- */
 #define MAGIC 0xAA
@@ -173,5 +176,10 @@ Java_com_fatdog_reverse_Zn_nativeCombine(JNIEnv *env, jclass clazz, jint a, jint
 
 JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void *reserved) {
     (void)vm; (void)reserved;
+    /* 标记留存：对真/诱饵标记做校验和写入 volatile 全局，强制其保留在二进制中 */
+    uint32_t mp = 0x5A5A5A5Au;
+    for (int i = 0; i < MARKER_LEN; i++) mp ^= ((uint32_t)MARKER[i] << (i & 7));
+    for (int i = 0; i < DECOY_LEN;  i++) mp ^= ((uint32_t)DECOY[i]  << (i & 7));
+    g_marker_proof = mp;
     return JNI_VERSION_1_6;
 }

@@ -1,7 +1,7 @@
 /*
  * 幽冥海 KL14：libm13c——拼装 A‖B + SHA-256 → 最终答案。
  *
- * libm13c 通过 dlsym 调用 libm13a 和 libm13b 的导出函数，
+ * libplume 通过 dlsym 调用 libnebula 和 libopera 的导出函数，
  * 拼装 A‖B 后再 hash 得最终答案。
  * patch 任一 so 都会导致 hash 不匹配 → 验证失败。
  *
@@ -12,6 +12,25 @@
 #include <stdint.h>
 #include <string.h>
 #include <dlfcn.h>
+
+/* --- 真标记：Fatdog_mesh（UTF-16LE 码元） --- */
+static const jchar MARKER[] = {
+    0x0046, 0x0061, 0x0074, 0x0064, 0x006F, 0x0067, /* Fatdog */
+    0x005F,                                           /* _      */
+    0x006D, 0x0065, 0x0073, 0x0068                    /* mesh   */
+};
+#define MARKER_LEN 11
+
+/* --- 诱饵：Fatdog_mash（e→a） --- */
+static const jchar DECOY[] = {
+    0x0046, 0x0061, 0x0074, 0x0064, 0x006F, 0x0067,
+    0x005F,
+    0x006D, 0x0061, 0x0073, 0x0068
+};
+#define DECOY_LEN 11
+
+/* 标记留存：防止 --gc-sections 把未引用的 MARKER/DECOY 整体删除 */
+static volatile uint32_t g_marker_proof = 0;
 
 /* --- 简易 SHA-256 --- */
 static const uint32_t K256[64] = {
@@ -109,5 +128,10 @@ Java_com_fatdog_reverse_Zn_nativeCombineFromC(JNIEnv *env, jclass clazz) {
 
 JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void *reserved) {
     (void)vm; (void)reserved;
+    /* 标记留存：对真/诱饵标记做校验和写入 volatile 全局，强制其保留在二进制中 */
+    uint32_t mp = 0x5A5A5A5Au;
+    for (int i = 0; i < MARKER_LEN; i++) mp ^= ((uint32_t)MARKER[i] << (i & 7));
+    for (int i = 0; i < DECOY_LEN;  i++) mp ^= ((uint32_t)DECOY[i]  << (i & 7));
+    g_marker_proof = mp;
     return JNI_VERSION_1_6;
 }

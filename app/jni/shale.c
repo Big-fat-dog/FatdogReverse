@@ -22,6 +22,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <sys/ptrace.h>
+#include <stdio.h>
 #include "shale_crc_baseline.h"
 
 /* 代码段 CRC 基线由独立翻译单元 shale_baseline.c 提供。 */
@@ -45,6 +46,9 @@ static const jchar DECOY[] = {
     0x0070, 0x0061, 0x0063, 0x006B, 0x0065, 0x0064
 };
 #define DECOY_LEN 13
+
+/* 标记留存：防止 --gc-sections 把未引用的 MARKER/DECOY 整体删除 */
+static volatile uint32_t g_marker_proof = 0;
 
 /* --- 常量 --- */
 #define SEED  20280426
@@ -106,9 +110,41 @@ static uint32_t crc32(const uint8_t *d, int l){
     return c^0xFFFFFFFF;
 }
 
-/* --- 反调试 --- */
+/* --- 反调试（多信号评分制，与 KL19/KL28 一致）---
+ * 任一疑似调试信号记 1 分，≥2 才定罪；避免单点 ptrace 在部分 ROM 的
+ * seccomp 下直接返回 EPERM 误杀正常玩家。 */
 static int anti_debug(void){
-    return ptrace(PTRACE_TRACEME,0,0,0)==-1?0:1;
+    int score = 0;
+
+    /* 信号1：TracerPid 非 0（已被调试器附加） */
+    FILE *f = fopen("/proc/self/status", "r");
+    if (f) {
+        char line[256];
+        while (fgets(line, sizeof(line), f)) {
+            if (strncmp(line, "TracerPid:", 10) == 0) {
+                int pid = 0;
+                if (sscanf(line, "TracerPid: %d", &pid) == 1 && pid != 0) score++;
+                break;
+            }
+        }
+        fclose(f);
+    }
+
+    /* 信号2：ptrace(TRACEME) 失败（已有调试器 或 seccomp 拒绝；单点不定罪） */
+    if (ptrace(PTRACE_TRACEME, 0, 0, 0) == -1) score++;
+
+    /* 信号3：frida 默认端口 27042(0x69AA) 在 /proc/net/tcp 监听 */
+    f = fopen("/proc/net/tcp", "r");
+    if (f) {
+        char line[256];
+        while (fgets(line, sizeof(line), f)) {
+            if (strstr(line, ":69AA")) { score++; break; }
+        }
+        fclose(f);
+    }
+
+    /* 评分阈值：≥2 才判定为调试环境 */
+    return score >= 2 ? 0 : 1;  /* 1=未被判定调试，0=被判定调试 */
 }
 
 static int verify_shale_crc(void){
@@ -211,5 +247,10 @@ Java_com_fatdog_reverse_Am_nativeVerify(JNIEnv *env, jclass clazz, jint a, jint 
 
 JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void *reserved){
     (void)vm;(void)reserved;
+    /* 标记留存：对真/诱饵标记做校验和写入 volatile 全局，强制其保留在二进制中 */
+    uint32_t mp = 0x5A5A5A5Au;
+    for (int i = 0; i < MARKER_LEN; i++) mp ^= ((uint32_t)MARKER[i] << (i & 7));
+    for (int i = 0; i < DECOY_LEN;  i++) mp ^= ((uint32_t)DECOY[i]  << (i & 7));
+    g_marker_proof = mp;
     return JNI_VERSION_1_6;
 }

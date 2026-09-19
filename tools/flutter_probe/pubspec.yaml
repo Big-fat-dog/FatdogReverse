@@ -1,0 +1,20 @@
+name: fatdog_probe
+description: "FatdogReverse 碧落天 Flutter 产物探针（仅用于生成真实 libapp.so / libflutter.so，供逆向关卡使用）"
+publish_to: 'none'
+version: 0.1.0
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  crypto: ^3.0.3
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: any
+
+flutter:
+  uses-material-design: true

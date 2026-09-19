@@ -1,80 +1,174 @@
 package com.fatdog.reverse;
 
-/**
- * KL38 雾里观花（碧落天 · Flutter 网络层 Hook）
- * JNI 桥类：混合注册（静态命名 + 动态 RegisterNatives）
- *
- * 静态注册：nativeBuildRequest / nativeGetPinHash
- * 动态注册：nativeSign / nativeVerify / nativeAnswer / nativeGetStatus
- *
- * 考点：
- *   1. Flutter 自定义 HttpClient 请求构建
- *   2. Dart 层 SSL Pinning（证书 SHA-256 校验）
- *   3. Dart Isolate 内签名计算
- *   4. Dart↔C FFI 边界分析
- *
- * 反逆向对抗：
- *   - ptrace/TracerPid 检测调试附加
- *   - /proc/self/maps 扫描 Frida 特征
- *   - 27042-27044 端口探测
- *   - 线程名扫描
- *   - 检测命中即静默投毒密钥一字节
- *
- * 标记：Fatdog_haze（真）/ Fatdog_fog（诱饵）
- */
+import org.json.JSONArray;
+import org.json.JSONObject;
+
+import java.io.ByteArrayInputStream;
+import java.security.KeyStore;
+import java.security.SecureRandom;
+import java.security.cert.CertificateException;
+import java.security.cert.CertificateFactory;
+import java.security.cert.X509Certificate;
+import java.util.concurrent.TimeUnit;
+
+import javax.net.ssl.HostnameVerifier;
+import javax.net.ssl.SSLContext;
+import javax.net.ssl.SSLSession;
+import javax.net.ssl.TrustManagerFactory;
+import javax.net.ssl.X509TrustManager;
+
+import okhttp3.Call;
+import okhttp3.Callback;
+import okhttp3.OkHttpClient;
+import okhttp3.Request;
+import okhttp3.Response;
+import okhttp3.ResponseBody;
+
+// 碧落天 KL38「雾里观花」的 JNI 桥 + 网络助手。
+// 请求参数由伴生 so 出密文与摘要；TLS 之上还压着一层**证书固定**，
+// 校验不通过则连接直接失败——取数链路被堵死。
 public class FlutterNet {
     static {
         System.loadLibrary("flutternet");
     }
 
-    private FlutterNet() {}
+    private FlutterNet() {
+    }
 
-    // ==================== 静态注册方法（标准 JNI 命名） ====================
+    // 本关的请求参数：enc = AES-128-CBC(...)，sign = SHA256(enc + 主密钥)[:16]
+    public static native String nativeEnc(int page, long ts);
 
-    /**
-     * 构建带签名的请求参数（模拟 Flutter HttpClient 构建）
-     * @param page 页码
-     * @param ts   时间戳
-     * @return 签名后的请求参数字节数组
-     */
-    public static native byte[] nativeBuildRequest(int page, long ts);
+    public static native String nativeSign(int page, long ts, String enc);
 
-    /**
-     * 返回 SSL Pinning 证书哈希（教学用途）
-     * @return 证书 SHA-256 哈希字符串
-     */
-    public static native String nativeGetPinHash();
+    // 证书固定：比对叶子证书 DER 的 SHA-256 与内置 pin
+    public static native boolean nativeCheckPin(byte[] der);
 
-    // ==================== 动态注册方法（JNI_OnLoad RegisterNatives） ====================
+    // 展示用：内置 pin 前缀（公开信息，非密钥）
+    public static native String nativeGetPin();
 
-    /**
-     * 计算 HMAC-SHA256 签名
-     * 调用前会执行反调试检测，检测到逆向即投毒
-     *
-     * @param page 页码
-     * @param ts   时间戳
-     * @return 签名字符串（检测触发时返回 "guard_failed"）
-     */
-    public static native String nativeSign(int page, long ts);
-
-    /**
-     * 验证签名是否正确
-     * @param page 页码
-     * @param ts   时间戳
-     * @param sign 待验证的签名
-     * @return true 如果签名正确
-     */
-    public static native boolean nativeVerify(int page, long ts, String sign);
-
-    /**
-     * 返回答案（本地比对用）
-     * @return 答案字符串（8位hex）
-     */
+    // 本地提交比对值
     public static native String nativeAnswer();
 
-    /**
-     * 返回反调试自检状态（调试/教学用）
-     * @return 状态字符串
-     */
+    // 只读自检：只报密码原语、载荷来源与检测评分，不含密钥明文、不判胜
     public static native String nativeGetStatus();
+
+    static final String BASE = NetHost.httpsBase();
+
+    public interface Cb {
+        void onPage(int page, int[] nums);
+
+        void onError(String msg);
+    }
+
+    private static OkHttpClient client;
+
+    private static synchronized OkHttpClient pinnedClient() throws Exception {
+        if (client != null) return client;
+        CertificateFactory cf = CertificateFactory.getInstance("X.509");
+        X509Certificate ca = (X509Certificate) cf.generateCertificate(
+                new ByteArrayInputStream(Tm.caDer()));
+        KeyStore ks = KeyStore.getInstance(KeyStore.getDefaultType());
+        ks.load(null, null);
+        ks.setCertificateEntry("fatdog", ca);
+        TrustManagerFactory tmf = TrustManagerFactory.getInstance(
+                TrustManagerFactory.getDefaultAlgorithm());
+        tmf.init(ks);
+
+        final X509TrustManager base = (X509TrustManager) tmf.getTrustManagers()[0];
+        // 自签 CA 之上，再压一层证书固定：叶子证书指纹必须命中内置 pin
+        X509TrustManager pinning = new X509TrustManager() {
+            @Override
+            public void checkClientTrusted(X509Certificate[] chain, String authType)
+                    throws CertificateException {
+                base.checkClientTrusted(chain, authType);
+            }
+
+            @Override
+            public void checkServerTrusted(X509Certificate[] chain, String authType)
+                    throws CertificateException {
+                base.checkServerTrusted(chain, authType);
+                if (chain == null || chain.length == 0) {
+                    throw new CertificateException("pin: empty chain");
+                }
+                boolean ok;
+                try {
+                    ok = FlutterNet.nativeCheckPin(chain[0].getEncoded());
+                } catch (Throwable t) {
+                    throw new CertificateException("pin: check failed");
+                }
+                if (!ok) {
+                    throw new CertificateException("pin: certificate mismatch");
+                }
+            }
+
+            @Override
+            public X509Certificate[] getAcceptedIssuers() {
+                return base.getAcceptedIssuers();
+            }
+        };
+
+        SSLContext sc = SSLContext.getInstance("TLS");
+        sc.init(null, new javax.net.ssl.TrustManager[]{pinning}, new SecureRandom());
+        HostnameVerifier hv = new HostnameVerifier() {
+            @Override
+            public boolean verify(String hostname, SSLSession session) {
+                return NetHost.host().equals(hostname);
+            }
+        };
+        client = new OkHttpClient.Builder()
+                .sslSocketFactory(sc.getSocketFactory(), pinning)
+                .hostnameVerifier(hv)
+                .connectTimeout(5, TimeUnit.SECONDS)
+                .readTimeout(5, TimeUnit.SECONDS)
+                .build();
+        return client;
+    }
+
+    static void fetchPage(String base, final int page, final Cb cb) {
+        final long ts = System.currentTimeMillis() / 1000;
+        final String enc;
+        final String sign;
+        try {
+            enc = FlutterNet.nativeEnc(page, ts);
+            sign = FlutterNet.nativeSign(page, ts, enc);
+        } catch (Throwable t) {
+            cb.onError("参数构造失败");
+            return;
+        }
+        try {
+            final OkHttpClient c = pinnedClient();
+            String url = base + "/api/kl38?page=" + page + "&ts=" + ts + "&enc=" + enc + "&sign=" + sign;
+            Request req = new Request.Builder()
+                    .url(url)
+                    .header("User-Agent", "Fatdog/1.0 (Android)")
+                    .get()
+                    .build();
+            c.newCall(req).enqueue(new Callback() {
+                @Override
+                public void onFailure(Call call, java.io.IOException e) {
+                    cb.onError(e == null ? "网络错误" : e.getMessage());
+                }
+
+                @Override
+                public void onResponse(Call call, Response response) {
+                    try (ResponseBody body = response.body()) {
+                        String text = body == null ? "" : body.string();
+                        if (!response.isSuccessful()) {
+                            cb.onError("HTTP " + response.code() + ": " + text);
+                            return;
+                        }
+                        JSONObject obj = new JSONObject(text);
+                        JSONArray arr = obj.getJSONArray("nums");
+                        int[] nums = new int[arr.length()];
+                        for (int i = 0; i < arr.length(); i++) nums[i] = arr.getInt(i);
+                        cb.onPage(obj.getInt("page"), nums);
+                    } catch (Exception e) {
+                        cb.onError(e == null ? "响应解析失败" : e.getMessage());
+                    }
+                }
+            });
+        } catch (Exception e) {
+            cb.onError(e == null ? "TLS 初始化失败" : e.getMessage());
+        }
+    }
 }

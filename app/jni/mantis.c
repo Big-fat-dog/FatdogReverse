@@ -14,7 +14,7 @@
  *      （IDA 找到该常量改为 patched 代码的 CRC）；
  *   ③ 完整复刻 CRC 算法 + guard 逻辑 → Python 本地计算（最硬核）。
  *
- * 标记（真）：Fatdog_guard  — UTF-16 码元，非 static 非 const 全局存放。
+ * 标记（真）：Fatdog_guard  — UTF-16 码元（static const，借 JNI_OnLoad 引用强制保留）。
  * 诱饵（假）：Fatdog_gourd  — 一字之差陷阱，命中即 403。
  */
 #include <jni.h>
@@ -37,6 +37,9 @@ static const jchar DECOY[] = {
     0x0067, 0x006F, 0x0075, 0x0072, 0x0064
 };
 #define DECOY_LEN 12
+
+/* 标记留存：防止 --gc-sections 把未引用的 MARKER/DECOY 整体删除 */
+static volatile uint32_t g_marker_proof = 0;
 
 /* --- 魔数 --- */
 #define MAGIC 0xCAFEBABE
@@ -131,5 +134,10 @@ Java_com_fatdog_reverse_Ap_nativeCheck(JNIEnv *env, jclass clazz) {
 
 JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void *reserved) {
     (void)vm; (void)reserved;
+    /* 标记留存：对真/诱饵标记做校验和写入 volatile 全局，强制其保留在二进制中 */
+    uint32_t mp = 0x5A5A5A5Au;
+    for (int i = 0; i < MARKER_LEN; i++) mp ^= ((uint32_t)MARKER[i] << (i & 7));
+    for (int i = 0; i < DECOY_LEN;  i++) mp ^= ((uint32_t)DECOY[i]  << (i & 7));
+    g_marker_proof = mp;
     return JNI_VERSION_1_6;
 }

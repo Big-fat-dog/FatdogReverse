@@ -1,736 +1,275 @@
-// kl37.cpp —— KL37 风中鸢尾（碧落天 · Dart Kernel 字节码逆向）
-// C++17 + 反逆向对抗：ptrace/TracerPid/maps/端口/线程名/CRC 自校验 + 混合 JNI 注册
+// kl37.cpp —— KL37「风中鸢尾」（碧落天 · Dart AOT 代码还原 + 混淆对抗）
+//
+// 伴生 so（runtime 侧）：本关只用**一种对称加密**——AES-128-ECB + PKCS#7。
+//   enc = AES-128-ECB-PKCS7(key, "page=<page>&ts=<ts>")  → hex
+// 密钥按"拆两段、运行时拼接"的口径保存（镜像实现）：
+//   PART_A + PART_B = 完整密钥（两段各按 UTF-8 逐字节异或 0x3C 藏匿），再补零到 16 字节。
+// 载荷侧（libapp.so 的 Dart 业务代码）同样是**两瓣分别存放**：第一瓣是字符串字面量，
+// 第二瓣以码元数组形式存在——`strings` 只能抓到半截，要拼全得看对象池。
+//
+// 相比 KL36：本关载荷用 `--obfuscate` 构建，符号名被抹成 a.b()，必须靠调用链定位业务函数。
+
+#ifndef KL37_HOST_TEST
 #include <jni.h>
+#endif
+
 #include "mt_rng.h"
-#include <string>
-#include <vector>
-#include <array>
-#include <cstring>
+
 #include <cstdint>
 #include <cstdio>
-#include <cstdlib>
-#include <algorithm>
-#include <functional>
-#include <memory>
-#include <sys/ptrace.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <arpa/inet.h>
-#include <unistd.h>
-#include <fcntl.h>
-#include <dirent.h>
-#include <time.h>
+#include <cstring>
+#include <string>
 
-// ==================== 日志 ====================
 #ifdef ANDROID
 #include <android/log.h>
 #define LOG_TAG "kl37"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
-#define LOGW(...) __android_log_print(ANDROID_LOG_WARN, LOG_TAG, __VA_ARGS__)
 #else
 #define LOGI(...) printf(__VA_ARGS__)
-#define LOGW(...) printf(__VA_ARGS__)
 #endif
 
-// ==================== C++ 特性：模板类 ====================
-template<typename T, size_t N>
-class FixedBuffer {
-private:
-    std::array<T, N> data_{};
-    size_t len_ = 0;
-public:
-    void append(const T* src, size_t count) {
-        size_t to_copy = std::min(count, N - len_);
-        std::copy(src, src + to_copy, data_.begin() + len_);
-        len_ += to_copy;
-    }
-    const T* data() const { return data_.data(); }
-    T* data() { return data_.data(); }
-    size_t size() const { return len_; }
-    void clear() { len_ = 0; }
+// ============================================================
+// AES-128（仅加密，ECB 模式 + PKCS#7）
+// ============================================================
+namespace aes_ns {
+
+static const uint8_t SBOX[256] = {
+    0x63,0x7c,0x77,0x7b,0xf2,0x6b,0x6f,0xc5,0x30,0x01,0x67,0x2b,0xfe,0xd7,0xab,0x76,
+    0xca,0x82,0xc9,0x7d,0xfa,0x59,0x47,0xf0,0xad,0xd4,0xa2,0xaf,0x9c,0xa4,0x72,0xc0,
+    0xb7,0xfd,0x93,0x26,0x36,0x3f,0xf7,0xcc,0x34,0xa5,0xe5,0xf1,0x71,0xd8,0x31,0x15,
+    0x04,0xc7,0x23,0xc3,0x18,0x96,0x05,0x9a,0x07,0x12,0x80,0xe2,0xeb,0x27,0xb2,0x75,
+    0x09,0x83,0x2c,0x1a,0x1b,0x6e,0x5a,0xa0,0x52,0x3b,0xd6,0xb3,0x29,0xe3,0x2f,0x84,
+    0x53,0xd1,0x00,0xed,0x20,0xfc,0xb1,0x5b,0x6a,0xcb,0xbe,0x39,0x4a,0x4c,0x58,0xcf,
+    0xd0,0xef,0xaa,0xfb,0x43,0x4d,0x33,0x85,0x45,0xf9,0x02,0x7f,0x50,0x3c,0x9f,0xa8,
+    0x51,0xa3,0x40,0x8f,0x92,0x9d,0x38,0xf5,0xbc,0xb6,0xda,0x21,0x10,0xff,0xf3,0xd2,
+    0xcd,0x0c,0x13,0xec,0x5f,0x97,0x44,0x17,0xc4,0xa7,0x7e,0x3d,0x64,0x5d,0x19,0x73,
+    0x60,0x81,0x4f,0xdc,0x22,0x2a,0x90,0x88,0x46,0xee,0xb8,0x14,0xde,0x5e,0x0b,0xdb,
+    0xe0,0x32,0x3a,0x0a,0x49,0x06,0x24,0x5c,0xc2,0xd3,0xac,0x62,0x91,0x95,0xe4,0x79,
+    0xe7,0xc8,0x37,0x6d,0x8d,0xd5,0x4e,0xa9,0x6c,0x56,0xf4,0xea,0x65,0x7a,0xae,0x08,
+    0xba,0x78,0x25,0x2e,0x1c,0xa6,0xb4,0xc6,0xe8,0xdd,0x74,0x1f,0x4b,0xbd,0x8b,0x8a,
+    0x70,0x3e,0xb5,0x66,0x48,0x03,0xf6,0x0e,0x61,0x35,0x57,0xb9,0x86,0xc1,0x1d,0x9e,
+    0xe1,0xf8,0x98,0x11,0x69,0xd9,0x8e,0x94,0x9b,0x1e,0x87,0xe9,0xce,0x55,0x28,0xdf,
+    0x8c,0xa1,0x89,0x0d,0xbf,0xe6,0x42,0x68,0x41,0x99,0x2d,0x0f,0xb0,0x54,0xbb,0x16
 };
 
-// ==================== C++ 特性：RAII JNI 包装 ====================
-class JniByteArray {
-private:
-    JNIEnv* env_;
-    jbyteArray arr_;
-public:
-    JniByteArray(JNIEnv* env, jsize sz) : env_(env), arr_(env->NewByteArray(sz)) {}
-    ~JniByteArray() = default;
-    jbyteArray get() const { return arr_; }
-    void setRegion(jsize start, jsize len, const jbyte* data) {
-        env_->SetByteArrayRegion(arr_, start, len, data);
-    }
-};
+static const uint8_t RCON[11] = {0x00,0x01,0x02,0x04,0x08,0x10,0x20,0x40,0x80,0x1b,0x36};
 
-// ==================== 字符串异或解码（运行时解码，防 strings 提取） ====================
-template<size_t N>
-struct XorString {
-    uint8_t data[N];
-    uint8_t key;
+static inline uint8_t xtime(uint8_t x) { return (uint8_t)((x << 1) ^ ((x >> 7) * 0x1b)); }
 
-    constexpr XorString(const char (&str)[N], uint8_t k) : key(k) {
-        for (size_t i = 0; i < N; i++) {
-            data[i] = static_cast<uint8_t>(str[i]) ^ k;
-        }
-    }
-
-    // C++ 特性：constexpr 构造 + 运行时解码
-    std::string decode() const {
-        std::string result;
-        result.reserve(N - 1);
-        for (size_t i = 0; i < N - 1; i++) {
-            result += static_cast<char>(data[i] ^ key);
-        }
-        return result;
-    }
-};
-
-// 编译期异或加密字符串（IDA 看到的是乱码）
-#define XOR_STR(s) ([]() -> std::string { \
-    static constexpr XorString<sizeof(s)> xs(s, 0x5A); \
-    return xs.decode(); \
-}())
-
-// ==================== SHA-256 ====================
-namespace sha256_ns {
-    static const uint32_t K[64] = {
-        0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5,
-        0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
-        0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3,
-        0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
-        0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc,
-        0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
-        0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7,
-        0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
-        0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13,
-        0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
-        0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3,
-        0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
-        0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5,
-        0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
-        0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208,
-        0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2
-    };
-
-    static inline uint32_t rotr(uint32_t x, int n) {
-        return (x >> n) | (x << (32 - n));
-    }
-
-    static inline uint32_t ch(uint32_t x, uint32_t y, uint32_t z) {
-        return (x & y) ^ (~x & z);
-    }
-
-    static inline uint32_t maj(uint32_t x, uint32_t y, uint32_t z) {
-        return (x & y) ^ (x & z) ^ (y & z);
-    }
-
-    static inline uint32_t sigma0(uint32_t x) {
-        return rotr(x, 2) ^ rotr(x, 13) ^ rotr(x, 22);
-    }
-
-    static inline uint32_t sigma1(uint32_t x) {
-        return rotr(x, 6) ^ rotr(x, 11) ^ rotr(x, 25);
-    }
-
-    static inline uint32_t gamma0(uint32_t x) {
-        return rotr(x, 7) ^ rotr(x, 18) ^ (x >> 3);
-    }
-
-    static inline uint32_t gamma1(uint32_t x) {
-        return rotr(x, 17) ^ rotr(x, 19) ^ (x >> 10);
-    }
-
-    class Sha256 {
-    private:
-        uint32_t h_[8];
-        uint64_t total_len_;
-        uint8_t buf_[64];
-        size_t buf_len_;
-
-        void processBlock(const uint8_t block[64]) {
-            uint32_t w[64];
-            for (int i = 0; i < 16; i++) {
-                w[i] = (block[i*4] << 24) | (block[i*4+1] << 16) |
-                       (block[i*4+2] << 8) | block[i*4+3];
+struct Ctx {
+    uint8_t rk[176];   // 11 轮密钥
+    void expand(const uint8_t key[16]) {
+        memcpy(rk, key, 16);
+        for (int i = 4; i < 44; i++) {
+            uint8_t t[4];
+            memcpy(t, rk + (i - 1) * 4, 4);
+            if (i % 4 == 0) {
+                uint8_t tmp = t[0];
+                t[0] = (uint8_t)(SBOX[t[1]] ^ RCON[i / 4]);
+                t[1] = SBOX[t[2]];
+                t[2] = SBOX[t[3]];
+                t[3] = SBOX[tmp];
             }
-            for (int i = 16; i < 64; i++) {
-                w[i] = gamma1(w[i-2]) + w[i-7] + gamma0(w[i-15]) + w[i-16];
-            }
-
-            uint32_t a = h_[0], b = h_[1], c = h_[2], d = h_[3];
-            uint32_t e = h_[4], f = h_[5], g = h_[6], hh = h_[7];
-
-            for (int i = 0; i < 64; i++) {
-                uint32_t t1 = hh + sigma1(e) + ch(e, f, g) + K[i] + w[i];
-                uint32_t t2 = sigma0(a) + maj(a, b, c);
-                hh = g; g = f; f = e; e = d + t1;
-                d = c; c = b; b = a; a = t1 + t2;
-            }
-
-            h_[0] += a; h_[1] += b; h_[2] += c; h_[3] += d;
-            h_[4] += e; h_[5] += f; h_[6] += g; h_[7] += hh;
+            for (int k = 0; k < 4; k++) rk[i * 4 + k] = (uint8_t)(rk[(i - 4) * 4 + k] ^ t[k]);
         }
-
-    public:
-        Sha256() : total_len_(0), buf_len_(0) {
-            h_[0] = 0x6a09e667; h_[1] = 0xbb67ae85;
-            h_[2] = 0x3c6ef372; h_[3] = 0xa54ff53a;
-            h_[4] = 0x510e527f; h_[5] = 0x9b05688c;
-            h_[6] = 0x1f83d9ab; h_[7] = 0x5be0cd19;
-        }
-
-        void update(const uint8_t* data, size_t len) {
-            total_len_ += len;
-            size_t offset = 0;
-            if (buf_len_ > 0) {
-                size_t to_copy = std::min(len, 64 - buf_len_);
-                memcpy(buf_ + buf_len_, data, to_copy);
-                buf_len_ += to_copy;
-                offset += to_copy;
-                if (buf_len_ == 64) {
-                    processBlock(buf_);
-                    buf_len_ = 0;
+    }
+    void encryptBlock(const uint8_t in[16], uint8_t out[16]) const {
+        uint8_t s[16];
+        for (int i = 0; i < 16; i++) s[i] = (uint8_t)(in[i] ^ rk[i]);
+        for (int round = 1; round <= 10; round++) {
+            // SubBytes + ShiftRows
+            uint8_t t[16];
+            for (int c = 0; c < 4; c++)
+                for (int r = 0; r < 4; r++)
+                    t[c * 4 + r] = SBOX[s[((c + r) % 4) * 4 + r]];
+            memcpy(s, t, 16);
+            // MixColumns（末轮不做）
+            if (round != 10) {
+                for (int c = 0; c < 4; c++) {
+                    uint8_t* p = s + c * 4;
+                    uint8_t a0 = p[0], a1 = p[1], a2 = p[2], a3 = p[3];
+                    uint8_t x = (uint8_t)(a0 ^ a1 ^ a2 ^ a3);
+                    p[0] ^= (uint8_t)(x ^ xtime((uint8_t)(a0 ^ a1)));
+                    p[1] ^= (uint8_t)(x ^ xtime((uint8_t)(a1 ^ a2)));
+                    p[2] ^= (uint8_t)(x ^ xtime((uint8_t)(a2 ^ a3)));
+                    p[3] ^= (uint8_t)(x ^ xtime((uint8_t)(a3 ^ a0)));
                 }
             }
-            while (offset + 64 <= len) {
-                processBlock(data + offset);
-                offset += 64;
-            }
-            if (offset < len) {
-                memcpy(buf_, data + offset, len - offset);
-                buf_len_ = len - offset;
-            }
+            // AddRoundKey
+            for (int i = 0; i < 16; i++) s[i] ^= rk[round * 16 + i];
         }
-
-        void finalize(uint8_t out[32]) {
-            uint64_t bit_len = total_len_ * 8;
-            uint8_t pad = 0x80;
-            update(&pad, 1);
-            pad = 0x00;
-            while (buf_len_ != 56) {
-                update(&pad, 1);
-            }
-            uint8_t len_be[8];
-            for (int i = 7; i >= 0; i--) {
-                len_be[i] = static_cast<uint8_t>(bit_len & 0xff);
-                bit_len >>= 8;
-            }
-            update(len_be, 8);
-
-            for (int i = 0; i < 8; i++) {
-                out[i*4] = (h_[i] >> 24) & 0xff;
-                out[i*4+1] = (h_[i] >> 16) & 0xff;
-                out[i*4+2] = (h_[i] >> 8) & 0xff;
-                out[i*4+3] = h_[i] & 0xff;
-            }
-        }
-    };
-
-    static void hash(const uint8_t* data, size_t len, uint8_t out[32]) {
-        Sha256 h;
-        h.update(data, len);
-        h.finalize(out);
+        memcpy(out, s, 16);
     }
-
-    static std::string hexEncode(const uint8_t* data, size_t len) {
-        static const char hex_chars[] = "0123456789abcdef";
-        std::string result;
-        result.reserve(len * 2);
-        for (size_t i = 0; i < len; i++) {
-            result += hex_chars[(data[i] >> 4) & 0x0f];
-            result += hex_chars[data[i] & 0x0f];
-        }
-        return result;
-    }
-}
-
-// ==================== CRC-32 ====================
-static uint32_t crc32_compute(const uint8_t* data, size_t len) {
-    uint32_t c = 0xFFFFFFFFu;
-    for (size_t i = 0; i < len; i++) {
-        c ^= data[i];
-        for (int j = 0; j < 8; j++)
-            c = (c & 1u) ? ((c >> 1) ^ 0xEDB88320u) : (c >> 1);
-    }
-    return c ^ 0xFFFFFFFFu;
-}
-
-// ==================== 反逆向：四路哨兵 ====================
-namespace anti_reverse {
-
-    // 哨兵 1：ptrace + TracerPid
-    static int detect_tracer_pid() {
-        FILE* f = fopen("/proc/self/status", "r");
-        if (!f) return 0;
-        char line[256];
-        int tid = 0;
-        while (fgets(line, sizeof(line), f)) {
-            if (strncmp(line, "TracerPid:", 10) == 0) {
-                tid = atoi(line + 10);
-                break;
-            }
-        }
-        fclose(f);
-        return tid != 0 ? 1 : 0;
-    }
-
-    static int detect_ptrace() {
-        long r = ptrace(PTRACE_TRACEME, 0, 0, 0);
-        if (r == -1) return 1;  // 已被附加
-        ptrace(PTRACE_DETACH, 0, 0, 0);
-        return 0;
-    }
-
-    // 哨兵 2：/proc/self/maps 扫描 Frida 特征
-    static int detect_maps() {
-        FILE* f = fopen("/proc/self/maps", "r");
-        if (!f) return 0;
-        char line[1024];
-        int found = 0;
-        while (fgets(line, sizeof(line), f) && !found) {
-            if (strstr(line, "frida") || strstr(line, "gadget") ||
-                strstr(line, "librun") || strstr(line, "gum-js") ||
-                strstr(line, "linjector") || strstr(line, "frida-agent")) {
-                found = 1;
-            }
-        }
-        fclose(f);
-        return found;
-    }
-
-    // 哨兵 3：Frida 默认端口探测
-    static int detect_port() {
-        static const int PORTS[] = {27042, 27043, 27044};
-        for (int i = 0; i < 3; i++) {
-            int fd = socket(AF_INET, SOCK_STREAM, 0);
-            if (fd < 0) continue;
-            struct sockaddr_in addr{};
-            addr.sin_family = AF_INET;
-            addr.sin_port = htons(static_cast<uint16_t>(PORTS[i]));
-            addr.sin_addr.s_addr = inet_addr("127.0.0.1");
-            struct timeval tv{0, 300000};  // 300ms 超时
-            setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
-            int r = connect(fd, reinterpret_cast<struct sockaddr*>(&addr), sizeof(addr));
-            close(fd);
-            if (r == 0) return 1;
-        }
-        return 0;
-    }
-
-    // 哨兵 4：线程名扫描
-    static int detect_threads() {
-        DIR* d = opendir("/proc/self/task");
-        if (!d) return 0;
-        struct dirent* de;
-        int found = 0;
-        while ((de = readdir(d)) != nullptr && !found) {
-            if (de->d_name[0] < '0' || de->d_name[0] > '9') continue;
-            char path[80];
-            snprintf(path, sizeof(path), "/proc/self/task/%s/comm", de->d_name);
-            int fd = open(path, O_RDONLY);
-            if (fd < 0) continue;
-            char name[96];
-            int n = static_cast<int>(read(fd, name, sizeof(name) - 1));
-            close(fd);
-            if (n <= 0) continue;
-            name[n] = '\0';
-            while (n > 0 && (name[n-1] == '\n' || name[n-1] == '\r')) name[--n] = '\0';
-            if (strstr(name, "gum-js-loop") || strstr(name, "gmain") ||
-                strstr(name, "gdbus") || strstr(name, "pool-frida") ||
-                strstr(name, "frida")) {
-                found = 1;
-            }
-        }
-        closedir(d);
-        return found;
-    }
-
-    // 哨兵 5：函数头 inline hook 检测
-    static int detect_hook(const void* func_ptr) {
-        if (!func_ptr) return 0;
-        const uint8_t* code = reinterpret_cast<const uint8_t*>(func_ptr);
-        // ARM64: 检测是否被 nop 或跳板指令替换
-        // 正常函数头: STP X29, X30, [SP, #-0x10]! = 0xA9007BFD
-        // inline hook: LDR X16, [PC, #offset] = 0x58000050 后跟 BR X16
-        uint32_t insn = 0;
-        memcpy(&insn, code, 4);
-        // 检测常见的 hook 指令模式
-        if ((insn & 0xFFE0001F) == 0xD000001F ||  // ADRP
-            (insn & 0xFFE00000) == 0x58000000 ||    // LDR (literal)
-            insn == 0xD4200000) {                    // BRK (断点)
-            return 1;
-        }
-        return 0;
-    }
-
-    // 综合扫描：返回 bitmask
-    static int run_all(const void* fn1, const void* fn2) {
-        int tracer = detect_tracer_pid() || detect_ptrace();
-        int maps = detect_maps();
-        int port = detect_port();
-        int thr = detect_threads();
-        int hook1 = detect_hook(fn1);
-        int hook2 = detect_hook(fn2);
-        int bits = (tracer ? 1 : 0) | (maps ? 2 : 0) | (port ? 4 : 0) |
-                   (thr ? 8 : 0) | (hook1 ? 16 : 0) | (hook2 ? 32 : 0);
-        return bits;
-    }
-}
-
-// ==================== CRC 自校验 ====================
-namespace crc_guard {
-    // CRC 基线（编译时计算，运行时比对）
-    // 校验范围：从 crc_check 函数到 sign 函数末尾
-    static uint32_t g_baseline = 0;
-    static bool g_baseline_set = false;
-
-    // CRC 挖洞区间（校验器自身 + 关键函数）
-    extern "C" {
-        extern void __attribute__((noinline)) crc_zone_start(void) {}
-        extern void __attribute__((noinline)) crc_zone_end(void) {}
-    }
-
-    static uint32_t calc_text_crc() {
-        // 读取 /proc/self/maps 获取 so 的 .text 段地址
-        FILE* f = fopen("/proc/self/maps", "r");
-        if (!f) return 0;
-        char line[1024];
-        uintptr_t text_start = 0, text_end = 0;
-        while (fgets(line, sizeof(line), f)) {
-            if (strstr(line, "libfluttercore.so") && strstr(line, "r-xp")) {
-                sscanf(line, "%lx-%lx", &text_start, &text_end);
-                break;
-            }
-        }
-        fclose(f);
-        if (text_start == 0) return 0;
-
-        // 计算 CRC（排除校验器自身区间）
-        uint32_t crc = 0xFFFFFFFFu;
-        const uint8_t* base = reinterpret_cast<const uint8_t*>(text_start);
-        size_t len = text_end - text_start;
-        uintptr_t zone_start = reinterpret_cast<uintptr_t>(crc_zone_start);
-        uintptr_t zone_end = reinterpret_cast<uintptr_t>(crc_zone_end);
-
-        for (size_t i = 0; i < len; i++) {
-            uintptr_t addr = text_start + i;
-            // 跳过校验器自身区间（防止递归 + 允许 hook 校验器）
-            if (addr >= zone_start && addr < zone_end) continue;
-            crc ^= base[i];
-            for (int j = 0; j < 8; j++)
-                crc = (crc & 1u) ? ((crc >> 1) ^ 0xEDB88320u) : (crc >> 1);
-        }
-        return crc ^ 0xFFFFFFFFu;
-    }
-
-    static bool verify() {
-        if (!g_baseline_set) {
-            g_baseline = calc_text_crc();
-            g_baseline_set = true;
-            return true;  // 首次设置基线
-        }
-        uint32_t current = calc_text_crc();
-        return current == g_baseline;
-    }
-}
-
-// ==================== 密钥系统 ====================
-// 真标记：Fatdog_kite（UTF-16LE 码元，非 static 防折叠）
-static const uint16_t MARKER_REAL[] = {
-    0x0046, 0x0061, 0x0074, 0x0064, 0x006F, 0x0067, 0x005F,
-    0x006B, 0x0069, 0x0074, 0x0065
 };
-static const size_t MARKER_LEN = 11;
 
-// 诱饵：Fatdog_sail（明文可见，IDA 一眼能抓）
-__attribute__((used)) const char DECOY_MARK[] = "Fatdog_sail";
+// ECB + PKCS#7，返回 hex
+static std::string ecbEncryptHex(const std::string& key16, const std::string& plain) {
+    uint8_t k[16];
+    memset(k, 0, 16);
+    memcpy(k, key16.data(), key16.size() < 16 ? key16.size() : 16);
+    Ctx ctx;
+    ctx.expand(k);
 
-// 密钥派生盐值
-static const char SALT[] = "|hmac";
+    std::string buf = plain;
+    uint8_t pad = (uint8_t)(16 - (buf.size() % 16));
+    buf.append(pad, (char)pad);
 
-// 派生状态
-static uint8_t g_key[32];
-static bool g_ready = false;
-static bool g_poisoned = false;
-static int g_sentinel_bits = 0;
-
-// 密钥派生函数
-static const uint8_t* derive_key() {
-    if (!g_ready) {
-        // 拼装标记
-        std::string tag;
-        for (size_t i = 0; i < MARKER_LEN; i++) {
-            tag.push_back(static_cast<char>(MARKER_REAL[i] & 0xFF));
-        }
-        // SHA256(marker + salt)
-        std::string input = tag + SALT;
-        sha256_ns::hash(reinterpret_cast<const uint8_t*>(input.data()),
-                       input.size(), g_key);
-        g_ready = true;
+    static const char* H = "0123456789abcdef";
+    std::string out;
+    out.reserve(buf.size() * 2);
+    for (size_t off = 0; off < buf.size(); off += 16) {
+        uint8_t blk[16];
+        ctx.encryptBlock(reinterpret_cast<const uint8_t*>(buf.data() + off), blk);
+        for (int i = 0; i < 16; i++) { out += H[blk[i] >> 4]; out += H[blk[i] & 0xF]; }
     }
-    return g_key;
+    return out;
 }
 
-// 静默投毒：翻转密钥一字节
-static void poison_key() {
-    if (g_poisoned) return;
-    uint8_t* key = const_cast<uint8_t*>(derive_key());
-    key[7] ^= 0x40;  // 翻转第 8 字节第 7 位
-    g_poisoned = true;
-    LOGW("Key poisoned due to anti-reverse detection");
-}
+} // namespace aes_ns
 
-// ==================== HMAC-SHA256 ====================
-static std::string hmac_sha256(const uint8_t* key, size_t klen,
-                               const uint8_t* msg, size_t mlen) {
-    uint8_t k0[64] = {0};
-    if (klen > 64) {
-        sha256_ns::hash(key, klen, k0);
-    } else {
-        memcpy(k0, key, klen);
+// ============================================================
+// SHA-256（nativeAnswer：sha256(str(sum))[:8]）
+// ============================================================
+namespace sha256_ns {
+static const uint32_t K[64] = {
+    0x428a2f98,0x71374491,0xb5c0fbcf,0xe9b5dba5,0x3956c25b,0x59f111f1,0x923f82a4,0xab1c5ed5,
+    0xd807aa98,0x12835b01,0x243185be,0x550c7dc3,0x72be5d74,0x80deb1fe,0x9bdc06a7,0xc19bf174,
+    0xe49b69c1,0xefbe4786,0x0fc19dc6,0x240ca1cc,0x2de92c6f,0x4a7484aa,0x5cb0a9dc,0x76f988da,
+    0x983e5152,0xa831c66d,0xb00327c8,0xbf597fc7,0xc6e00bf3,0xd5a79147,0x06ca6351,0x14292967,
+    0x27b70a85,0x2e1b2138,0x4d2c6dfc,0x53380d13,0x650a7354,0x766a0abb,0x81c2c92e,0x92722c85,
+    0xa2bfe8a1,0xa81a664b,0xc24b8b70,0xc76c51a3,0xd192e819,0xd6990624,0xf40e3585,0x106aa070,
+    0x19a4c116,0x1e376c08,0x2748774c,0x34b0bcb5,0x391c0cb3,0x4ed8aa4a,0x5b9cca4f,0x682e6ff3,
+    0x748f82ee,0x78a5636f,0x84c87814,0x8cc70208,0x90befffa,0xa4506ceb,0xbef9a3f7,0xc67178f2
+};
+static inline uint32_t rotr(uint32_t x, int n) { return (x >> n) | (x << (32 - n)); }
+struct Ctx {
+    uint32_t h[8]; uint64_t bitlen; uint8_t data[64]; size_t datalen;
+    Ctx() { h[0]=0x6a09e667; h[1]=0xbb67ae85; h[2]=0x3c6ef372; h[3]=0xa54ff53a;
+            h[4]=0x510e527f; h[5]=0x9b05688c; h[6]=0x1f83d9ab; h[7]=0x5be0cd19;
+            bitlen=0; datalen=0; }
+};
+static void transform(Ctx& c, const uint8_t d[64]) {
+    uint32_t w[64];
+    for (int i = 0; i < 16; i++)
+        w[i] = ((uint32_t)d[i*4]<<24)|((uint32_t)d[i*4+1]<<16)|((uint32_t)d[i*4+2]<<8)|d[i*4+3];
+    for (int i = 16; i < 64; i++) {
+        uint32_t s0 = rotr(w[i-15],7)^rotr(w[i-15],18)^(w[i-15]>>3);
+        uint32_t s1 = rotr(w[i-2],17)^rotr(w[i-2],19)^(w[i-2]>>10);
+        w[i] = w[i-16]+s0+w[i-7]+s1;
     }
-
-    uint8_t ipad[64], opad[64];
+    uint32_t a=c.h[0],b=c.h[1],cc=c.h[2],dd=c.h[3],e=c.h[4],f=c.h[5],g=c.h[6],hh=c.h[7];
     for (int i = 0; i < 64; i++) {
-        ipad[i] = k0[i] ^ 0x36;
-        opad[i] = k0[i] ^ 0x5c;
+        uint32_t S1=rotr(e,6)^rotr(e,11)^rotr(e,25);
+        uint32_t ch=(e&f)^(~e&g);
+        uint32_t t1=hh+S1+ch+K[i]+w[i];
+        uint32_t S0=rotr(a,2)^rotr(a,13)^rotr(a,22);
+        uint32_t mj=(a&b)^(a&cc)^(b&cc);
+        uint32_t t2=S0+mj;
+        hh=g; g=f; f=e; e=dd+t1; dd=cc; cc=b; b=a; a=t1+t2;
     }
+    c.h[0]+=a; c.h[1]+=b; c.h[2]+=cc; c.h[3]+=dd;
+    c.h[4]+=e; c.h[5]+=f; c.h[6]+=g; c.h[7]+=hh;
+}
+static void update(Ctx& c, const uint8_t* data, size_t len) {
+    for (size_t i = 0; i < len; i++) {
+        c.data[c.datalen++] = data[i];
+        if (c.datalen == 64) { transform(c, c.data); c.bitlen += 512; c.datalen = 0; }
+    }
+}
+static std::string hex_impl(Ctx& c) {
+    uint64_t bits = c.bitlen + c.datalen * 8;
+    c.data[c.datalen++] = 0x80;
+    if (c.datalen > 56) { while (c.datalen < 64) c.data[c.datalen++] = 0; transform(c, c.data); c.datalen = 0; }
+    while (c.datalen < 56) c.data[c.datalen++] = 0;
+    for (int i = 7; i >= 0; i--) c.data[c.datalen++] = (uint8_t)((bits >> (i*8)) & 0xFF);
+    transform(c, c.data);
+    char out[65];
+    for (int i = 0; i < 8; i++) snprintf(out + i*8, 9, "%08x", c.h[i]);
+    return std::string(out, 64);
+}
+static std::string digest_hex(const std::string& s) {
+    Ctx c; update(c, reinterpret_cast<const uint8_t*>(s.data()), s.size()); return hex_impl(c);
+}
+} // namespace sha256_ns
 
-    // inner = SHA256(ipad || message)
-    sha256_ns::Sha256 inner;
-    inner.update(ipad, 64);
-    inner.update(msg, mlen);
-    uint8_t ih[32];
-    inner.finalize(ih);
+// ============================================================
+// 密钥：两段常量运行时拼接（volatile 防常量折叠，rule 35）
+// ============================================================
+namespace key_store {
+// PART_A = "Fatdog_" ^0x3C
+static const volatile uint8_t PART_A[] = {122,93,72,88,83,91,99};
+// PART_B = "kite" ^0x3C
+static const volatile uint8_t PART_B[] = {87,85,72,89};
 
-    // outer = SHA256(opad || inner_hash)
-    sha256_ns::Sha256 outer;
-    outer.update(opad, 64);
-    outer.update(ih, 32);
-    uint8_t oh[32];
-    outer.finalize(oh);
+static std::string build() {
+    std::string a, b;
+    for (size_t i = 0; i < sizeof(PART_A); i++) a += (char)(PART_A[i] ^ 0x3C);
+    for (size_t i = 0; i < sizeof(PART_B); i++) b += (char)(PART_B[i] ^ 0x3C);
+    return a + b;   // "Fatdog_kite"
+}
+} // namespace key_store
 
-    return sha256_ns::hexEncode(oh, 32);
+// 本关"签名"就是密文本身：enc = AES-128-ECB-PKCS7(key, "page=N&ts=T")
+static std::string build_enc(int page, long long ts) {
+    char head[64];
+    snprintf(head, sizeof(head), "page=%d&ts=%lld", page, ts);
+    return aes_ns::ecbEncryptHex(key_store::build(), std::string(head));
 }
 
-// ==================== Dart Kernel 字节码模拟 ====================
-namespace dart_kernel {
-
-    struct BytecodeHeader {
-        uint8_t magic[4] = {0xD4, 0x72, 0x74, 0x00};  // "Drt\0"
-        uint32_t version = 2;
-        uint32_t instruction_count = 0;
-        uint32_t constant_pool_size = 0;
-    };
-
-    class BytecodeBlob {
-    private:
-        std::vector<uint8_t> raw_data_;
-        std::vector<uint8_t> decrypted_;
-
-        static constexpr uint8_t XOR_KEY[] = {0x5A, 0x3C, 0x7E, 0x1D, 0x9B, 0xF0, 0x84, 0x62};
-
-        void decrypt() {
-            decrypted_.resize(raw_data_.size());
-            for (size_t i = 0; i < raw_data_.size(); i++) {
-                decrypted_[i] = raw_data_[i] ^ XOR_KEY[i % 8];
-            }
-        }
-
-    public:
-        BytecodeBlob() {
-            BytecodeHeader hdr;
-            hdr.instruction_count = 12;
-            hdr.constant_pool_size = 3;
-
-            raw_data_.insert(raw_data_.end(), hdr.magic, hdr.magic + 4);
-            raw_data_.insert(raw_data_.end(), reinterpret_cast<uint8_t*>(&hdr.version),
-                           reinterpret_cast<uint8_t*>(&hdr.version) + 4);
-            raw_data_.insert(raw_data_.end(), reinterpret_cast<uint8_t*>(&hdr.instruction_count),
-                           reinterpret_cast<uint8_t*>(&hdr.instruction_count) + 4);
-            raw_data_.insert(raw_data_.end(), reinterpret_cast<uint8_t*>(&hdr.constant_pool_size),
-                           reinterpret_cast<uint8_t*>(&hdr.constant_pool_size) + 4);
-
-            // 模拟 Dart Kernel 指令序列
-            const uint8_t instructions[] = {
-                0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  // LoadConstant
-                0x04, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00,  // LoadConstant
-                0x03, 0x02, 0x01, 0x00, 0x01, 0x10, 0x00, 0x00,  // StaticCall
-                0x06, 0x03, 0x02, 0x00, 0x20, 0x00, 0x00, 0x00,  // BinaryOp
-                0x04, 0x04, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00,  // LoadConstant
-                0x06, 0x05, 0x03, 0x00, 0x04, 0x00, 0x00, 0x00,  // BinaryOp
-                0x03, 0x06, 0x05, 0x00, 0x02, 0x10, 0x00, 0x00,  // StaticCall
-                0x06, 0x07, 0x02, 0x00, 0x5C, 0x00, 0x00, 0x00,  // BinaryOp
-                0x04, 0x08, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00,  // LoadConstant
-                0x06, 0x09, 0x07, 0x00, 0x08, 0x00, 0x00, 0x00,  // BinaryOp
-                0x03, 0x0A, 0x09, 0x00, 0x03, 0x10, 0x00, 0x00,  // StaticCall
-                0x02, 0x0B, 0x0A, 0x00, 0x00, 0x00, 0x00, 0x00,  // ReturnTemporary
-            };
-            raw_data_.insert(raw_data_.end(), instructions, instructions + sizeof(instructions));
-
-            // 常量池（加密）
-            const uint8_t const_pool[] = {
-                0x7A, 0x5D, 0x48, 0x58, 0x53, 0x5B, 0x63, 0x4B, 0x5F, 0x46, 0x5D,  // Fatdog_kite XOR
-                0x70, 0x61, 0x67, 0x65, 0x3D, 0x25, 0x64, 0x26, 0x74, 0x73, 0x3D, 0x25, 0x6C, 0x6C,
-                0x48, 0x4D, 0x41, 0x43, 0x2D, 0x53, 0x48, 0x41, 0x32, 0x35, 0x36
-            };
-            raw_data_.insert(raw_data_.end(), const_pool, const_pool + sizeof(const_pool));
-
-            decrypt();
-        }
-
-        const std::vector<uint8_t>& getRaw() const { return raw_data_; }
-        const std::vector<uint8_t>& getDecrypted() const { return decrypted_; }
-        size_t size() const { return raw_data_.size(); }
-    };
+// nativeAnswer：sha256(str(1000 数和))[:8]，SEED_KL37 = 20280615
+static std::string build_answer() {
+    return sha256_ns::digest_hex(std::to_string(mt_rng::kl_server_sum(20280615))).substr(0, 8);
 }
 
-// ==================== 守卫检查（每次调用签名前执行） ====================
-// 前向声明（用于 inline hook 检测的函数地址获取）
-static jstring nativeExecute(JNIEnv* env, jobject thiz, jint page, jlong ts);
+// ============================================================
+// 宿主自测
+// ============================================================
+#ifdef KL37_HOST_TEST
 
-static bool guard_check() {
-    // 1. CRC 自校验
-    if (!crc_guard::verify()) {
-        LOGW("CRC check failed - possible patch/hook");
-        poison_key();
-        return false;
-    }
-
-    // 2. 四路哨兵（检测到任一即投毒）
-    // 注意：传入自身函数地址用于 inline hook 检测
-    int bits = anti_reverse::run_all(
-        reinterpret_cast<const void*>(&nativeExecute),
-        reinterpret_cast<const void*>(&crc_guard::verify)
-    );
-    g_sentinel_bits = bits;
-
-    if (bits != 0) {
-        LOGW("Sentinel triggered: bits=0x%02x", bits);
-        poison_key();
-        return false;
-    }
-
-    return true;
+int main() {
+    printf("enc(1,1787013761) = %s\n", build_enc(1, 1787013761LL).c_str());
+    printf("expect            = 090bc733f1ed59870c72957a2d3fd8fc97d41e467b8d9eb8fe880c4a20682d35\n");
+    printf("enc(7,1700000000) = %s\n", build_enc(7, 1700000000LL).c_str());
+    printf("expect            = 94fc20c9ca7fce633f5cb9c31954621b01de75946bfd097fa42ac6a9abe19cce\n");
+    printf("answer(KL37)      = %s\n", build_answer().c_str());
+    printf("expect            = 1a8c6e65\n");
+    printf("key               = %s\n", key_store::build().c_str());
+    return 0;
 }
 
-// ==================== JNI 函数（静态命名注册） ====================
-// 这些函数使用标准 JNI 命名约定，由 JVM 自动发现
+#else  // ---------- JNI ----------
 
 extern "C" {
 
-JNIEXPORT jbyteArray JNICALL
-Java_com_fatdog_reverse_FlutterCore_nativeGetBytecodeBlob(JNIEnv* env, jobject thiz) {
-    dart_kernel::BytecodeBlob blob;
-    const auto& raw = blob.getRaw();
-
-    JniByteArray result(env, static_cast<jsize>(raw.size()));
-    result.setRegion(0, static_cast<jsize>(raw.size()),
-                    reinterpret_cast<const jbyte*>(raw.data()));
-    return result.get();
+JNIEXPORT jstring JNICALL
+Java_com_fatdog_reverse_FlutterCore_nativeEnc(JNIEnv* env, jclass clz, jint page, jlong ts) {
+    (void)clz;
+    return env->NewStringUTF(build_enc((int)page, (long long)ts).c_str());
 }
 
 JNIEXPORT jstring JNICALL
-Java_com_fatdog_reverse_FlutterCore_nativeGetAlgorithmInfo(JNIEnv* env, jobject thiz) {
-    return env->NewStringUTF(XOR_STR("Dart Kernel Bytecode → HMAC-SHA256").c_str());
+Java_com_fatdog_reverse_FlutterCore_nativeAnswer(JNIEnv* env, jclass clz) {
+    (void)clz;
+    return env->NewStringUTF(build_answer().c_str());
+}
+
+// 只读自检：只报算法口径与摘要自检，不含密钥明文、不判胜
+JNIEXPORT jstring JNICALL
+Java_com_fatdog_reverse_FlutterCore_nativeGetStatus(JNIEnv* env, jclass clz) {
+    (void)clz;
+    // AES-128 已知向量自检（FIPS-197）：key=000102...0f, pt=00112233445566778899aabbccddeeff
+    //   → 69c4e0d86a7b0430d8cdb78070b4c55a
+    std::string k; for (int i = 0; i < 16; i++) k += (char)i;
+    const uint8_t ptv[16] = {0x00,0x11,0x22,0x33,0x44,0x55,0x66,0x77,
+                             0x88,0x99,0xaa,0xbb,0xcc,0xdd,0xee,0xff};
+    std::string p(reinterpret_cast<const char*>(ptv), 16);
+    std::string hex = aes_ns::ecbEncryptHex(k, p).substr(0, 32);
+    const bool ok = (hex == "69c4e0d86a7b0430d8cdb78070b4c55a");
+    char buf[128];
+    snprintf(buf, sizeof(buf), "密码原语:AES-128-ECB 自检:%s 载荷:已混淆", ok ? "通过" : "异常");
+    return env->NewStringUTF(buf);
 }
 
 } // extern "C"
 
-// ==================== JNI 函数（动态注册 + 守卫） ====================
-// 这些函数在 JNI_OnLoad 中动态注册，每次调用前执行守卫检查
-
-static jstring nativeExecute(JNIEnv* env, jobject thiz, jint page, jlong ts) {
-    if (!guard_check()) {
-        return env->NewStringUTF("guard_failed");
-    }
-
-    // 模拟执行 Dart Kernel 字节码并返回签名
-    const uint8_t* key = derive_key();
-    char msg[128];
-    int len = snprintf(msg, sizeof(msg), "page=%d&ts=%lld", page, static_cast<long long>(ts));
-    std::string signature = hmac_sha256(key, 32,
-                                       reinterpret_cast<const uint8_t*>(msg), len);
-    return env->NewStringUTF(signature.c_str());
-}
-
-static jboolean nativeVerify(JNIEnv* env, jobject thiz, jint page, jlong ts, jstring jSign) {
-    if (!guard_check()) return JNI_FALSE;
-
-    const char* sign_str = env->GetStringUTFChars(jSign, nullptr);
-    if (!sign_str) return JNI_FALSE;
-
-    const uint8_t* key = derive_key();
-    char msg[128];
-    int len = snprintf(msg, sizeof(msg), "page=%d&ts=%lld", page, static_cast<long long>(ts));
-    std::string expected = hmac_sha256(key, 32,
-                                      reinterpret_cast<const uint8_t*>(msg), len);
-
-    bool result = (expected == sign_str);
-    env->ReleaseStringUTFChars(jSign, sign_str);
-    return result ? JNI_TRUE : JNI_FALSE;
-}
-
-static jstring nativeAnswer(JNIEnv* env, jobject thiz) {
-    if (!guard_check()) {
-        return env->NewStringUTF("guard_failed");
-    }
-
-    // 答案：SHA256(str(sum))[:8]，sum 由 SEED_KL37=20280615 现场复算
-    uint8_t digest[32];
-    std::string sumStr = std::to_string(mt_rng::kl_server_sum(20280615));
-    sha256_ns::hash(reinterpret_cast<const uint8_t*>(sumStr.data()), sumStr.size(), digest);
-    std::string ans = sha256_ns::hexEncode(digest, 32).substr(0, 8);
-    return env->NewStringUTF(ans.c_str());
-}
-
-static jstring nativeGetStatus(JNIEnv* env, jobject thiz) {
-    char buf[512];
-    snprintf(buf, sizeof(buf),
-             "哨兵自检：\n"
-             "  ptrace/TracerPid : %s\n"
-             "  maps 加载特征    : %s\n"
-             "  27042 端口       : %s\n"
-             "  frida 线程名     : %s\n"
-             "  inline hook      : %s\n"
-             "  CRC 自校验       : %s\n"
-             "  密钥状态         : %s\n"
-             "  明文可见         : Fatdog_sail（诱饵）",
-             (g_sentinel_bits & 1) ? "命中" : "安全",
-             (g_sentinel_bits & 2) ? "命中" : "安全",
-             (g_sentinel_bits & 4) ? "命中" : "安全",
-             (g_sentinel_bits & 8) ? "命中" : "安全",
-             (g_sentinel_bits & 16) ? "命中" : "安全",
-             crc_guard::verify() ? "通过" : "异常",
-             g_poisoned ? "已投毒" : "正常");
-    return env->NewStringUTF(buf);
-}
-
-// ==================== JNI_OnLoad：动态注册 ====================
-JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void* reserved) {
-    JNIEnv* env = nullptr;
-    if (vm->GetEnv(reinterpret_cast<void**>(&env), JNI_VERSION_1_6) != JNI_OK) {
-        return JNI_ERR;
-    }
-
-    // 动态注册 FlutterCore 类的方法
-    jclass cls = env->FindClass("com/fatdog/reverse/FlutterCore");
-    if (!cls) return JNI_ERR;
-
-    // C++ 特性：lambda 初始化 JNINativeMethod 数组
-    static const JNINativeMethod methods[] = {
-        {"nativeExecute",    "(IJ)Ljava/lang/String;", reinterpret_cast<void*>(nativeExecute)},
-        {"nativeVerify",     "(IJLjava/lang/String;)Z", reinterpret_cast<void*>(nativeVerify)},
-        {"nativeAnswer",     "()Ljava/lang/String;",   reinterpret_cast<void*>(nativeAnswer)},
-        {"nativeGetStatus",  "()Ljava/lang/String;",   reinterpret_cast<void*>(nativeGetStatus)},
-    };
-
-    if (env->RegisterNatives(cls, methods, sizeof(methods) / sizeof(methods[0])) != JNI_OK) {
-        return JNI_ERR;
-    }
-
-    LOGI("JNI_OnLoad: KL37 FlutterCore initialized (static + dynamic registration)");
-    return JNI_VERSION_1_6;
-}
+#endif

@@ -1,16 +1,35 @@
 /*
- * 幽冥海 KL14：libm13b——digest_B 计算 + 跨 so 调用 libm13a 的 nativeXor。
+ * 幽冥海 KL14：libopera——digest_B 计算 + 跨 so 调用 libnebula 的 nativeXor。
  *
  * libm13b 通过 dlsym 调用 libm13a 的 nativeXor 函数（交叉调用），
  * 单独替换任一 so 的计算逻辑或导出符号都会导致最终 hash 不匹配。
  *
- * 标记（真）：Fatdog_mesh  — 同 libm13a。
- * 诱饵（假）：Fatdog_mash  — 同 libm13a。
+ * 标记（真）：Fatdog_mesh  — 同 libnebula。
+ * 诱饵（假）：Fatdog_mash  — 同 libnebula。
  */
 #include <jni.h>
 #include <stdint.h>
 #include <string.h>
 #include <dlfcn.h>
+
+/* --- 真标记：Fatdog_mesh（UTF-16LE 码元） --- */
+static const jchar MARKER[] = {
+    0x0046, 0x0061, 0x0074, 0x0064, 0x006F, 0x0067, /* Fatdog */
+    0x005F,                                           /* _      */
+    0x006D, 0x0065, 0x0073, 0x0068                    /* mesh   */
+};
+#define MARKER_LEN 11
+
+/* --- 诱饵：Fatdog_mash（e→a） --- */
+static const jchar DECOY[] = {
+    0x0046, 0x0061, 0x0074, 0x0064, 0x006F, 0x0067,
+    0x005F,
+    0x006D, 0x0061, 0x0073, 0x0068
+};
+#define DECOY_LEN 11
+
+/* 标记留存：防止 --gc-sections 把未引用的 MARKER/DECOY 整体删除 */
+static volatile uint32_t g_marker_proof = 0;
 
 /* --- 魔数 --- */
 #define MAGIC_B 0xBB
@@ -100,5 +119,10 @@ Java_com_fatdog_reverse_Zn_nativePartBFromB(JNIEnv *env, jclass clazz) {
 
 JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void *reserved) {
     (void)vm; (void)reserved;
+    /* 标记留存：对真/诱饵标记做校验和写入 volatile 全局，强制其保留在二进制中 */
+    uint32_t mp = 0x5A5A5A5Au;
+    for (int i = 0; i < MARKER_LEN; i++) mp ^= ((uint32_t)MARKER[i] << (i & 7));
+    for (int i = 0; i < DECOY_LEN;  i++) mp ^= ((uint32_t)DECOY[i]  << (i & 7));
+    g_marker_proof = mp;
     return JNI_VERSION_1_6;
 }
