@@ -10,7 +10,7 @@
  *   ②Frida 逐个 hook 三个函数拿返回值 → 拼装得答案（无需 patch）；
  *   ③patch 三个 so 的比较点（最费时但教学价值最高）。
  *
- * 标记（真）：Fatdog_mesh  — UTF-16 码元，非 static 非 const 全局存放。
+ * 标记（真）：Fatdog_mesh  — UTF-16 码元，static const（借 JNI_OnLoad 引用强制保留）。
  * 诱饵（假）：Fatdog_mash  — 一字之差陷阱，命中即 403。
  */
 #include <jni.h>

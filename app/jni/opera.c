@@ -1,7 +1,7 @@
 /*
  * 幽冥海 KL14：libopera——digest_B 计算 + 跨 so 调用 libnebula 的 nativeXor。
  *
- * libm13b 通过 dlsym 调用 libm13a 的 nativeXor 函数（交叉调用），
+ * libopera 通过 dlsym 调用 libnebula 的 nativeXor 函数（交叉调用），
  * 单独替换任一 so 的计算逻辑或导出符号都会导致最终 hash 不匹配。
  *
  * 标记（真）：Fatdog_mesh  — 同 libnebula。

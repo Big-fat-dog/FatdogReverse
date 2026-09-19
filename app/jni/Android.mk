@@ -499,3 +499,17 @@ LOCAL_SRC_FILES := hybrid.cpp
 LOCAL_CPPFLAGS := -std=c++17 -fexceptions -frtti
 LOCAL_LDLIBS := -llog
 include $(BUILD_SHARED_LIBRARY)
+
+# KL46 九幽 落叶归根（Root 检测与绕过：多层环境检测，评分阈值制 + SVC syscall）
+include $(CLEAR_VARS)
+LOCAL_MODULE := elm
+LOCAL_SRC_FILES := elm.c
+LOCAL_LDLIBS := -llog
+include $(BUILD_SHARED_LIBRARY)
+
+# KL47 九幽 深根固蒂（Bootloader 解锁 + 系统属性深检，评分阈值制）
+include $(CLEAR_VARS)
+LOCAL_MODULE := oak
+LOCAL_SRC_FILES := oak.c
+LOCAL_LDLIBS := -llog
+include $(BUILD_SHARED_LIBRARY)

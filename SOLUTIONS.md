@@ -1,7 +1,7 @@
 # FatdogReverse · 完整题解（按分类组织 · 不分季）
 
 > 建议每关至少独立卡 10 分钟再看对应小节。闯关的意义是练出「先搜什么、再看什么、最后用什么工具」的肌肉记忆，而不是抄答案。
-> 本文按 App 内的关卡分类组织正文（静态分析 → Smali → Frida → 网络对抗 → SSL 抓包 → Native → Xposed → 签名校验 → 天地秘境六卷），不再区分"第几季"。编号即关卡真名：主流程 `L1-L47`，天地秘境 `KL1-KL40`，太玄之初追加卷 `KKL1-KKL5`（全五关已开启）。关卡 6 没有入口按钮，藏在 Manifest；关卡 20 虽是 20 号，主题属 Smali 挑战，故排在 Smali 分类。
+> 本文按 App 内的关卡分类组织正文（静态分析 → Smali → Frida → 网络对抗 → SSL 抓包 → Native → Xposed → 签名校验 → 天地秘境六卷），不再区分"第几季"。编号即关卡真名：主流程 `L1-L53`，天地秘境 `KL1-KL50`，太玄之初追加卷 `KKL1-KKL5`（全五关已开启）。关卡 6 没有入口按钮，藏在 Manifest；关卡 20 虽是 20 号，主题属 Smali 挑战，故排在 Smali 分类。
 
 ## 关卡总览
 
@@ -22,6 +22,8 @@
 | 天地秘境 · 扶桑树 | KL21-KL28 | `## 天地秘境 · 扶桑树（KL21-28）` |
 | 天地秘境 · 天机阁 | KL29-KL30 | `## 天地秘境 · 天机阁（KL29-30）` |
 | 天地秘境 · 碧落天 | KL36-KL40 | `## 天地秘境 · 碧落天（KL36-40）` |
+| 天地秘境 · 须弥界 | KL41-KL45 | `## 天地秘境 · 须弥界（KL41-45）` |
+| 天地秘境 · 九幽 | KL46-KL50 | `## 天地秘境 · 九幽（KL46-50）` |
 
 > 网络/服务端类关卡（L15-L47 与 KL6-KL10、KKL2-KKL4）的加和答案以各节正文为准；服务端先 `python server.py` 起 HTTPS（21 起）才能取数。
 
@@ -3642,11 +3644,11 @@ Java.perform(function(){
 ```c
 #define SEAL_MAGIC 0x1337CAFE
 #define XOR_KEY    0x0000BEEF
-int seal(void) { return SEAL_MAGIC ^ XOR_KEY; }   // 未 hook 时 = 0x1337C411（错值）
+int seal(void) { return SEAL_MAGIC ^ XOR_KEY; }   // 未 hook 时 = 0x13377411（错值）
 int check(int v){ return v == SEAL_MAGIC ? 1 : 0; }
 ```
 
-`seal()` 故意返回错误值 `0x1337C411`（真值异或 `0xBEEF`），`check(seal())` 恒为 0；提交按钮会先跑一次 `nativeCheck(nativeSeal())`，不过 1 就不让你提交。
+`seal()` 故意返回错误值 `0x13377411`（真值 `0x1337CAFE` 异或 `0xBEEF` 得来），`check(seal())` 恒为 0；提交按钮会先跑一次 `nativeCheck(nativeSeal())`，不过 1 就不让你提交。
 
 **解法（Frida 主解）**——把 `seal` 的返回值换成真值：
 
@@ -3663,7 +3665,7 @@ Java.perform(function(){
 
 ### KL13：声东击西（幽冥海 · 反 patch：真实代码段 CRC 自校验）
 
-**考点**：patch 任何指令都会被 CRC 抓住。`libmantis.so`（桥 `Ap`）的 `guard()` 开头对**自己函数起始 256 字节的机器码**重算 CRC-32，与编译期烘焙进 `.rodata` 的基线 `kGuardCrcBaseline`（arm64 `0xb35d0aad` / armeabi-v7a `0xad042dd3`，由 `tools/gen_code_crc_baselines.py` 按 ABI 生成）比对；不一致直接 `return 0`。所以静态改 `guard`/`check` 代码段字节 = 必死，除非把基线一起改成 patch 后的 CRC。
+**考点**：patch 任何指令都会被 CRC 抓住。`libmantis.so`（桥 `Ap`）的 `guard()` 开头对**自己函数起始 256 字节的机器码**重算 CRC-32，与编译期烘焙进 `.rodata` 的基线 `kGuardCrcBaseline`（arm64 `0xd9df5c3a` / armeabi-v7a `0x4ff96c48`，由 `tools/gen_code_crc_baselines.py` 按 ABI 生成）比对；不一致直接 `return 0`。所以静态改 `guard`/`check` 代码段字节 = 必死，除非把基线一起改成 patch 后的 CRC。
 
 **三条解法**：
 1. **Frida（最简单）**：不改字节就测不到 CRC。hook `check` 强制返回 1：
@@ -6132,6 +6134,116 @@ Java.perform(function () {
 | KL43 | `FLAG_19_KL43{wind_on_the_bridge}` |
 | KL44 | `FLAG_19_KL44{undertow_surging}` |
 | KL45 | `FLAG_19_KL45{abyssal_union}` |
+| KL46 | `FLAG_19_KL46{guard_at_the_gate}` |
+| KL47 | `FLAG_19_KL47{probing_the_depths}` |
 
 
 > 备注：L43-L45 现版源码庆祝串均为 `FLAG_18_L48{mirror_tells_true}`（L48 为历史编号残留、三关复制未改），上表按关卡语义区分；L47 以当前 App 庆祝串 `FLAG_18_L47{guard_matrix_crc_aes}` 为准。关卡 9 有两个变体串（`single_gate_not_enough` 是只过一重门时的诱饵/半程提示）。
+
+---
+
+## 天地秘境 · 九幽（KL46+）
+
+> 九幽 = Root 检测与绕过。与扶桑树（KL21-28，Frida 动态注入检测）明确分工：九幽考的是「**设备本身是否 root / 解锁 / 被改**」——文件/包名 → bootloader/属性 → 挂载/mount namespace → 新一代 root → 综合。闯关模式是**本地按钮检测**（不走网络不取数）：点「开始检测」逐项返回命中位图，全部信号「未命中」（让 App 误判为干净设备）才解锁提交，提交时复测。判定一律**评分阈值制**（命中 ≥N 才判），不单点定罪——避免 `ro.debuggable`/模拟器自带 su 等单点误杀。
+
+### KL46：落叶归根（libelm.so · 多层环境检测入门）
+
+**考点**：真实 App（RootBeer/Catched 基础层）的「环境体检」——七类信号各记 1 分，**命中 ≥ 3 才判 Root**。`libelm.so`（桥 `RootSentinel`）导出两个函数：
+
+```c
+jint nativeFullCheck();            // 跑七类信号，返回命中位图（bit0..bit6）
+jint nativeIsRooted(jint bitmap);  // 评分阈值判定：popcount(bitmap) >= 3 ? 1 : 0
+```
+
+七类信号（都在 `app/jni/elm.c`）：
+| bit | 信号 | 实现 | 单点可误杀？ |
+|---|---|---|---|
+| 0 | SU 文件 | libc `access()` 探 14 个 su 路径 | 模拟器自带 su 可能命中 |
+| 1 | Magisk 文件 | `access()` 探 `/data/adb/magisk` 等 | — |
+| 2 | 高危包名 | 读 `/proc/self/maps` 搜 magisk/supersu 包路径 | — |
+| 3 | 系统属性 | `__system_property_get` 读 tags/type/debuggable，**命中 ≥2 属性才记 1 分** | `ro.debuggable=1` 在 debug 包恒真（不单独定罪） |
+| 4 | SELinux | 读 `/proc/self/attr/current` 搜 `permissive` | — |
+| 5 | 挂载点 | 读 `/proc/mounts` 找 `/system` rw | — |
+| 6 | SVC 交叉验证 | arm64 `SVC #0`(`__NR_faccessat`) 直连内核再探 su，与 libc access 结果**不一致**即判「libc 被 hook」 | 正常环境二者一致，不误报 |
+
+**三条解法**：
+
+1. **真实环境隐藏（本关教学目的）**：用 Magisk + Shamiko（或 DenyList）把 su/Magisk 文件对目标 App 隐藏掉，让 bit0/bit1 未命中；`ro.debuggable` 等属性用 `resetprop` 或 bootloader spoofer 伪造。七类全未命中 → 位图 = 0 → 解锁提交。
+2. **Frida 动态 hook（最快）**：hook `access`/`__system_property_get` 过滤敏感路径与属性，或直接 hook `nativeFullCheck` 出口替换返回值：
+   ```javascript
+   Java.perform(function(){
+     var RS = Java.use('com.fatdog.reverse.RootSentinel');
+     RS.nativeFullCheck.implementation = function(){ return 0; };  // 位图全 0 = 干净
+   });
+   ```
+3. **patch SO**：反汇编 `elm.c` 的判定跳转（`full_check` 里各 `if (...) bitmap |= ...` 的 `BNE`/`BEQ`），或把 `ROOT_THRESHOLD`(3) 改大到永不命中。
+
+**通关**：点「开始检测」→ 七道信号全绿（未命中）→ 状态「体检通过」→ 解锁提交 → 复测通过 → `FLAG_19_KL46{guard_at_the_gate}`。
+
+**坑位**：
+- **评分阈值制是本关的题眼**：命中 1~2 个信号（如 su + magisk）**不会**判 root，只有 ≥3 才弹「检测到风险环境」警告。所以「藏掉任意 5 个信号」或「hook 掉判定函数」都能过，不必全藏。
+- bit6（SVC 交叉验证）**独立计分**、不与 bit0 重复——它测的是「libc 的 access 是否被 hook 篡改」，正常环境 SVC 与 libc 结果一致、恒不命中；一旦你 hook 了 access 反而会触发它。所以纯 hook access 的玩家要连 SVC 那路一起处理（或直接 hook `nativeFullCheck` 出口）。
+- 真标记 `Fatdog_leaf`，诱饵 `Fatdog_leafy`（leaf→leafy，一字之差）；`root_decoy_scan`/`root_fold`/`root_spin` 是无意义诱饵导出。
+- 检测到风险是**弹窗警告不锁死**，提交时才复测（双门）——先点「开始检测」看到哪几路还红着，再针对性处理。
+
+### KL47：深根固蒂（liboak.so · Bootloader 解锁 + 系统属性深检）
+
+**考点**：真实 App（银行/支付/风控 SDK）的「设备身份」检测——不再翻找落地的文件痕迹，而是直接问系统的属性与内核启动参数："你有没有被解锁过、是不是原厂系统"。七类信号各记 1 分，**命中 ≥ 2 才判环境异常**。`liboak.so`（桥 `BootGuard`）导出：
+
+```c
+jint nativeFullCheck();            // 跑七类信号，返回命中位图（bit0..bit6）
+jint nativeIsTampered(jint bitmap);  // 评分阈值判定：popcount(bitmap) >= 2 ? 1 : 0
+```
+
+七类信号（都在 `app/jni/oak.c`）：
+| bit | 信号 | 实现 | 命中条件 |
+|---|---|---|---|
+| 0 | 启动校验状态 | `__system_property_get("ro.boot.verifiedbootstate")` | `orange`/`red`/`yellow`（`green` 为锁定正常） |
+| 1 | vbmeta 设备态 | `ro.boot.vbmeta.device_state` / `vendor.boot.vbmeta.device_state` | `unlocked` |
+| 2 | 安全锁状态 | `ro.secureboot.lockstate` / `ro.boot.flash.locked` | `unlocked` / `0` |
+| 3 | 内核启动参数 | 读 `/proc/cmdline` | `androidboot.verifiedbootstate=orange` 或 `androidboot.flash.locked=0` |
+| 4 | 调试属性 | `ro.build.tags`/`ro.build.type`/`ro.debuggable`，**命中 ≥2 个才记 1 分** | test-keys + eng/userdebug + debuggable=1 中 ≥2 |
+| 5 | 原生桥 | `ro.dalvik.vm.native.bridge` | 为 `.so` 文件名（Xposed/LSPosed native bridge）；`0`/`none`/空不算命中 |
+| 6 | 自定义系统 | `ro.lineage.build.version` + `/system/framework/org.lineageos.*.jar` | 存在（LineageOS 等自定义 ROM） |
+
+**关键理解：bit3 的"硬"是相对的**。`/proc/cmdline` 是内核启动时导出的只读信息，`resetprop` 改不了它的**内容**——但 App 读取它的必经之路（libc 的 `open/read`）可以被 Zygisk 模块在进程内 hook 替换。所以：
+- **只用 resetprop**：bit0/1/2（属性）能压掉，bit3（cmdline）会露馅 → 过不了；
+- **resetprop + Zygisk hook 文件读取**（Shamiko 等完整隐藏栈的实际做法）：bit3 也能藏住 → 全绿。
+实测参考：解锁 BL + Shamiko/Zygisk 全套的真机上，`getprop` 显示 `green`（属性被伪造）、App 内读 `/proc/cmdline` 也没有 orange（文件读取被 hook），但 root shell 下 `cat /proc/cmdline` 仍能看到 `orange`——内核真相只在特权视角可见。
+
+**三条解法**：
+
+1. **真实环境隐藏（本关教学目的）**：
+   - **解锁了 Bootloader 的真机**：`ro.boot.verifiedbootstate=orange` + `vbmeta.device_state=unlocked` + `/proc/cmdline` 里的 orange 会同时命中 → 位图 ≥3，必判。要用 `resetprop`（Magisk 自带）伪造 `ro.boot.verifiedbootstate`、`ro.boot.vbmeta.device_state` 等 boot 属性；但 `/proc/cmdline` 仍会漏 → 只能靠 hook 或 patch。
+   - **配合 Tricky Store / bootloader spoofer**：真实环境里用来伪造 boot 状态与密钥证明链。
+2. **Frida 动态 hook（最实用）**：hook `__system_property_get` 过滤 boot 属性、hook `fopen`/`read` 过滤 `/proc/cmdline`，或直接 hook 出口：
+   ```javascript
+   Java.perform(function(){
+     var BG = Java.use('com.fatdog.reverse.BootGuard');
+     BG.nativeFullCheck.implementation = function(){ return 0; };  // 位图全 0 = 干净
+   });
+   ```
+   若要"只压掉 cmdline 那一路"（保留其它信号、更精细）：
+   ```javascript
+   Interceptor.attach(Module.findExportByName("libc.so", "fopen"), {
+     onEnter: function(a){ this.p = a[0].readUtf8String(); },
+     onLeave: function(r){ if (this.p && this.p === "/proc/cmdline") r.replace(ptr(0)); }
+   });
+   ```
+3. **patch SO**：反汇编 `oak.c` 的判定（`full_check` 里各 `if (...) bitmap |= ...` 的 `BNE`/`BEQ`），或把 `TAMPER_THRESHOLD`(2) 改大到永不命中。
+
+**通关**：点「开始检测」→ 七道信号全绿（未命中）→ 状态「体检通过」→ 解锁提交 → 复测通过 → `FLAG_19_KL47{probing_the_depths}`。
+
+**坑位**：
+- **评分阈值制是题眼**：命中 1 个信号（如仅 `orange`）**不会**判，≥2 才弹「检测到风险环境」。所以「藏掉任意 6 个信号」或「hook 判定函数」都能过。
+- **bit3（`/proc/cmdline`）是 resetprop 的盲区，但不是 Zygisk 的盲区**：`resetprop ro.boot.verifiedbootstate green` 能把 bit0/bit1 压掉，但 `/proc/cmdline` 文件内容改不动，bit3 照样命中——**纯属性伪造过不了本关**。要藏 cmdline 必须 Zygisk 模块 hook App 进程内的 libc `open/read`（Shamiko/隐藏栈的实际做法）。真实 BL 解锁 + 完整隐藏栈的真机上，KL47 可以全绿（属性被伪造 + cmdline 读取被 hook）——这正是 KL46（文件层，Shamiko 即可全过）与 KL47（属性+cmdline 层，需要更深的 Zygisk hook）的难度差异。
+- **bit5（native bridge）会误伤**：如果你装了 Xposed/LSPosed（`ro.dalvik.vm.native.bridge=libriruloader.so`），bit5 恒命中——这不算"root 检测误报"，而是"检测到注入框架"，本关主题里属正当信号。**注意**：部分 ROM 把该属性默认设成 `"0"`（表示"未启用原生桥"）而非留空，检测代码已把 `"0"`/`"none"`/空视为"未命中"，只有真正的 `.so` 文件名才判命中，避免误报。
+- 真标记 `Fatdog_probe`，诱饵 `Fatdog_trap`（probe→trap，一字之差）；`boot_decoy_scan`/`boot_fold`/`boot_spin` 是无意义诱饵导出。
+- 检测到风险是**弹窗警告不锁死**，提交时才复测（双门）。
+
+**与 KL46 的差异对比**（九幽主线：检测对象逐层深入）：
+| | KL46 落叶归根 | KL47 深根固蒂 |
+|---|---|---|
+| 检测层 | 文件/包名 | 系统属性 + 内核启动参数 |
+| 题眼 | SVC 交叉验证（防 hook access） | cmdline 读取链（resetprop 盲区，但 Zygisk hook 可藏） |
+| Shamiko+resetprop 能否全过 | 能 | **不能**（还差 cmdline 的文件读取 hook） |

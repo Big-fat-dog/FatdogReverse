@@ -4,7 +4,7 @@
  * 核心思路：seal() 内嵌常量 0x1337CAFE，check() 校验它。
  * 但 Frida 只需一行 hook seal 强制返回正确值即可——这正是本关要教的。
  *
- * 标记（真）：Fatdog_forge  — UTF-16 码元，非 static 非 const 全局存放。
+ * 标记（真）：Fatdog_forge  — UTF-16 码元，static const（借 JNI_OnLoad 引用强制保留）。
  * 诱饵（假）：Fatdog_forgo  — 一字之差陷阱，命中即 403。
  */
 #include <jni.h>

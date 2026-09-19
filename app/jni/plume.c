@@ -1,12 +1,12 @@
 /*
- * 幽冥海 KL14：libm13c——拼装 A‖B + SHA-256 → 最终答案。
+ * 幽冥海 KL14：libplume——拼装 A‖B + SHA-256 → 最终答案。
  *
  * libplume 通过 dlsym 调用 libnebula 和 libopera 的导出函数，
  * 拼装 A‖B 后再 hash 得最终答案。
  * patch 任一 so 都会导致 hash 不匹配 → 验证失败。
  *
- * 标记（真）：Fatdog_mesh  — 同 libm13a。
- * 诱饵（假）：Fatdog_mash  — 同 libm13a。
+ * 标记（真）：Fatdog_mesh  — 同 libnebula，static const（借 JNI_OnLoad 引用强制保留）。
+ * 诱饵（假）：Fatdog_mash  — 同 libnebula。
  */
 #include <jni.h>
 #include <stdint.h>
