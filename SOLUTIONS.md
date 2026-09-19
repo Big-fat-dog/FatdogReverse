@@ -6136,6 +6136,11 @@ Java.perform(function () {
 | KL45 | `FLAG_19_KL45{abyssal_union}` |
 | KL46 | `FLAG_19_KL46{guard_at_the_gate}` |
 | KL47 | `FLAG_19_KL47{probing_the_depths}` |
+| KL48 | `FLAG_19_KL48{chains_broken}` |
+| KL49 | `FLAG_19_KL49{sealed_integrity}` |
+| KL50 | `FLAG_19_KL50{spring_after_winter}` |
+| KL51 | `FLAG_18_KL51{fog_begins_to_clear}` |
+| KL52 | `FLAG_18_KL52{phantom_and_reality}` |
 
 
 > 备注：L43-L45 现版源码庆祝串均为 `FLAG_18_L48{mirror_tells_true}`（L48 为历史编号残留、三关复制未改），上表按关卡语义区分；L47 以当前 App 庆祝串 `FLAG_18_L47{guard_matrix_crc_aes}` 为准。关卡 9 有两个变体串（`single_gate_not_enough` 是只过一重门时的诱饵/半程提示）。
@@ -6247,3 +6252,294 @@ jint nativeIsTampered(jint bitmap);  // 评分阈值判定：popcount(bitmap) >=
 | 检测层 | 文件/包名 | 系统属性 + 内核启动参数 |
 | 题眼 | SVC 交叉验证（防 hook access） | cmdline 读取链（resetprop 盲区，但 Zygisk hook 可藏） |
 | Shamiko+resetprop 能否全过 | 能 | **不能**（还差 cmdline 的文件读取 hook） |
+
+### KL48：斩草除根（libyew.so · 挂载点 / mount namespace 深检 + magiskd 进程检测）
+
+**考点**：Magisk 是 **systemless**（不落盘改 /system，而是运行时用 tmpfs 覆盖挂载），所以翻 su 文件（KL46）查不到、查属性（KL47）也可能被伪造——必须查「挂载表里的 tmpfs 覆盖痕迹」+「magiskd 守护进程」+「环境变量」这些**运行时痕迹**。七类信号各记 1 分，**命中 ≥ 2 才判环境异常**。`libyew.so`（桥 `MountGuard`）导出：
+
+```c
+jint nativeFullCheck();              // 跑七类信号，返回命中位图（bit0..bit6）
+jint nativeIsTampered(jint bitmap);  // 评分阈值判定：popcount(bitmap) >= 2 ? 1 : 0
+```
+
+七类信号（都在 `app/jni/yew.c`，**全部用 SVC 直接系统调用读取，穿透 Shamiko 的 libc hook**）：
+| bit | 信号 | 实现 | 命中条件 |
+|---|---|---|---|
+| 0 | 挂载覆盖痕迹 | **SVC openat+read** 直读 `/proc/self/mountinfo` | 行含 `magisk`，或 tmpfs 覆盖在 `/system/bin`、`/system/xbin`、`/sbin` 上 |
+| 1 | Magisk 挂载点 | **SVC faccessat** 探 `/sbin/.magisk`、`/data/adb/magisk`、`/data/adb/magisk.db` | 存在 |
+| 2 | dex2oat 环挂载 | **SVC 直读** `/proc/self/mountinfo` | `/apex/com.android.art` 上有 loop 挂载（LSPosed 注入特征） |
+| 3 | 守护进程 | 遍历 `/proc/<pid>/comm`（线程名）+ `/proc/<pid>/attr/current`（SELinux） | comm 含 `magiskd`/`zygiskd`/`ksud`/`lspd`，或 SELinux 含 `magisk`（`u:r:magisk:s0`） |
+| 4 | 挂载表字样 | **SVC 直读** `/proc/self/mounts` | 含 `magisk` |
+| 5 | 环境变量 | **SVC 直读** `/proc/self/environ` | 含 `MAGISK_VER_CODE` / `KSU_VER_CODE` 等 |
+| 6 | 原生桥/模块 | `ro.dalvik.vm.native.bridge` 非空（`.so` 名）或 `/data/adb/modules` 目录存在 | 存在 |
+
+**关键理解：本关的题眼是"突破 Shamiko 的 libc hook"**。Shamiko/Zygisk 的隐藏手段不是真把 magisk 删了，而是 **hook 了 libc 的 `fopen`/`open`/`read`/`access`**，把 App 进程里读到的挂载表、进程列表过滤成干净版（参考 Shamiko 源码的 detection-vector 表：它拦截了 `fopen("/proc/mounts")`、`fopen("/proc/mountinfo")`、`access()` 等）。所以：
+- **用普通 `fopen`/`fgets` 读 `/proc/self/mountinfo` → 读到的是 Shamiko 过滤后的空结果**（这就是"全未命中"假象的根因）；
+- **用 SVC 直接系统调用（绕过 libc，直进内核）读 → 读到内核导出的真相**，Shamiko 的 hook 拦不住。
+
+再加上两个 Shamiko 难伪造的信号：
+- **bit3 读 `/proc/<pid>/comm`（线程名）而非 `cmdline`**：Magisk 的 `magiskd`/`zygiskd64` 进程会清空 cmdline，但 comm 线程名仍在；
+- **bit3 读 `/proc/<pid>/attr/current` 的 SELinux context**：magiskd/zygiskd/lspd 都运行在 `u:r:magisk:s0` 这个 Magisk 专属 SELinux domain 下——这是**内核级信息，Shamiko 无法 hook 伪造**。
+
+**三条解法**：
+
+1. **真实环境隐藏（本关教学目的）**：用 Zygisk-Assistant / ZygiskNext 的「unmount」功能，把 magisk 的 tmpfs 覆盖挂载对目标 App 解除；Magisk DenyList 让 `magiskd` 进程对 App 不可见。七类全未命中 → 位图 = 0 → 解锁提交。
+2. **Frida 动态 hook（最快）**：hook `fopen`/`read` 过滤 `/proc/self/mountinfo`、`/proc/self/mounts`、`/proc/*/cmdline`，或直接 hook 出口：
+   ```javascript
+   Java.perform(function(){
+     var MG = Java.use('com.fatdog.reverse.MountGuard');
+     MG.nativeFullCheck.implementation = function(){ return 0; };  // 位图全 0 = 干净
+   });
+   ```
+3. **patch SO**：反汇编 `yew.c` 的判定（各 `if (...) bitmap |= ...` 的 `BNE`/`BEQ`），或把 `TAMPER_THRESHOLD`(2) 改大到永不命中。
+
+**通关**：点「开始检测」→ 七道信号全绿 → 状态「体检通过」→ 解锁提交 → 复测通过 → `FLAG_19_KL48{chains_broken}`。
+
+**坑位**：
+- **评分阈值制是题眼**：命中 1 个信号不会判，≥2 才弹「检测到风险环境」。所以「藏掉任意 6 个信号」或「hook 判定函数」都能过。
+- **bit3（magiskd 进程）是最实的信号**：Magisk 常驻的 `magiskd` 守护进程 + `zygiskd64` 在 DenyList 生效前对所有 App 可见。读 `/proc/<pid>/comm` 能稳定抓到（`cmdline` 会被 Magisk 清空，别读错字段）；读 `/proc/<pid>/attr/current` 的 `u:r:magisk:s0` 是**内核级 SELinux domain，Shamiko 无法伪造**，是最硬的判据。
+- **bit0/bit4（mountinfo/mounts）必须用 SVC 直读**：Shamiko 的隐藏核心就是 hook `fopen("/proc/mounts")`、`fopen("/proc/mountinfo")` 返回干净内容。用普通 `fopen` 读会全未命中（假象），必须 SVC `openat`+`read` 直连内核绕过 hook。
+- **bit2（dex2oat loop）是 LSPosed 特有**：不是所有 root 环境都有，只有装了 LSPosed 才触发。没装 LSPosed 的纯 Magisk 环境不会命中这条，属正常。
+- **bit5（环境变量）可能不命中**：`MAGISK_VER_CODE` 等环境变量只在 su 会话里存在，普通 App 进程的 `/proc/self/environ` 通常没有——这路偏"补刀"，主判据靠 bit0/1/3/4。
+- 真标记 `Fatdog_hook`，诱饵 `Fatdog_anti`（hook→anti，一字之差）；`mount_decoy_scan`/`mount_fold`/`mount_spin` 是无意义诱饵导出。
+- 检测到风险是**弹窗警告不锁死**，提交时才复测（双门）。
+
+**九幽三关对照**（检测对象逐层深入 + 痕迹类型演进）：
+| | KL46 落叶归根 | KL47 深根固蒂 | KL48 斩草除根 |
+|---|---|---|---|
+| 检测层 | 文件/包名 | 系统属性 + 内核 cmdline | 挂载 namespace + 守护进程 |
+| 痕迹类型 | 静态（落盘文件） | 半静态（属性/内核参数） | **运行时（挂载表/进程）** |
+| 题眼 | SVC 交叉验证 | cmdline 读取链 | tmpfs 覆盖挂载 + magiskd 进程 |
+| 主绕过工具 | Shamiko 文件隐藏 | resetprop + Zygisk hook | **Zygisk unmount + DenyList** |
+
+### KL49：盘根错节（libivy.so · 新一代 root KernelSU/APatch 检测 + Play Integrity 本地仿真）
+
+**考点**：Magisk 之外的**新一代 root 方案**——KernelSU（内核态、不依赖 boot 镜像 patch）、APatch（内核补丁）。它们比 Magisk 更难检测：su 文件在 `/data/adb/ksu`、无 magiskd 进程、不挂 magisk tmpfs。检测方靠「内核版本串含 `-KernelSU`/`-APatch`」「`/data/adb/ksu`、`/data/adb/ap` 目录」「`KSU_VER_CODE` 环境变量」识别。叠加 Play Integrity 本地仿真。六类信号各记 1 分，**命中 ≥ 2 才判环境异常**。`libivy.so`（桥 `KernelGuard`）导出：
+
+```c
+jint nativeFullCheck();              // 跑六类信号，返回命中位图（bit0..bit5）
+jint nativeIsTampered(jint bitmap);  // 评分阈值判定：popcount(bitmap) >= 2 ? 1 : 0
+```
+
+六类信号（都在 `app/jni/ivy.c`，**全部 SVC 直接系统调用读取，穿透 libc hook；读 /proc 文件用循环 read**）：
+| bit | 信号 | 实现 | 命中条件 |
+|---|---|---|---|
+| 0 | 内核版本串 | **SVC uname** 读 sysname/release/version | 含 `KernelSU` / `KSU` / `APatch` / `kpatch` |
+| 1 | 内核 root 目录 | **SVC faccessat** 探 `/data/adb/ksu`、`/data/adb/ksud`、`/data/adb/ap` 等 | 存在 |
+| 2 | 环境变量 | **SVC 循环读** `/proc/self/environ` | 含 `KSU_VER_CODE` / `KSU_KERNEL_VER_CODE` / `APATCH_VER` / `MAGISK_VER_CODE` |
+| 3 | 挂载点 | **SVC 循环读** `/proc/self/mounts` | 含 `ksu` / `apd` / `apatch` |
+| 4 | 身份证明 | 校验内置仿 token 的魔数 + 设备状态位 | token 魔数被改、或设备状态位非 0（本地仿真"被篡改"） |
+| 5 | Magisk 兜底 | `/data/adb/magisk` 目录（SVC faccessat）或 mounts 含 `magisk` | 存在 |
+
+**关键理解：本关的题眼是"新一代 root 的检测盲区"**。KernelSU/APatch 不像 Magisk 有 magiskd 进程、magisk tmpfs 挂载，它们**只在内核版本串加一个标记 + 在 `/data/adb/ksu` 放文件**，所以：
+- KL48 的 mountinfo/magiskd 检测对 KernelSU **无效**（没有那些痕迹）；
+- 本关必须读**内核版本串**（SVC uname）和 `/data/adb/ksu` 目录（SVC faccessat）——这正是新一代 root 的"唯一暴露面"；
+- 仿 Play Integrity token（bit4）是本地仿真：真实 PI 依赖 GMS + 云端 verdict，离线靶场无法复现，这里练的是"读懂 token 结构 + 绕过本地校验"。
+
+**三条解法**：
+
+1. **真实环境隐藏（本关教学目的）**：KernelSU/APatch 的「unmount」+ ZygiskNext 隐藏 `/data/adb/ksu` 目录与内核特征（换内核重编或卸载 KSU 标记）。六类全未命中 → 位图 = 0 → 解锁提交。
+2. **Frida 动态 hook（最快）**：SVC 直读无法用 libc hook 拦截，只能 hook 检测函数出口：
+   ```javascript
+   Java.perform(function(){
+     var KG = Java.use('com.fatdog.reverse.KernelGuard');
+     KG.nativeFullCheck.implementation = function(){ return 0; };  // 位图全 0 = 干净
+   });
+   ```
+3. **patch SO**：反汇编 `ivy.c` 的判定（各 `if (...) bitmap |= ...` 的 `BNE`/`BEQ`），或把 `TAMPER_THRESHOLD`(2) 改大到永不命中。
+
+**通关**：点「开始检测」→ 六道信号全绿 → 状态「体检通过」→ 解锁提交 → 复测通过 → `FLAG_19_KL49{sealed_integrity}`。
+
+**坑位**：
+- **评分阈值制是题眼**：命中 1 个信号不会判，≥2 才弹「检测到风险环境」。
+- **bit0（内核版本串）是 KernelSU/APatch 的"身份证"**：`uname -a` 里 `-KernelSU`、`-APatch` 后缀是这两种 root 最稳定的指纹（重编内核才会消失）。SVC uname 直调内核，绕过 libc hook 读的是真值。
+- **bit4（仿 PI token）是本地仿真，不是真 Play Integrity**：真实 PI 的 token 由 Google 服务框架 + TEE 硬件签名，离线靶场做不了。这里练的是"读懂 token 结构（魔数+设备状态位）+ 绕过本地校验"——真实环境里这对应 Tricky Store/PIF 伪造 token 的对抗，但靶场只能到"本地仿真"这一层，别误以为练了真 PIF。
+- **bit2（环境变量）可能不命中**：`KSU_VER_CODE` 等只在 su 会话里，普通 App 进程的 environ 通常没有——偏补刀，主判据靠 bit0/1/3。
+- 真标记 `Fatdog_attest`，诱饵 `Fatdog_attests`（attest→attests，一字之差）；`kernel_decoy_scan`/`kernel_fold`/`kernel_spin` 是无意义诱饵导出。
+- 检测到风险是**弹窗警告不锁死**，提交时才复测（双门）。
+
+**九幽四关对照**（检测对象逐层深入）：
+| | KL46 落叶归根 | KL47 深根固蒂 | KL48 斩草除根 | KL49 盘根错节 |
+|---|---|---|---|---|
+| 检测层 | 文件/包名 | 系统属性 + cmdline | 挂载 namespace + 进程 | 内核版本串 + 新一代 root 目录 |
+| 检测对象 | 经典 root（Magisk 文件） | BL 解锁 + 属性 | Magisk systemless | **KernelSU/APatch** |
+| 核心手段 | SVC 交叉验证 | cmdline 读取链 | tmpfs 挂载 + SELinux | **SVC uname + ksu 目录** |
+
+### KL50：枯木逢春（libdew.so · 综合收官卷：全维度 + SVC + 反调试 + 静默投毒）
+
+**考点**：九幽收官，把 KL46-49 的检测维度汇总成一次"全身体检"，叠加直接 SVC syscall、反调试（评分制）、**静默投毒**。模拟 freeRASP / 大厂风控 SDK 的综合防护。八类信号各记 1 分，**命中 ≥ 3 才判环境异常**。`libdew.so`（桥 `RootSpring`）导出：
+
+```c
+jint nativeDetect();              // 检测阶段：静默投毒——返回 0（看似干净），真实结果藏内部
+jint nativeVerify();              // 提交复测阶段：返回真实位图（露馅）
+jint nativeIsTampered(jint bm);   // 评分阈值判定：popcount(bm) >= 3 ? 1 : 0
+```
+
+八类信号（都在 `app/jni/dew.c`，**全部 SVC 直连 + 循环 read**，汇总前四关最硬的信号）：
+| bit | 信号 | 来源 | 命中条件 |
+|---|---|---|---|
+| 0 | su 文件 | KL46 | SVC faccessat 探 su 路径 |
+| 1 | Magisk 文件 | KL46 | SVC faccessat 探 `/data/adb/magisk` 等 |
+| 2 | 启动校验 | KL47 | `ro.boot.verifiedbootstate=orange/red` 或 vbmeta unlocked |
+| 3 | 内核启动参数 | KL47 | `/proc/cmdline` 含 `androidboot.verifiedbootstate=orange` |
+| 4 | 挂载覆盖 | KL48 | mountinfo 的 magisk tmpfs |
+| 5 | 守护进程 | KL48 | `/proc/<pid>/comm` 含 magiskd/zygiskd，或 SELinux `u:r:magisk:s0` |
+| 6 | 内核版本串 | KL49 | SVC uname 含 KernelSU/APatch |
+| 7 | 内核 root 目录 | KL49 | `/data/adb/ksu`、`/data/adb/ap` 存在 |
+
+**关键理解：本关的题眼是「静默投毒」**。`nativeDetect()`（点「开始检测」时调用）**故意返回 0**（看似全绿），把真实检测结果藏进内部变量 `g_last_real_bitmap`；直到你点「提交通关」时，`nativeVerify()` 才重新检测、返回真实位图。所以：
+- 第一次点「开始检测」→ 显示八道全绿、"体检通过" → 你以为过了；
+- 点「提交」→ 真实位图露馅 → 命中 ≥3 弹「检测到风险环境」。
+
+这是真实 App"静默失败"的隐蔽对抗——**别被第一次的绿色骗了，真正的判据在提交那一刻**。
+
+**三条解法**：
+
+1. **真实环境隐藏（本关教学目的）**：把八道信号全部压下去（用前四关的手段：Shamiko 文件隐藏 + resetprop 属性伪造 + Zygisk unmount + KernelSU 隐藏）。八道全未命中 → 提交时真实位图 = 0 → 通关。
+2. **Frida 动态 hook（最快）**：SVC 直读无法 libc hook 拦截，只能 hook 检测函数出口：
+   ```javascript
+   Java.perform(function(){
+     var RS = Java.use('com.fatdog.reverse.RootSpring');
+     RS.nativeVerify.implementation = function(){ return 0; };  // 提交时返回 0 = 干净
+   });
+   ```
+   注意：只 hook `nativeDetect` 没用（它本来就返回 0），要 hook `nativeVerify`。
+3. **patch SO**：反汇编 `dew.c` 的判定，或把 `is_tampered` 的阈值 3 改大、把 `nativeVerify` 改成恒返回 0。
+
+**通关**：点「开始检测」（假全绿）→ 点「提交通关」→ `nativeVerify` 真实检测全未命中 → `FLAG_19_KL50{spring_after_winter}`。
+
+**坑位**：
+- **静默投毒是最大的坑**：`nativeDetect()` 恒返回 0（假象），只有 `nativeVerify()` 返回真实结果。只 hook/patch `nativeDetect` 是没用的——提交那一刻才露馅。
+- **阈值是 3（比前四关的 2 更严）**：综合卷放宽到 ≥3，因为八类信号里任何一两路误报（如 su 文件在模拟器自带）不该直接判死。
+- **反调试（评分制）**：TracerPid 非 0 + ptrace(TRACEME) 失败，≥2 才判被调试。挂 Frida 时可能触发，但反调试信号**不单独计入八类位图**（是独立辅助）。
+- 真标记 `Fatdog_spring`，诱饵 `Fatdog_bloom`（spring→bloom，一字之差）；`spring_decoy_scan`/`spring_fold`/`spring_spin` 是无意义诱饵导出。
+- 检测到风险是**弹窗警告不锁死**，提交时才复测（双门，本关的"双门"升级成了"假门 + 真门"）。
+
+**九幽五关总览**（检测对象逐层深入，最终汇总）：
+| | KL46 | KL47 | KL48 | KL49 | KL50 |
+|---|---|---|---|---|---|
+| 名称 | 落叶归根 | 深根固蒂 | 斩草除根 | 盘根错节 | 枯木逢春 |
+| 检测对象 | 文件/包名 | 属性+cmdline | 挂载+进程 | 内核版本+新一代root | **全维度汇总** |
+| 题眼 | SVC 交叉验证 | cmdline 读取链 | tmpfs+SELinux | SVC uname | **静默投毒** |
+| 阈值 | ≥3 | ≥2 | ≥2 | ≥2 | ≥3 |
+
+---
+
+## 天地秘境 · 迷阵（KL51+）
+
+> 第十二分区「迷阵」—— OLLVM 混淆 + 控制流平坦化深度对抗。与太玄之初 KL18（单一平坦化入门）的区别：本专题五关递进覆盖 OLLVM **四种**变换（平坦化 / 虚假控制流 / 字符串加密 / 指令替换）的独立分析 + 综合对抗。
+
+### KL51 迷雾初开（控制流平坦化基础）
+
+**考点**：OLLVM 的「控制流平坦化」(Control Flow Flattening)。核心签名函数被改写成 switch-case 主分发器（16 case，10 真 6 假），密钥以 Base64 串藏 `.rodata`。
+
+**算法**（迷阵五关里唯一用 HMAC 的一关）：
+- `aes_key = SHA256("Fatdog_haze|aes")[:16]`，`mac_key = SHA256("Fatdog_haze|mac")[:32]`
+- `enc = hex(AES-128-ECB(aes_key, "page=N&ts=T" 零填充到 32))`
+- `sign = HMAC-SHA256(mac_key, enc)`
+- 密钥 Base64 串：`Ta3Cl3qmIAKoSuT/fOLZdeh9zWfdc4OdmyGpOCfWrNAQmtDZqKD+4peWYPutolUL`（48 字节 = aes+mac，b64decode 即得）
+
+**核心 so**：`libfog.so`（`app/jni/fog.c`）。`flat_derive_and_sign()` 被平坦化：
+- 16 个 case：0-5 是真实签名链（拼消息→拼明文→AES→hex→HMAC→hex）、6-8 是无用运算冗余块、9 是出口；
+- 6 个虚假 case：10 提前 return、11 死循环、12 无意义运算、13 复制 case0 但跳死循环、14 空跳、15 返回全 0。
+
+**三条解法**：
+
+1. **D810 一键去平坦化**（最快）：IDA 加载 `libfog.so`，`Edit→Plugins→D810`，选 `default_unflattening_ollvm.json`，switch dispatcher 被还原为顺序逻辑，`flat_derive_and_sign` 直接可读。
+
+2. **手工还原平坦化**（教学主线）：
+   - 找主分发器：入口块后接一个大 `switch`，特征是 `LDR R0,[Rn]` + `CMP` + `BHI`（读状态变量、比上限、跳 default）；
+   - 画状态流转图：每个真实块末尾 `MOV W8,#imm` 写入下一个状态值，据此连边；
+   - 标真假 case：虚假 case 的特征是「提前 return / 死循环 / 无意义运算 / 空跳 / 改坏状态」；
+   - 还原真实链：0→1→2→3→4→5→9，即「拼 page&ts → AES → hex → HMAC(enc_hex) → hex」。
+   - 认算法：AES 靠 S 盒魔数 `63 7c 77 7b…`，HMAC/SHA256 靠 K 表 `428a2f98…` 与初始 IV `6a09e667…`。
+
+3. **Frida hook**：hook `nativeFlatSign` 入口/出口，或 hook `derive_keys` 拿解密后的 aes_key/mac_key，直接复刻。注意 `nativeFlatSign` 和 `nativeEnc` 是同一次平坦化计算的两个输出，hook 任一即可拿到 enc+sign。
+
+**Python 复刻**（取数后求和）：
+```python
+import hashlib, hmac
+from Crypto.Cipher import AES  # 或手写 AES-128-ECB
+
+def keys():
+    aes_key = hashlib.sha256(b"Fatdog_haze|aes").digest()[:16]
+    mac_key = hashlib.sha256(b"Fatdog_haze|mac").digest()[:32]
+    return aes_key, mac_key
+
+def enc(page, ts):
+    aes_key, _ = keys()
+    msg = f"page={page}&ts={ts}".encode()
+    plain = msg + b"\x00" * (32 - len(msg))
+    return AES.new(aes_key, AES.MODE_ECB).encrypt(plain).hex()
+
+def sign(page, ts):
+    _, mac_key = keys()
+    return hmac.new(mac_key, enc(page, ts).encode(), hashlib.sha256).hexdigest()
+
+# GET https://…:8443/api/kl51?page=N&ts=T&enc=…&sign=…
+# 累加 100 页×10 个数，总和 = 50151（SEED=20280906）
+```
+
+**通关**：取满 100 页数字求和，输入 `50151` → `FLAG_18_KL51{fog_begins_to_clear}`。
+
+**坑位**：
+- `enc` 是**零填充到 32 字节**（`page=N&ts=T` 最长 22 字节，需 2 个 AES 块），不是 16 字节——只加密前 16 字节会漏掉 ts 尾巴，服务端 `re.fullmatch(r"page=(\d+)&ts=(\d+)")` 匹配失败。
+- `sign` 是对 **enc 的 hex 字符串**做 HMAC（不是对明文），顺序别搞反。
+- 标记 `Fatdog_haze` 是 UTF-16 码元藏匿，`strings` 默认看不到；诱饵 `Fatdog_hazey` 一字之差，命中即 403。
+- 虚假 case 里的「死循环」（case 11）是陷阱——手工还原时如果误把它当真实块连进去，会陷入死循环逻辑。
+
+---
+
+### KL52 虚实相生（虚假控制流）
+
+**考点**：OLLVM 的「虚假控制流」(Bogus Control Flow, BCF)。核心签名函数在真实逻辑之间插入「不透明谓词」+「不可达虚假块」，让 IDA 反编译时看到真假交织的两条路。
+
+**算法**（迷阵第二关，纯 SHA256 摘要签名，不用 HMAC）：
+- `sm4_key = SHA256("Fatdog_phantom|sm4")[:16]`
+- `enc = hex(SM4-ECB(sm4_key, "page=N&ts=T" 零填充到 32))`
+- `sign = SHA256("Fatdog_phantom|" + page + "|" + ts)`（**纯 SHA256，非 HMAC**）
+- 密钥 Base64 串：`jntndxfS8B2AwhYp1MhbMw==`（16 字节 SM4 钥）
+
+**核心 so**：`libphantom.so`（`app/jni/phantom.c`）。`phantom_sign()` 被 BCF 混淆：
+- 3 个「不透明谓词」`if (g_opaque_a * (g_opaque_a+1) % 2 == 0 && g_opaque_a < 10)`，`g_opaque_a/b/c` 是 `.bss` 段全局变量（初始 0）——恒真，但 IDA 静态分析不知道值；
+- 恒假分支指向「克隆形变块」`fake_encrypt_never_run`（SM4 换成直接 XOR 密钥）、`fake_hex_never_run`（用打乱字符表）——结构相似、结果错误、永不执行；
+- 真实路径：拼消息 → SM4 加密 → hex → 拼 sign 消息 → SHA256 → hex。
+
+**三条解法**：
+
+1. **`.bss` 段设只读 + patch 初值**（教学主线，对应 OLLVM BCF 的经典反混淆）：
+   - IDA 里双击 `g_opaque_a` 跳进 `.bss` 段，`Edit→Segments→Edit segment` 取消 Write 勾选（设只读）；
+   - `.bss` 变量初始为 0，IDA 一旦知道「只读 + 值为 0」，触发常量传播 + 死代码消除（DCE），自动剪掉恒假分支的虚假块；
+   - 反编译结果里 `fake_*` 块消失，`phantom_sign` 恢复清晰顺序逻辑。
+
+2. **D810 去虚假跳转**：`Edit→Plugins→D810`，选 `default_unflattening_switch_case.json`（或 `default.json`），自动识别不透明谓词并剪枝。
+
+3. **手工识别恒真/恒假条件**：`x*(x+1)%2==0` 对任意整数 x 恒真（相邻两数之积必为偶数）、`x<10`（x=0 恒真）；把恒假分支的代码当死代码排除，只分析真实路径。
+
+**Python 复刻**（取数后求和）：
+```python
+import hashlib
+# SM4 需手写或 gmssl（server.py 里有纯 Python 标准 SM4 镜像）
+
+sm4_key = hashlib.sha256(b"Fatdog_phantom|sm4").digest()[:16]
+
+def enc(page, ts):
+    msg = f"page={page}&ts={ts}".encode()
+    plain = msg + b"\x00" * (32 - len(msg))
+    return sm4_encrypt_zero_pad(plain, sm4_key).hex()  # 手写 SM4-ECB
+
+def sign(page, ts):
+    return hashlib.sha256(f"Fatdog_phantom|{page}|{ts}".encode()).hexdigest()
+
+# GET https://…:8443/api/kl52?page=N&ts=T&enc=…&sign=…
+# 累加 100 页×10 个数，总和 = 49328（SEED=20280907）
+```
+
+**通关**：取满 100 页求和，输入 `49328` → `FLAG_18_KL52{phantom_and_reality}`。
+
+**坑位**：
+- `sign` 是**纯 SHA256 摘要**（`SHA256("Fatdog_phantom|page|ts")`），**不是 HMAC**——很多玩家惯性照搬 KL51 的 HMAC，这里没有密钥参与，直接哈希即可。
+- `enc` 零填充到 32 字节（2 个 SM4 块），同 KL51。
+- 不透明谓词的全局变量 `g_opaque_a/b/c` 都在 `.bss`（未初始化段），初始值为 0——这是「恒真」的根源，`.bss` 设只读后 IDA 才能折叠。
+- 虚假块 `fake_encrypt_never_run` 把 SM4 换成了「直接 XOR 密钥」——结构相似但算法完全不同，别被它带偏。
+- 标记 `Fatdog_phantom` UTF-16 藏匿；诱饵 `Fatdog_illusion` 命中即 403。

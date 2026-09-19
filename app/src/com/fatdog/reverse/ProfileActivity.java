@@ -40,7 +40,7 @@ import java.util.ArrayList;
 // 个人主页：顶部"传送带"式分类条（基本情况 / 太古禁地 / 神念自察 / 昔日枷锁 / 前世今生），可横向滑动；
 // 下方内容随分类切换。基本情况 = 头像 + 境界 + 修仙进度；右上角昼夜切换；背景图。
 public class ProfileActivity extends Activity {
-    private static final int TOTAL_LEVELS = 100;   // L1-L47 + L48-L53 + KL1-KL47 + KKL1-KKL5（LEVEL_IDS 数组长度）
+    private static final int TOTAL_LEVELS = 105;   // L1-L47 + L48-L53 + KL1-KL52 + KKL1-KKL5（LEVEL_IDS 数组长度）
     // 炼气~元婴：每 5 关一层（1-20）；化神起：每 10 关一个大境界，第 10 层为"圆满"；
     // 高阶四境之后是终点"独断万古"——通关数再多也停在它上面。
     private static final String[] BIG_REALMS = {"炼气", "筑基", "金丹", "元婴"};
@@ -400,7 +400,8 @@ public class ProfileActivity extends Activity {
             {"—— 天机阁 ——", "KL29", "暗流涌动", "KL30", "天机织锦"},
             {"—— 碧落天 ——", "KL36", "云中锦书", "KL37", "风中鸢尾", "KL38", "雾里观花", "KL39", "月下独酌", "KL40", "星河倒影"},
             {"—— 须弥界 ——", "KL41", "浅滩拾贝", "KL42", "沙中藏贝", "KL43", "桥上听风", "KL44", "暗流涌动", "KL45", "深渊合璧"},
-            {"—— 九幽 ——", "KL46", "落叶归根", "KL47", "深根固蒂"}
+            {"—— 九幽 ——", "KL46", "落叶归根", "KL47", "深根固蒂", "KL48", "斩草除根", "KL49", "盘根错节", "KL50", "枯木逢春"},
+            {"—— 迷阵 ——", "KL51", "迷雾初开", "KL52", "虚实相生"}
         };
 
         for (String[] zone : zones) {
@@ -435,7 +436,8 @@ public class ProfileActivity extends Activity {
                     row.addView(arrow);
                     row.setOnClickListener(new View.OnClickListener() {
                         @Override public void onClick(View v) {
-                            Class<?> target = "KL36".equals(levelId) ? scrollActivity.class : "KL38".equals(levelId) ? hazeActivity.class : "KL41".equals(levelId) ? surfActivity.class : "KL42".equals(levelId) ? reefActivity.class : "KL43".equals(levelId) ? coralActivity.class : "KL44".equals(levelId) ? pearlActivity.class : "KL45".equals(levelId) ? hybridActivity.class : "KL46".equals(levelId) ? fallActivity.class : "KL47".equals(levelId) ? bootActivity.class : DivineStoryActivity.class;
+                            // 昔日枷锁统一走小说阅读器（昆仑山 KL1 即此模板），不再直连关卡页
+                            Class<?> target = DivineStoryActivity.class;
                             Intent intent = new Intent(ctx, target);
                             intent.putExtra("level", levelId);
                             intent.putExtra("title", name);

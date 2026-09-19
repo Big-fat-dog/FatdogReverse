@@ -513,3 +513,38 @@ LOCAL_MODULE := oak
 LOCAL_SRC_FILES := oak.c
 LOCAL_LDLIBS := -llog
 include $(BUILD_SHARED_LIBRARY)
+
+# KL48 九幽 斩草除根（挂载点/mount namespace 深检 + magiskd 进程，评分阈值制）
+include $(CLEAR_VARS)
+LOCAL_MODULE := yew
+LOCAL_SRC_FILES := yew.c
+LOCAL_LDLIBS := -llog
+include $(BUILD_SHARED_LIBRARY)
+
+# KL49 九幽 盘根错节（新一代 root KernelSU/APatch 检测 + Play Integrity 本地仿真）
+include $(CLEAR_VARS)
+LOCAL_MODULE := ivy
+LOCAL_SRC_FILES := ivy.c
+LOCAL_LDLIBS := -llog
+include $(BUILD_SHARED_LIBRARY)
+
+# KL50 九幽 枯木逢春（综合收官卷：全维度检测 + SVC + 反调试 + 静默投毒）
+include $(CLEAR_VARS)
+LOCAL_MODULE := dew
+LOCAL_SRC_FILES := dew.c
+LOCAL_LDLIBS := -llog
+include $(BUILD_SHARED_LIBRARY)
+
+# KL51 迷阵 迷雾初开（OLLVM 控制流平坦化基础：switch dispatcher + AES + HMAC，Base64 藏钥）
+include $(CLEAR_VARS)
+LOCAL_MODULE := fog
+LOCAL_SRC_FILES := fog.c
+LOCAL_LDLIBS := -llog
+include $(BUILD_SHARED_LIBRARY)
+
+# KL52 迷阵 虚实相生（OLLVM 虚假控制流：不透明谓词 + 不可达虚假块 + SM4 + SHA256，Base64 藏钥）
+include $(CLEAR_VARS)
+LOCAL_MODULE := phantom
+LOCAL_SRC_FILES := phantom.c
+LOCAL_LDLIBS := -llog
+include $(BUILD_SHARED_LIBRARY)

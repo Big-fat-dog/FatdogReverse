@@ -3362,6 +3362,107 @@ def api_kl45(page: int = Form(...), ts: int = Form(...),
     return {"page": page, "nums": []}
 
 
+# ---------------- 关卡 KL51（迷阵）迷雾初开：OLLVM 控制流平坦化基础 ----------------
+# 标准 AES-128-ECB + HMAC-SHA256（迷阵五关里唯一用 HMAC 的关）。
+# enc = hex(AES-128-ECB(aes_key, "page=N&ts=T" 零填充到 32))，sign = HMAC(mac_key, enc)。
+# aes_key = SHA256("Fatdog_haze|aes")[:16]，mac_key = SHA256("Fatdog_haze|mac")[:32]。
+# 考点：客户端签名函数被 OLLVM 控制流平坦化（16 case，10 真 6 假），需先还原平坦化。
+KEY_KL51 = "Fatdog_haze"
+DECOY_KL51 = ["Fatdog_hazey"]
+PAGES_KL51, PER_PAGE_KL51, SEED_KL51 = 100, 10, 20280906
+_rng_kl51 = random.Random(SEED_KL51)
+NUMS_KL51 = [_rng_kl51.randint(1, 100) for _ in range(PAGES_KL51 * PER_PAGE_KL51)]
+KL51_SUM = sum(NUMS_KL51)
+KL51_SUM_HASH = hashlib.sha256(str(KL51_SUM).encode()).hexdigest()
+
+
+def _kl51_try(master, page, ts, enc, sign):
+    mk = master.encode()
+    akey = hashlib.sha256(mk + b"|aes").digest()[:16]
+    mack = hashlib.sha256(mk + b"|mac").digest()
+    if not hmac.compare_digest(sign, hmac.new(mack, enc.encode(), hashlib.sha256).hexdigest()):
+        return False
+    try:
+        p = _aes128_ecb_decrypt(akey, bytes.fromhex(enc))
+        plain = p.split(b"\x00")[0].decode("utf-8", "ignore")
+    except Exception:
+        return False
+    m = re.fullmatch(r"page=(\d+)&ts=(\d+)", plain or "")
+    return bool(m) and int(m.group(1)) == page and int(m.group(2)) == ts
+
+
+@app.get("/api/kl51")
+def api_kl51(page: int = Query(...), ts: int = Query(...), enc: str = Query(...),
+             sign: str = Query(...)):
+    _check_page(page, PAGES_KL51)
+    _check_ts(ts)
+    if _kl51_try(KEY_KL51, page, ts, enc, sign):
+        idx = (page - 1) * PER_PAGE_KL51
+        return {"page": page, "nums": NUMS_KL51[idx:idx + PER_PAGE_KL51]}
+    for dk in DECOY_KL51:
+        if _kl51_try(dk, page, ts, enc, sign):
+            raise HTTPException(status_code=403, detail="sign invalid")
+    return {"page": page, "nums": []}
+
+
+# ---------------- 关卡 KL52（迷阵）虚实相生：OLLVM 虚假控制流 ----------------
+# 标准 SM4-ECB + 纯 SHA256 摘要签名（迷阵第二关，不用 HMAC）。
+# enc = hex(SM4-ECB(sm4_key, "page=N&ts=T" 零填充到 32))，sign = SHA256("Fatdog_phantom|"+page+"|"+ts)。
+# sm4_key = SHA256("Fatdog_phantom|sm4")[:16]。
+# 考点：客户端签名函数被 OLLVM 虚假控制流（不透明谓词 + 不可达虚假块）混淆。
+KEY_KL52 = "Fatdog_phantom"
+DECOY_KL52 = ["Fatdog_illusion"]
+PAGES_KL52, PER_PAGE_KL52, SEED_KL52 = 100, 10, 20280907
+_rng_kl52 = random.Random(SEED_KL52)
+NUMS_KL52 = [_rng_kl52.randint(1, 100) for _ in range(PAGES_KL52 * PER_PAGE_KL52)]
+KL52_SUM = sum(NUMS_KL52)
+KL52_SUM_HASH = hashlib.sha256(str(KL52_SUM).encode()).hexdigest()
+
+
+def _kl52_sm4_key(master):
+    return hashlib.sha256(master.encode() + b"|sm4").digest()[:16]
+
+
+def _kl52_sm4_encrypt_zero_pad(key16, data):
+    """SM4-ECB 零填充到 32 字节（2 块），与 App 端 phantom.c 对齐。"""
+    plain = data + b"\x00" * (32 - len(data))
+    rk = _sm4_keys(key16)
+    out = bytearray()
+    for i in range(0, 32, 16):
+        blk = bytearray(16)
+        _sm4_block(plain, i, blk, 0, rk)
+        out += blk
+    return bytes(out)
+
+
+def _kl52_try(master, page, ts, enc, sign):
+    # sign = SHA256("Fatdog_phantom|page|ts")
+    expected_sign = hashlib.sha256(
+        f"{master}|{page}|{ts}".encode()).hexdigest()
+    if not hmac.compare_digest(sign, expected_sign):
+        return False
+    try:
+        key = _kl52_sm4_key(master)
+        expected_enc = _kl52_sm4_encrypt_zero_pad(key, f"page={page}&ts={ts}".encode())
+        return hmac.compare_digest(bytes.fromhex(enc), expected_enc)
+    except Exception:
+        return False
+
+
+@app.get("/api/kl52")
+def api_kl52(page: int = Query(...), ts: int = Query(...), enc: str = Query(...),
+             sign: str = Query(...)):
+    _check_page(page, PAGES_KL52)
+    _check_ts(ts)
+    if _kl52_try(KEY_KL52, page, ts, enc, sign):
+        idx = (page - 1) * PER_PAGE_KL52
+        return {"page": page, "nums": NUMS_KL52[idx:idx + PER_PAGE_KL52]}
+    for dk in DECOY_KL52:
+        if _kl52_try(dk, page, ts, enc, sign):
+            raise HTTPException(status_code=403, detail="sign invalid")
+    return {"page": page, "nums": []}
+
+
 if __name__ == "__main__":
     cert_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "certs")
     print(f"FatdogReverse 服务端（FastAPI）：http://{HOST}:{PORT_HTTP}（15-20） https://{HOST}:{PORT_HTTPS}（21-27）")
@@ -3374,7 +3475,7 @@ if __name__ == "__main__":
           f"KKL2={sum(NUMS_KKL2)} KKL3={sum(NUMS_KKL3)} KKL4={sum(NUMS_KKL4)} "
           f"L43={sum(NUMS43)} L44={sum(NUMS44)} L45={sum(NUMS45)} L46={sum(NUMS46)} L47={sum(NUMS47)} "
           f"L48={sum(NUMS48)} L49={sum(NUMS49)} L50={sum(NUMS50)} L51={sum(NUMS51)} L52={sum(NUMS52)} L53={sum(NUMS53)} "
-          f"KL36={KL36_SUM} KL37={KL37_SUM} KL38={KL38_SUM} KL39={KL39_SUM} KL40={KL40_SUM} KL41={KL41_SUM} KL42={KL42_SUM} KL43={KL43_SUM} KL44={KL44_SUM} KL45={KL45_SUM}")
+          f"KL36={KL36_SUM} KL37={KL37_SUM} KL38={KL38_SUM} KL39={KL39_SUM} KL40={KL40_SUM} KL41={KL41_SUM} KL42={KL42_SUM} KL43={KL43_SUM} KL44={KL44_SUM} KL45={KL45_SUM} KL51={KL51_SUM} KL52={KL52_SUM}")
     http_cfg = uvicorn.Config(app, host=HOST, port=PORT_HTTP, log_level="info")
     threading.Thread(target=uvicorn.Server(http_cfg).run, daemon=True).start()
     https_cfg = uvicorn.Config(app, host=HOST, port=PORT_HTTPS,

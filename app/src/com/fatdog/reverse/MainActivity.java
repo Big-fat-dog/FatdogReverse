@@ -449,7 +449,7 @@ public class MainActivity extends Activity {
         LinearLayout cats = new LinearLayout(this);
         cats.setOrientation(LinearLayout.HORIZONTAL);
         cats.setPadding(Ui.dp(4), Ui.dp(12), Ui.dp(4), Ui.dp(4));
-        final String[] catNames = {"昆仑山", "流沙河", "幽冥海", "太玄之初", "扶桑树", "天机阁", "碧落天", "须弥界", "九幽"};
+        final String[] catNames = {"昆仑山", "流沙河", "幽冥海", "太玄之初", "扶桑树", "天机阁", "碧落天", "须弥界", "九幽", "迷阵"};
         for (int i = 0; i < catNames.length; i++) {
             final int idx = i;
             TextView chip = new TextView(this);
@@ -723,8 +723,8 @@ public class MainActivity extends Activity {
             }
         } else if (kunlunCat == 8) {
             /* 九幽：KL46 起，Root 检测与绕过 */
-            String[] names = {"落叶归根", "深根固蒂"};
-            int[] klNums = {46, 47};
+            String[] names = {"落叶归根", "深根固蒂", "斩草除根", "盘根错节", "枯木逢春"};
+            int[] klNums = {46, 47, 48, 49, 50};
             for (int i = 0; i < names.length; i++) {
                 final int kl = klNums[i];
                 boolean open = PassLog.isDone(this, "KL" + kl);
@@ -737,7 +737,30 @@ public class MainActivity extends Activity {
                         LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
                 lp.topMargin = Ui.dp(12);
                 list.addView(b, lp);
-                final Class<?> target = kl == 46 ? fallActivity.class : bootActivity.class;
+                final Class<?> target = kl == 46 ? fallActivity.class : kl == 47 ? bootActivity.class : kl == 48 ? mountActivity.class : kl == 49 ? ksuActivity.class : springActivity.class;
+                b.setOnClickListener(new View.OnClickListener() {
+                    @Override public void onClick(View v) {
+                        startActivity(new Intent(MainActivity.this, target));
+                    }
+                });
+            }
+        } else if (kunlunCat == 9) {
+            /* 迷阵：KL51 起，OLLVM 混淆 + 控制流平坦化 */
+            String[] names = {"迷雾初开", "虚实相生"};
+            int[] klNums = {51, 52};
+            for (int i = 0; i < names.length; i++) {
+                final int kl = klNums[i];
+                boolean open = PassLog.isDone(this, "KL" + kl);
+                Button b = new Button(this);
+                b.setText("KL" + kl + " · " + names[i] + (open ? " ✔" : ""));
+                b.setEnabled(true);
+                b.setAlpha(b.isEnabled() ? 1f : 0.55f);
+                Ui.styleButton(b);
+                LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+                lp.topMargin = Ui.dp(12);
+                list.addView(b, lp);
+                final Class<?> target = kl == 51 ? fogActivity.class : phantomActivity.class;
                 b.setOnClickListener(new View.OnClickListener() {
                     @Override public void onClick(View v) {
                         startActivity(new Intent(MainActivity.this, target));
