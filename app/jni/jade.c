@@ -1,4 +1,4 @@
-/* libm4.so ——「天罡北斗」（由 gen_kl9.py 生成，勿手改）
+/* libjade.so ——「天罡北斗」（由 gen_kl9.py 生成，勿手改）
  * 手写 RC4，两层魔改：
  *   魔改点一：KSA 的初始 S 盒不是恒等置换 S[i]=i，而是下面的自定义置换表
  *             KSA_INIT（由标记经确定性 Fisher-Yates 派生）——
@@ -278,7 +278,7 @@ JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void *reserved) {
 #endif /* !M4_HOST_TEST */
 
 #ifdef M4_HOST_TEST
-/* 主机自测：cc -DM4_HOST_TEST -o m4test m4.c && ./m4test */
+/* 主机自测：cc -DM4_HOST_TEST -o jadetest jade.c && ./jadetest */
 int main(void) {
     char enc[65], sign[65];
     unsigned char key[16], work[33];

@@ -80,12 +80,11 @@ public class x53Activity extends Activity {
         box.setPadding(Ui.dp(16), Ui.dp(14), Ui.dp(16), Ui.dp(12));
 
         TextView tv = new TextView(this);
-        tv.setText("L53 · 焚天火域（★★★★★ 双阵联防 · 最终关）\n"
-                + "libnative53.so  — 调度 + 异常控制流\n"
-                + "libnative53c.so — 轮函数 + 魔改分组密码双阵 + 密钥\n"
-                + "libnative53b.so — 22类业务代码干扰\n"
-                + "双阵联防 + 签名 + 流密码三式齐出\n"
-                + "焚天之火焚烧一切，收官之卷万法归一");
+        tv.setText("L53 · 焚天火域（★★★★★）\n"
+                + "火域深处，两道机关咬合在一起，互为表里。\n"
+                + "一道正着转，一道偏了齿，脚下还埋着会拐弯的暗格。\n"
+                + "机关拆在三处，处处都裹着一层掩人耳目的浮土。\n"
+                + "想破这收官之局，先剥开浮土，再辨两道机关的真身。");
         tv.setGravity(Gravity.CENTER);
         box.addView(tv, Ui.wrap(4));
 
@@ -190,15 +189,12 @@ public class x53Activity extends Activity {
             @Override public void onClick(View v) {
                 new AlertDialog.Builder(x53Activity.this)
                         .setTitle("提示")
-                        .setMessage("Feistel + 魔改 AES 双算法 + 3 SO 分离：\n\n"
-                                + "libnative53c.so 的 algo=1 走 Feistel 轮函数（8轮×3子密钥），algo=2 走独立魔改 AES 分组路径（S盒替换 + ShiftRows + 变体列混合）\n"
-                                + "两条分支共用魔改 S 盒、FK 异或和密钥扩展；libnative53.so 里的 try/catch 先对输入做 XOR 掩码\n"
-                                + "libnative53b.so 里是 22 类业务代码干扰\n\n"
-                                + "Frida 训练：\n"
-                                + "  • Hook Bk53.nativeSign / nativeEnc 拿明文 payload\n"
-                                + "  • 异常控制流：注意 try/catch 块里藏真逻辑\n"
-                                + "  • 响应 RC4 解密：hook nativeRc4Decrypt\n\n"
-                                + "Python 复刻：分别复刻 Feistel 与魔改 AES，再做 HMAC 与 RC4 解密响应。")
+                        .setMessage("两道机关，一条按旧法转、一条按换过齿的转，\n"
+                                + "两条道却共用着同一副齿牙和同一把尺。\n\n"
+                                + "机关入口处有一处会拐弯的暗格——\n"
+                                + "踩错一步，就会滑进旁门，真路藏在拐弯的那一瞬。\n\n"
+                                + "回程的信，也浸在一条会变形的暗流里，\n"
+                                + "得顺着暗流的性子，才能捞回门后的数字。")
                         .setPositiveButton("知道了", null)
                         .show();
             }

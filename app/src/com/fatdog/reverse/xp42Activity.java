@@ -31,7 +31,7 @@ public class xp42Activity extends Activity {
         kill.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                Kl42Gate.tick();
+                Kl42Gate.tick(xp42Activity.this);   // 落盘记一次（跨进程存活）
                 android.os.Process.killProcess(android.os.Process.myPid());
             }
         });
@@ -47,14 +47,17 @@ public class xp42Activity extends Activity {
 
         setContentView(Ui.wrapScroll(box)); ThemeKit.apply(this);
 
-        // 冷启动检测：如果 Xposed Hook 仍生效则通关
-        if (Kl42Gate.coldStartCheck() && Kl42Gate.getTicks() > 0) {
+        // 冷启动检测：coldStartCheck 被模块 Hook 成 true（持久化生效）
+        // 且 ticks>0（自毁前落盘的计数，重开后仍可读到）→ 通关
+        if (Kl42Gate.coldStartCheck() && Kl42Gate.getTicks(this) > 0) {
             passed = true;
             status.setText("✓ 持久化 Hook 生效！欢迎登顶。");
             Celebration.show(xp42Activity.this, "FLAG_18_L42{persistence_is_power}");
             PassLog.mark(xp42Activity.this, "L42");
         } else if (Kl42Gate.coldStartCheck()) {
-            status.setText("Hook 检测通过但未经过自毁测试。\n点击自毁按钮杀掉进程，再从桌面重开来验证。");
+            status.setText("Hook 已生效，但还没经过自毁重启的考验。\n点「自毁进程」，再从桌面重开本页。");
+        } else {
+            status.setText("未检测到持久化 Hook。\n请先挂载模块并重启手机，再回来点「自毁进程」测试。");
         }
     }
 }

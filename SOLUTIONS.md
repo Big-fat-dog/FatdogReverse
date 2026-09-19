@@ -1208,7 +1208,7 @@ Java.perform(function () {
 
 ### 关卡 22：双锁封疆（TrustManager + CertificatePinner 双闸门）
 
-**考点**：在 L21 的自定义信任之上再叠一层 OkHttp `CertificatePinner`：把服务器证书的 **SPKI（公钥指纹）**焊死成 `sha256/Tix1…`，还加了个只认 `10.0.2.2/127.0.0.1/localhost` 的 HostnameVerifier。就算 Hook 掉 TrustManager 让代理证书被信任，pinner 发现证书指纹换了照样炸——**两道闸都要过**。
+**考点**：在 L21 的自定义信任之上再叠一层 OkHttp `CertificatePinner`：把服务器证书的 **SPKI（公钥指纹）**焊死成 `sha256/B3Mk7KMT2PA+BI0tXRk8t8lNdgMYIo70qvZ59BzGpR4=`（对应 `certs/server.crt`），还加了个只认 `10.0.2.2/127.0.0.1/localhost` 的 HostnameVerifier。就算 Hook 掉 TrustManager 让代理证书被信任，pinner 发现证书指纹换了照样炸——**两道闸都要过**。
 
 **类在哪**：`x2Activity` → `Pn.fetchPage`。`Pn.PIN` 就是 SPKI 指纹（明文字符串，可以直接看到）；HMAC 密钥 `Kp`（`fatdemo_`）+ `Pn.KB`（`pin_key`）。CA 复用 `Tm.caDer()`。诱饵 `Pim`。
 
@@ -1795,7 +1795,7 @@ Java.perform(function () {
 | 32 | `FLAG_18_L32{silent_poison_defused}`（加和 `51745`） |
 | 33 | `FLAG_18_L33{crc_guard_bypassed}`（加和 `49502`） |
 | 34 | `FLAG_18_L34{guixu_all_in_one}`（加和 `49932`） |
-| 35 | `FLAG_18_L35{sbox_tells_all}`（加和 `51217`） |
+| 35 | `FLAG_18_L35{sbox_tells_all}`（加和 `50312`） |
 | 36 | `FLAG_18_L36{base64_is_not_encryption}`（加和 `49495`） |
 | 37 | `FLAG_18_L37{avalanche_hides_the_blood}`（加和 `51242`） |
 | 38 | `FLAG_18_L38{puppet_line_attached}`（Hook XpGate.check 即通） |
@@ -1873,7 +1873,7 @@ Java.perform(function () {
 // Memory.scanSync(m.base, m.size, '46 61 74 64 6f 67 5f 75 6e 68 61 70 70 79')  // "Fatdog_unhappy"
 ```
 
-**坑位提醒**：`Fk.FAKE_KEY` 和 so 里明文可见的 `Fatdog_silent` 都是诱饵，拿来算签名只会收到 403。
+**坑位提醒**：so 里明文可见的 `KEY28_DECOY`（`Fatdog_silent`）是诱饵，拿来算签名只会收到 403。
 
 ---
 
@@ -2381,7 +2381,9 @@ import time, hmac, hashlib, requests
 from Crypto.Cipher import DES as _D
 
 def sm4_encrypt(data: bytes, key: bytes) -> bytes:
-    # 纯 Python SM4-ECB：与服务端 server.py 的实现一致，可直接照抄该文件
+    # 纯 Python SM4-ECB 单块加密（轮函数照抄 server.py 的 _sm4_keys/_sm4_block）。
+    # 注意：客户端是「零填充」，服务端 _l35_try 用纯解密（_l35_sm4_decrypt_raw，不做 PKCS7）
+    # 再 split(b"\x00") 取明文——所以这里对已零填充的 payload 只做 ECB，绝不能再套 PKCS7。
     ...
 
 def des3_ecb_encrypt(key24: bytes, data8: bytes) -> bytes:
@@ -2407,7 +2409,7 @@ for page in range(1, 101):
                       data={"page": page, "ts": ts, "e1": e1, "e2": e2,
                             "sign": sign})
     total += sum(r.json()["nums"])       # 只发真包；干扰包留给自己玩甄别
-print("总和:", total)                     # 51217
+print("总和:", total)                     # 50312
 ```
 
 （sm4_encrypt 可直接从 server.py 抄纯 Python 实现；3DES 用 pycryptodome 拼 EDE 即可，无需手写轮函数。）
@@ -2608,12 +2610,16 @@ XposedHelpers.findAndHookMethod("com.fatdog.reverse.TripleGate",
 
 **考点**：自毁进程 → 桌面重开 → Hook 仍在。这是 Xposed 与 Frida 的本质区别：Frida 断线即失效，Xposed 模块随系统加载，冷启动照样生效。
 
+`Kl42Gate.coldStartCheck()` 默认返回 **false**（表示"没检测到持久化 Hook"），把它 Hook 成 true 才代表模块在冷启动后依然生效：
+
 ```java
 XposedHelpers.findAndHookMethod("com.fatdog.reverse.Kl42Gate",
         lpp.classLoader, "coldStartCheck", XC_MethodReplacement.returnConstant(true));
 ```
 
-操作步骤：挂上模块重启手机 → 打开关卡 42 → 点「自毁进程」（内部会先 tick 再杀自己，防止跳过测试）→ 从桌面重新打开靶场 → 进关卡 42 → 冷启动检测通过且 ticks>0 → 自动通关。如果只 Hook 不自毁，页面会提示"未经过自毁测试"。
+判定要同时满足两条：`coldStartCheck()` 为真（模块熬过冷启动）**且** `getTicks() > 0`。ticks 不是内存变量——`tick()` 会写进 SharedPreferences（`fatdog_xp42`），所以进程被杀重启后仍读得到，这正是"经过了一次自毁重启"的凭据。
+
+操作步骤：挂上模块重启手机 → 打开关卡 42 → 点「自毁进程」（内部先 `tick()` 落盘再自杀，防止跳过测试）→ 从桌面重新打开靶场 → 进关卡 42 → `coldStartCheck()`（Hook 生效）+ `ticks>0`（落盘计数）→ 自动通关。只 Hook 不自毁会提示"Hook 已生效，但还没经过自毁重启的考验"；模块没生效则提示"未检测到持久化 Hook"。
 
 **答案**：`FLAG_18_L42{persistence_is_power}`
 
@@ -3410,7 +3416,7 @@ print(total)   # 51561
 
 **考点**：libfrost.so 手写 DES——S 盒骨架可认（S1 开头 `14 04 0d 01`）、E/P/PC1/PC2 全是标准，但三处被动手脚：
 
-1. **IP 排列表首尾互换**：IP[0]=58 ↔ IP[63]=57（IDA 里对表一眼见血——标准 IP 开头是 58,50,42,34）；
+1. **IP 排列表首尾互换**：IP[0]=58 ↔ IP[63]=7（IDA 里对表一眼见血——标准 IP 开头是 58,50,42,34）；
 2. **FP 同步重算**为魔改 IP 的逆置换（保证它自己加解密回环一致）；
 3. **S3 盒第 2 行第 3/4 列两值互换**（扁平下标 18/19：标准值 00,09 被换成 09,00）。
 
@@ -3452,7 +3458,7 @@ print(total)   # 48865
 
 不想依赖生成器也可以手写同款 DES：全套照 FIPS 教科书抄，只改三处——IP[0]/IP[63] 互换、FP 按新 IP 重算逆置换、S3[18]/S3[19] 互换——其余一个字节都不要动。（注意 S 盒顺序别背错：`13,2,8,4…` 开头的是 S8 不是 S3，真实 S3 开头 `10,00,09,0e`。）
 
-**动态路线**：jadx 从 o44Activity 顺藤摸到 Tp/Vq——Frida `Java.use('com.fatdog.reverse.Tp')` 直接调用 nativeEncDes/nativeSign 拿现成参数对拍或转发；IDA 路线则从 S1 盒 xref 定位 m2 的 Feistel 函数与子密钥编排，对比 IP 表开头（57,50,42,34 ≠ 标准 58,50,42,34）即实锤第一处魔改。
+**动态路线**：jadx 从 o44Activity 顺藤摸到 Tp/Vq——Frida `Java.use('com.fatdog.reverse.Tp')` 直接调用 nativeEncDes/nativeSign 拿现成参数对拍或转发；IDA 路线则从 S1 盒 xref 定位 m2 的 Feistel 函数与子密钥编排，对比 IP 表开头（7,50,42,34 ≠ 标准 58,50,42,34）即实锤第一处魔改。
 
 **坑位提醒**：`Ww.FAKE_KEY = Fatdog_scatter` 与真标记一字之差（命中即 403）；`strings libfrost.so` 默认看不见真标记，要 `-el`；别把 `m2_decoy_seal` 的密文当宝；用标准 pycryptodome 3DES 构造的请求服务端解不开（返回 nums 空数组）——这正是"必须还原魔改点"的反证。答案：加和 `48865`；flag `FLAG_18_KL7{soul_box_shattered}`
 

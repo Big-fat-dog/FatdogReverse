@@ -77,12 +77,11 @@ public class x52Activity extends Activity {
         box.setPadding(Ui.dp(16), Ui.dp(14), Ui.dp(16), Ui.dp(12));
 
         TextView tv = new TextView(this);
-        tv.setText("L52 · 冰封雪域（★★★★★ 魔改分组 · 3 SO 分离）\n"
-                + "libnative52.so   — 魔改分组加密\n"
-                + "libnative52k.so  — 密钥 + 流密码\n"
-                + "libnative52b.so  — 业务代码干扰\n"
-                + "魔改分组密码 + 签名双阵联防 · 深层调用栈\n"
-                + "冰封之下暗流涌动，三 SO 协同缺一方崩溃");
+        tv.setText("L52 · 冰封雪域（★★★★★）\n"
+                + "雪域深处有道锁，锁芯被工匠动了手脚——\n"
+                + "几枚齿牙偷偷调了包，锁的脾气与寻常不同。\n"
+                + "钥匙也拆成三份，压在层层冰层之下。\n"
+                + "想开门，先辨出那副被调过包的锁芯，再一层层凿冰。");
         tv.setGravity(Gravity.CENTER);
         box.addView(tv, Ui.wrap(4));
 
@@ -187,15 +186,13 @@ public class x52Activity extends Activity {
             @Override public void onClick(View v) {
                 new AlertDialog.Builder(x52Activity.this)
                         .setTitle("提示")
-                        .setMessage("魔改 SM4 + 3 SO 分离：\n\n"
-                                + "libnative52.so 里有魔改 SM4（S盒4处换值 0x3A/0x7F/0xB2/0xE8，FK异或，CK循环左移）\n"
-                                + "libnative52k.so 里有密钥 + RC4\n"
-                                + "libnative52b.so 里是业务代码干扰\n\n"
-                                + "Frida 训练：\n"
-                                + "  • Hook Bk52.nativeSign / nativeEnc 拿明文 payload\n"
-                                + "  • 深层栈回溯追 5+ 层调用链\n"
-                                + "  • dlopen 依赖链追踪\n\n"
-                                + "Python 复刻：魔改 SM4 加密 + HMAC-SHA256 签名。")
+                        .setMessage("那把锁，表面看着眼熟，实则有几处被调了包——\n"
+                                + "齿牙、门闩、刻度，都未必是原来的样子。\n\n"
+                                + "拿它与一把寻常的锁并排比一比，\n"
+                                + "那些被换过的地方，自然露了马脚。\n\n"
+                                + "钥匙拆在三处：一处锁芯，一处活水，一处账本。\n"
+                                + "活水那处还藏着一条会换形状的暗流。\n"
+                                + "想开锁，得一层层追下去，追到最底的那道机关。")
                         .setPositiveButton("知道了", null)
                         .show();
             }

@@ -139,38 +139,35 @@ static void m8_hmac_sha256(const unsigned char *key, unsigned int klen,
     m8_sha256(outer, 64 + 32, out);
 }
 
-/* ---------- 派生密钥: SHA256(certDER ‖ marker) ---------- */
+/* ---------- 派生密钥: SHA256(certHash ‖ marker) ---------- */
 
 static unsigned char g_key[32];   /* 派生密钥（完整 32 字节） */
 static int g_key_ready = 0;
 
-static void m8_derive_key(const unsigned char *der, unsigned int der_len) {
-    unsigned char *buf = (unsigned char *)malloc(der_len + MARK_LEN);
-    if (!buf) return;
-    memcpy(buf, der, der_len);
+static void m8_derive_key(void) {
+    /* key = SHA256(certHash(32 字节) ‖ "Fatdog_bind")，与 server.py 一致。
+     * certHash 即内置 g_bench（原包证书 DER 的 SHA-256，^0x66 藏匿）。 */
+    unsigned char *buf = (unsigned char *)malloc(32 + MARK_LEN);
     int i;
+    if (!buf) return;
+    if (!g_bench_ready) m8_unlock_bench();
+    memcpy(buf, g_bench, 32);
     for (i = 0; i < MARK_LEN; i++)
-        buf[der_len + i] = (unsigned char)(MARK_X[i] ^ 0x3C);  /* 解码 marker */
-    m8_sha256(buf, der_len + MARK_LEN, g_key);
+        buf[32 + i] = (unsigned char)(MARK_X[i] ^ 0x3C);  /* 解码 marker */
+    m8_sha256(buf, 32 + MARK_LEN, g_key);
     free(buf);
     g_key_ready = 1;
 }
 
 #ifndef M8_HOST_TEST
 
-/* nativeKeySeed: 传入 DER → 计算派生密钥 → 返回 32 字节派生密钥 */
+/* nativeKeySeed: 用内置 certHash 派生密钥 → 返回 32 字节派生密钥 */
 JNIEXPORT jbyteArray JNICALL
 Java_com_fatdog_reverse_Wg_nativeKeySeed(JNIEnv *env, jclass clazz, jbyteArray der) {
     jbyteArray result;
     (void)clazz;
-    if (!der) return NULL;
-    jsize len = (*env)->GetArrayLength(env, der);
-    jbyte *p = (*env)->GetByteArrayElements(env, der, NULL);
-    if (!p) return NULL;
-
-    if (!g_bench_ready) m8_unlock_bench();
-    m8_derive_key((const unsigned char *)p, (unsigned int)len);
-    (*env)->ReleaseByteArrayElements(env, der, p, JNI_ABORT);
+    (void)der;
+    if (!g_key_ready) m8_derive_key();
 
     result = (*env)->NewByteArray(env, 32);
     if (result)
@@ -190,6 +187,7 @@ Java_com_fatdog_reverse_Wg_nativeSign(JNIEnv *env, jclass clazz,
     static const char *H = "0123456789abcdef";
     int i;
 
+    if (!g_key_ready) m8_derive_key();
     m8_hmac_sha256(g_key, 32, (const unsigned char *)msg, (unsigned int)mlen, dg);
 
     for (i = 0; i < 32; i++) {
@@ -215,9 +213,8 @@ int main(void) {
 
     printf("=== L46 以签为钥 · 本地自测 ===\n");
 
-    /* 用假 DER 做测试 */
-    const unsigned char fake_der[] = {0x30,0x82,0x01,0x22,0x30,0x0D,0x06,0x09};
-    m8_derive_key(fake_der, sizeof(fake_der));
+    /* 用内置 certHash 派生 */
+    m8_derive_key();
     for (i = 0; i < 32; i++) {
         hex[2*i]   = H[g_key[i] >> 4];
         hex[2*i+1] = H[g_key[i] & 0xF];

@@ -53,7 +53,7 @@ public class x48Activity extends Activity {
 
     private static final int PAGES = 100;
     private static final int PER_PAGE = 10;
-    private static final String SUM_HASH = "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2";
+    private static final String SUM_HASH = "7507a9c6cd651ffe4d9e367f76b4bed6793a9da34a17ae102cfa517ae98f4f2e";
 
     private OkHttpClient client;
     private String base;
@@ -77,12 +77,11 @@ public class x48Activity extends Activity {
         box.setPadding(Ui.dp(16), Ui.dp(14), Ui.dp(16), Ui.dp(12));
 
         TextView tv = new TextView(this);
-        tv.setText("L48 · 落日平原（★★ operator+ 重载）\n"
-                + "libnative48.so 导出：\n"
-                + "  String nativeSign(int page, long ts)\n"
-                + "  String getKeyHint()\n"
-                + "密钥由两段数组拼接而成——拼接之法令密钥变幻莫测\n"
-                + "C++ mangled 名 + std::string 特征，静心辨之方见真章");
+        tv.setText("L48 · 落日平原（★★）\n"
+                + "平原上立着一座磨坊，日夜碾着看不见的谷子。\n"
+                + "谷子被拆成两捧，各自裹了层盐霜，\n"
+                + "只有磨盘转起来，两捧才能重新并作一处。\n"
+                + "想取到门后的数字，先听懂磨盘转动的暗语。");
         tv.setGravity(Gravity.CENTER);
         box.addView(tv, Ui.wrap(4));
 
@@ -196,16 +195,13 @@ public class x48Activity extends Activity {
             @Override public void onClick(View v) {
                 new AlertDialog.Builder(x48Activity.this)
                         .setTitle("提示")
-                        .setMessage("C++ operator+ 重载：\n\n"
-                                + "密钥由两段 XOR 数组拼接而成\n"
-                                + "SignKey 类重载了 operator+ 运算符\n"
-                                + "用 std::string 做底层存储\n\n"
-                                + "Frida 训练：\n"
-                                + "  • Hook mangled 函数名 _ZN7SignKey...\n"
-                                + "  • DebugSymbol.fromAddress 反解 demangle\n"
-                                + "  • 观察 sign() 返回值对拍验证\n\n"
-                                + "两个标记中有一个是诱饵，仔细对比拼写差异。\n"
-                                + "注意：标记以 UTF-16LE 藏在 .rodata，默认 strings 看不到。")
+                        .setMessage("磨坊里有一道被重新定义过的机关，\n"
+                                + "它能把两捧谷子合在一起。\n\n"
+                                + "试着在磨坊的轮齿间，找那个与别处不同的、\n"
+                                + "名字长得拗口的机关——\n"
+                                + "它才是真正转动磨盘的那一个。\n\n"
+                                + "谷子上裹的盐霜，是可以被洗掉的；\n"
+                                + "两捧谷子，只有名字对得上才拼得成一把。")
                         .setPositiveButton("知道了", null)
                         .show();
             }

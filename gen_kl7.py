@@ -3,11 +3,11 @@
 """
 gen_kl7.py —— 「裂魂之匣」so 生成器（魔改 DES · IP 换位 + S3 换值）
 
-产出 app/jni/m2.c（libm2.so）：
+产出 app/jni/frost.c（libfrost.so）：
   - 手写 DES：骨架全部可认（S1 开头 14,04,0d,01、E/P/PC1/PC2 标准），但三处被动手脚——
-      * IP 排列表首尾互换：IP[0]=58 <-> IP[63]=57
+      * IP 排列表首尾互换：IP[0]=58 <-> IP[63]=7
       * FP 同步重算为魔改 IP 的逆置换（保证自身加解密回环一致）
-      * S3 盒第 2 行第 3/4 列两值互换（扁平下标 18/19：13 <-> 8）
+      * S3 盒第 2 行第 3/4 列两值互换（扁平下标 18/19：0 <-> 9）
     标准 DES 库（pycryptodome 等）解不开本关密文。
   - 密钥运行时派生：des_key = sha256(<标记>|"des")[:24] 走 3DES-EDE，
     mac = sha256(<标记>|"mac") 全 32 字节。
@@ -139,7 +139,7 @@ SBOXES_STD = [
 # ---------------- 本关魔改点 ----------------
 
 IP_MOD = list(IP_STD)
-IP_MOD[0], IP_MOD[63] = IP_MOD[63], IP_MOD[0]     # 首尾互换：58 <-> 57
+IP_MOD[0], IP_MOD[63] = IP_MOD[63], IP_MOD[0]     # 首尾互换：58 <-> 7
 
 
 def inverse_perm(tab):
@@ -155,7 +155,7 @@ FP_MOD = inverse_perm(IP_MOD)                     # FP 同步重算（本关魔�
 
 SBOXES_MOD = [list(b) for b in SBOXES_STD]
 SBOXES_MOD[2][18], SBOXES_MOD[2][19] = SBOXES_MOD[2][19], SBOXES_MOD[2][18]
-# S3 扁平下标 18/19 = 第 2 行第 3/4 列：13 <-> 8（本关魔改点之三）
+# S3 扁平下标 18/19 = 第 2 行第 3/4 列：0 <-> 9（本关魔改点之三）
 
 # ---------------- 纯 Python DES（位串实现，C 版逐句镜像） ----------------
 
@@ -375,11 +375,11 @@ def fmt_units(units, perline=8, indent="        "):
     return "\n".join(rows)
 
 
-C_TEMPLATE = r"""/* libm2.so ——「裂魂之匣」（由 gen_kl7.py 生成，勿手改）
+C_TEMPLATE = r"""/* libfrost.so ——「裂魂之匣」（由 gen_kl7.py 生成，勿手改）
  * 手写 DES：骨架全部可认（S1 开头 14,04,0d,01、E/P/PC1/PC2 标准），但有三处被动手脚：
- *   ① IP 排列表首尾互换：IP[0]=58 <-> IP[63]=57（IDA 里对表一眼见血）
+ *   ① IP 排列表首尾互换：IP[0]=58 <-> IP[63]=7（IDA 里对表一眼见血）
  *   ② FP 同步重算为魔改 IP 的逆置换（保证自身加解密回环一致）
- *   ③ S3 盒第 2 行第 3/4 列两值互换（13 <-> 8）
+ *   ③ S3 盒第 2 行第 3/4 列两值互换（0 <-> 9）
  * 因此标准 DES 实现解不开本关密文。
  *
  * 密钥全部运行时派生：
@@ -736,7 +736,7 @@ JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void *reserved) {
 #endif /* !M2_HOST_TEST */
 
 #ifdef M2_HOST_TEST
-/* 主机自测：cc -DM2_HOST_TEST -o m2test m2.c && ./m2test */
+/* 主机自测：cc -DM2_HOST_TEST -o frosttest frost.c && ./frosttest */
 int main(void) {
     char enc[73], sign[65];
     unsigned char key[24], pt[24], back[25];
@@ -800,7 +800,7 @@ def main():
     csrc = csrc.replace("@DBLOBHEXLEN@", str(len(DECOY_BLOB) * 2 + 1))
     csrc = csrc.replace("@DBLOB@", fmt_bytes(DECOY_BLOB))
 
-    out_path = "app/jni/m2.c"
+    out_path = "app/jni/frost.c"
     with open(out_path, "w", encoding="utf-8", newline="\n") as f:
         f.write(csrc)
 

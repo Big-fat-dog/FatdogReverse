@@ -24,7 +24,7 @@ import java.security.MessageDigest;
 // 网络关卡 35（native 第三季）：libumbra.so 手写 3DES + SM4，文件前半全是无用变换；
 // 密钥由 UTF-16 标记 Fatdog_sneak 派生，请求带双密文参数，且每页三连包辨真假。
 public class k35Activity extends Activity {
-    static final String SUM_HASH = "d1561d5d92892a51830bbaaba19385c1bed9d53b53a82a3fca646dc790d70a6c";
+    static final String SUM_HASH = "536c5dc4da358b4fc1ed2d4d3adaa30276b709192b80f124d2ec7e9cb5ccb82d";
     static final int PAGES = 100;
     static final int PER_PAGE = 10;
 

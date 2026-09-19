@@ -1,4 +1,4 @@
-/* libm5.so ——「万象归一」（由 gen_kl10.py 生成，勿手改）
+/* libonyx.so ——「万象归一」（由 gen_kl10.py 生成，勿手改）
  * 双层叠加签名：sign = hex( 魔改AES-128-ECB( aes_key, 魔改SHA256(payload) ) )
  *   第一层 SHA256 变体：K 表与压缩轮全标准（认骨架看 K 表 428a2f98…），
  *     但初始 IV 整组换血为派生值，且消息填充边界从 56 前移到 48（多补一轮压缩）。
@@ -348,7 +348,7 @@ JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void *reserved) {
 #endif /* !M5_HOST_TEST */
 
 #ifdef M5_HOST_TEST
-/* 主机自测：cc -DM5_HOST_TEST -o m5test m5.c && ./m5test */
+/* 主机自测：cc -DM5_HOST_TEST -o onytest onyx.c && ./onytest */
 int main(void) {
     char dig[65], sign[65];
     m5_core_digest(1, 1787013761LL, dig);

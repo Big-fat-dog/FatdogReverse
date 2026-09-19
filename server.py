@@ -454,7 +454,7 @@ def _key_expand_kl6(key16: bytes) -> list:
 
 
 def aes_kl6_ecb_decrypt(key16: bytes, data: bytes) -> bytes:
-    """魔改 AES-128-ECB 解密（与 libm1.so 的手写实现互为镜像）"""
+    """魔改 AES-128-ECB 解密（与 libember.so 的手写实现互为镜像）"""
     rk = _key_expand_kl6(key16)
     out = b""
     for off in range(0, len(data), 16):
@@ -903,7 +903,7 @@ def _blk44(blk, rks, enc=True):
 
 
 def des_kl7_ede_decrypt(key24: bytes, data: bytes) -> bytes:
-    """魔改 3DES-EDE 解密 p = D(K1, E(K2, D(K3, c)))，与 libm2.so 手写实现互为镜像"""
+    """魔改 3DES-EDE 解密 p = D(K1, E(K2, D(K3, c)))，与 libfrost.so 手写实现互为镜像"""
     k1, k2, k3 = _ks44(key24[:8]), _ks44(key24[8:16]), _ks44(key24[16:24])
     out = b""
     for off in range(0, len(data), 8):
@@ -976,7 +976,7 @@ for _i in range(32):
         _w |= (((4 * _i + _j) * 7) % 256) << (24 - 8 * _j)
     _CK_KL8.append(_w)
 _ck_seed_kl8 = hashlib.sha256(b"Fatdog_unravel|ck").digest()
-for _i in range(8):  # 魔改点：CK[24..31] 换血（与 libm3.so 一致）
+for _i in range(8):  # 魔改点：CK[24..31] 换血（与 libivory.so 一致）
     _CK_KL8[24 + _i] = int.from_bytes(_ck_seed_kl8[4 * _i:4 * _i + 4], "big")
 
 
@@ -1011,7 +1011,7 @@ def sm4_kl8_key_expand(key16: bytes) -> list:
 
 
 def sm4_kl8_decrypt(key16: bytes, data: bytes) -> bytes:
-    """魔改 SM4-ECB 解密（与 libm3.so 的手写实现互为镜像）"""
+    """魔改 SM4-ECB 解密（与 libivory.so 的手写实现互为镜像）"""
     rk = sm4_kl8_key_expand(key16)
     out = b""
     for off in range(0, len(data), 16):
@@ -1061,7 +1061,7 @@ NUMS_KL9 = [_rng_kl9.randint(1, 100) for _ in range(PAGES_KL9 * PER_PAGE_KL9)]
 
 
 def _ksa_init_kl9() -> list:
-    """自定义初始置换：sha256("Fatdog_veil|ksa") 确定性 Fisher-Yates（与 libm4.so 一致）"""
+    """自定义初始置换：sha256("Fatdog_veil|ksa") 确定性 Fisher-Yates（与 libjade.so 一致）"""
     seed = hashlib.sha256(b"Fatdog_veil|ksa").digest()
     data = b""
     ctr = 0
@@ -1081,7 +1081,7 @@ _MASK_KL9 = hashlib.sha256(b"Fatdog_veil|mask").digest()[:16]
 
 
 def rc4_kl9_crypt(key16: bytes, data: bytes) -> bytes:
-    """魔改 RC4（流异或自反，加解密同函数；与 libm4.so 的手写实现互为镜像）"""
+    """魔改 RC4（流异或自反，加解密同函数；与 libjade.so 的手写实现互为镜像）"""
     s = list(_KSA_KL9)
     j = 0
     for i in range(256):
@@ -1182,7 +1182,7 @@ def _gmul_kl10(a, b):
 
 
 def _sha_var_kl10(data: bytes, iv_words=None) -> bytes:
-    """魔改 SHA256：标准压缩轮，IV=SHA256(Fatdog_eclipse|iv) 整组换血，填充边界 48（与 libm5.so 一致）"""
+    """魔改 SHA256：标准压缩轮，IV=SHA256(Fatdog_eclipse|iv) 整组换血，填充边界 48（与 libonyx.so 一致）"""
     h = list(_IV_KL10_W if iv_words is None else iv_words)
     msg = bytearray(data)
     ml = len(msg) * 8
@@ -1227,7 +1227,7 @@ def _key_expand_kl10(key16: bytes) -> list:
 
 
 def aes_kl10_ecb_encrypt(key16: bytes, data: bytes) -> bytes:
-    """魔改 AES-128-ECB 加密：MixColumns 系数 {2,3} 对调为 {3,2}（与 libm5.so 一致）"""
+    """魔改 AES-128-ECB 加密：MixColumns 系数 {2,3} 对调为 {3,2}（与 libonyx.so 一致）"""
     rk = _key_expand_kl10(key16)
     out = b""
     for off in range(0, len(data), 16):
@@ -1418,7 +1418,7 @@ def api_l46(page: int = Form(...), ts: int = Form(...), sign: str = Form(...)):
 _L47_CERT_HASH = bytes.fromhex("3bb2134ca3b10bacd43965d0838efa90eef3765eed8832929168ca0e221237fe")
 _L47_MARKER = b"Fatdog_seal"
 _L47_HMAC_KEY = hashlib.sha256(_L47_CERT_HASH + _L47_MARKER).digest()
-_L47_AES_KEY = hashlib.sha256(_L47_CERT_HASH + _L47_MARKER).digest()[:16]
+_L47_AES_KEY = hashlib.sha256(_L47_CERT_HASH + _L47_MARKER).digest()
 KEY47_MASTER = "Fatdog_seal"
 DECOY47_KEYS = ["Fatdog_steal"]
 PAGES47, PER_PAGE47, SEED47 = 100, 10, 20280426
@@ -1489,6 +1489,17 @@ def _des3_ecb_decrypt_py(key24: bytes, data8: bytes) -> bytes:
     return d1.decrypt(d2.encrypt(d3.decrypt(data8)))
 
 
+def _l35_sm4_decrypt_raw(key16: bytes, data: bytes) -> bytes:
+    """L35 专用：纯 SM4-ECB 解密，不去填充——与客户端 umbra.c 的零填充对齐
+    （sm4_decrypt 做 PKCS7 去填充，客户端是零填充，末尾 0x00 会让 out[:-0] 返回空串）。"""
+    rk = _sm4_keys(key16)
+    rkrev = rk[::-1]
+    out = bytearray(len(data))
+    for i in range(0, len(data), 16):
+        _sm4_block(data, i, out, i, rkrev)
+    return bytes(out)
+
+
 def _l35_try(master: str, page: int, ts: int, e1: str, e2: str, sign: str) -> bool:
     mk = master.encode()
     smk = hashlib.sha256(mk + b"|sm4").digest()[:16]
@@ -1496,7 +1507,7 @@ def _l35_try(master: str, page: int, ts: int, e1: str, e2: str, sign: str) -> bo
     if not hmac.compare_digest(sign, hmac.new(mk, (e1 + "|" + e2).encode(), hashlib.sha256).hexdigest()):
         return False
     try:
-        p = sm4_decrypt(bytes.fromhex(e1), smk)
+        p = _l35_sm4_decrypt_raw(smk, bytes.fromhex(e1))
         plain = p.split(b"\x00")[0].decode("utf-8", "ignore")
     except Exception:
         return False

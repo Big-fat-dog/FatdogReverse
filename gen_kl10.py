@@ -3,7 +3,7 @@
 """
 gen_kl10.py —— 「万象归一」so 生成器（魔改 SHA256 变体 + 魔改 AES 综合卷）
 
-产出 app/jni/m5.c（libm5.so）：
+产出 app/jni/onyx.c（libonyx.so）：
   - 双层叠加签名：sign = hex( 魔改AES-128-ECB( aes_key, 魔改SHA256(payload) ) )
       * 第一层 SHA256 变体：K 表/压缩轮与标准一致，但初始 IV 整组替换为
         sha256("<标记>|"iv")（32B -> 8 个大端字），且消息填充边界从标准 56 改为 48
@@ -273,7 +273,7 @@ def fmt_units(units, perline=8, indent="        "):
     return "\n".join(rows)
 
 
-C_TEMPLATE = r"""/* libm5.so ——「万象归一」（由 gen_kl10.py 生成，勿手改）
+C_TEMPLATE = r"""/* libonyx.so ——「万象归一」（由 gen_kl10.py 生成，勿手改）
  * 双层叠加签名：sign = hex( 魔改AES-128-ECB( aes_key, 魔改SHA256(payload) ) )
  *   第一层 SHA256 变体：K 表与压缩轮全标准（认骨架看 K 表 428a2f98…），
  *     但初始 IV 整组换血为派生值，且消息填充边界从 56 前移到 48（多补一轮压缩）。
@@ -599,7 +599,7 @@ JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void *reserved) {
 #endif /* !M5_HOST_TEST */
 
 #ifdef M5_HOST_TEST
-/* 主机自测：cc -DM5_HOST_TEST -o m5test m5.c && ./m5test */
+/* 主机自测：cc -DM5_HOST_TEST -o onytest onyx.c && ./onytest */
 int main(void) {
     char dig[65], sign[65];
     m5_core_digest(1, 1787013761LL, dig);
@@ -635,7 +635,7 @@ def main():
     csrc = csrc.replace("@DECOY@", DECOY_MARKER)
     csrc = csrc.replace("@DBLOB@", fmt_bytes(DECOY_BLOB))
 
-    out_path = "app/jni/m5.c"
+    out_path = "app/jni/onyx.c"
     with open(out_path, "w", encoding="utf-8", newline="\n") as f:
         f.write(csrc)
 

@@ -1,4 +1,4 @@
-/* libm3.so ——「幽泉之眼」（由 gen_kl8.py 生成，勿手改）
+/* libivory.so ——「幽泉之眼」（由 gen_kl8.py 生成，勿手改）
  * 手写 SM4：FK 与 S 盒均为标准——认骨架足够（S 盒开头 d6 90 e9 fe，
  * FK 开头 a3b1bac6）；但轮常量 CK 的最后 8 个值（idx24..31）被换过血，
  * 因此第 25~32 轮的轮密钥全部跑偏，标准 SM4 解不开本关密文。
@@ -323,7 +323,7 @@ JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void *reserved) {
 #endif /* !M3_HOST_TEST */
 
 #ifdef M3_HOST_TEST
-/* 主机自测：cc -DM3_HOST_TEST -o m3test m3.c && ./m3test */
+/* 主机自测：cc -DM3_HOST_TEST -o ivorytest ivory.c && ./ivorytest */
 int main(void) {
     char enc[65], sign[65];
     unsigned char key[16];

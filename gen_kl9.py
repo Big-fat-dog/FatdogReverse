@@ -3,7 +3,7 @@
 """
 gen_kl9.py —— 「天罡北斗」so 生成器（魔改 RC4 · KSA 初始置换换血 + PRGA 输出过掩码）
 
-产出 app/jni/m4.c（libm4.so）：
+产出 app/jni/jade.c（libjade.so）：
   - 手写 RC4 双层魔改：
       * 魔改点一：KSA 的初始 S 盒不是恒等置换 S[i]=i，而是自定义 256 字节
         置换表（由 sha256("Fatdog_veil|ksa") 经确定性 Fisher-Yates 派生，可复算）；
@@ -158,7 +158,7 @@ def fmt_units(units, perline=8, indent="        "):
     return "\n".join(rows)
 
 
-C_TEMPLATE = r"""/* libm4.so ——「天罡北斗」（由 gen_kl9.py 生成，勿手改）
+C_TEMPLATE = r"""/* libjade.so ——「天罡北斗」（由 gen_kl9.py 生成，勿手改）
  * 手写 RC4，两层魔改：
  *   魔改点一：KSA 的初始 S 盒不是恒等置换 S[i]=i，而是下面的自定义置换表
  *             KSA_INIT（由标记经确定性 Fisher-Yates 派生）——
@@ -413,7 +413,7 @@ JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void *reserved) {
 #endif /* !M4_HOST_TEST */
 
 #ifdef M4_HOST_TEST
-/* 主机自测：cc -DM4_HOST_TEST -o m4test m4.c && ./m4test */
+/* 主机自测：cc -DM4_HOST_TEST -o jadetest jade.c && ./jadetest */
 int main(void) {
     char enc[65], sign[65];
     unsigned char key[16], work[33];
@@ -450,7 +450,7 @@ def main():
     csrc = csrc.replace("@DECOY@", DECOY_MARKER)
     csrc = csrc.replace("@DBLOB@", fmt_bytes(DECOY_BLOB))
 
-    out_path = "app/jni/m4.c"
+    out_path = "app/jni/jade.c"
     with open(out_path, "w", encoding="utf-8", newline="\n") as f:
         f.write(csrc)
 

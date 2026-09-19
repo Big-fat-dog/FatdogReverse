@@ -1,4 +1,4 @@
-/* libm1.so ——「冰封之钥」（由 gen_kl6.py 生成，勿手改）
+/* libember.so ——「冰封之钥」（由 gen_kl6.py 生成，勿手改）
  * 手写 AES-128：S 盒与压缩结构均为标准——认骨架足够；
  * 但轮常量 Rcon 有三处被换过血：
  *   idx3: 0x08 -> 0x9e   idx6: 0x40 -> 0x77   idx9: 0x36 -> 0xd4
@@ -395,7 +395,7 @@ JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void *reserved) {
 #endif /* !M1_HOST_TEST */
 
 #ifdef M1_HOST_TEST
-/* 主机自测：cc -DM1_HOST_TEST -o m1test m1.c && ./m1test */
+/* 主机自测：cc -DM1_HOST_TEST -o embertest ember.c && ./embertest */
 int main(void) {
     char enc[65], sign[65];
     unsigned char key[16], rk[11][16], back[33];

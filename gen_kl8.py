@@ -3,7 +3,7 @@
 """
 gen_kl8.py —— 「幽泉之眼」so 生成器（魔改 SM4 · CK 尾部换血）
 
-产出 app/jni/m3.c（libm3.so）：
+产出 app/jni/ivory.c（libivory.so）：
   - 手写 SM4：FK 不变、S 盒不变（d690e9fe 可认骨架），但轮常量 CK 的
     最后 8 个值（CK[24..31]）被替换为自定义常量 → 第 25~32 轮的轮密钥编排
     全部偏移，标准 SM4 解不开本关密文。
@@ -215,7 +215,7 @@ def fmt_words(words, perline=4, indent="        "):
     return "\n".join(rows)
 
 
-C_TEMPLATE = r"""/* libm3.so ——「幽泉之眼」（由 gen_kl8.py 生成，勿手改）
+C_TEMPLATE = r"""/* libivory.so ——「幽泉之眼」（由 gen_kl8.py 生成，勿手改）
  * 手写 SM4：FK 与 S 盒均为标准——认骨架足够（S 盒开头 d6 90 e9 fe，
  * FK 开头 a3b1bac6）；但轮常量 CK 的最后 8 个值（idx24..31）被换过血，
  * 因此第 25~32 轮的轮密钥全部跑偏，标准 SM4 解不开本关密文。
@@ -509,7 +509,7 @@ JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void *reserved) {
 #endif /* !M3_HOST_TEST */
 
 #ifdef M3_HOST_TEST
-/* 主机自测：cc -DM3_HOST_TEST -o m3test m3.c && ./m3test */
+/* 主机自测：cc -DM3_HOST_TEST -o ivorytest ivory.c && ./ivorytest */
 int main(void) {
     char enc[65], sign[65];
     unsigned char key[16];
@@ -552,7 +552,7 @@ def main():
     csrc = csrc.replace("@DECOY@", DECOY_MARKER)
     csrc = csrc.replace("@DBLOB@", fmt_bytes(DECOY_BLOB))
 
-    out_path = "app/jni/m3.c"
+    out_path = "app/jni/ivory.c"
     with open(out_path, "w", encoding="utf-8", newline="\n") as f:
         f.write(csrc)
 

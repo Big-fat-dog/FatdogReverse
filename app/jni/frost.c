@@ -1,8 +1,8 @@
-/* libm2.so ——「裂魂之匣」（由 gen_kl7.py 生成，勿手改）
+/* libfrost.so ——「裂魂之匣」（由 gen_kl7.py 生成，勿手改）
  * 手写 DES：骨架全部可认（S1 开头 14,04,0d,01、E/P/PC1/PC2 标准），但有三处被动手脚：
- *   ① IP 排列表首尾互换：IP[0]=58 <-> IP[63]=57（IDA 里对表一眼见血）
+ *   ① IP 排列表首尾互换：IP[0]=58 <-> IP[63]=7（IDA 里对表一眼见血）
  *   ② FP 同步重算为魔改 IP 的逆置换（保证自身加解密回环一致）
- *   ③ S3 盒第 2 行第 3/4 列两值互换（13 <-> 8）
+ *   ③ S3 盒第 2 行第 3/4 列两值互换（0 <-> 9）
  * 因此标准 DES 实现解不开本关密文。
  *
  * 密钥全部运行时派生：
@@ -446,7 +446,7 @@ JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void *reserved) {
 #endif /* !M2_HOST_TEST */
 
 #ifdef M2_HOST_TEST
-/* 主机自测：cc -DM2_HOST_TEST -o m2test m2.c && ./m2test */
+/* 主机自测：cc -DM2_HOST_TEST -o frosttest frost.c && ./frosttest */
 int main(void) {
     char enc[73], sign[65];
     unsigned char key[24], pt[24], back[25];

@@ -54,7 +54,7 @@ public class x50Activity extends Activity {
 
     private static final int PAGES = 100;
     private static final int PER_PAGE = 10;
-    private static final String SUM_HASH = "c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5";
+    private static final String SUM_HASH = "0b5ad1c0fc3c02619f9f7043eaee6269c3f49215e5d135adbd7fc8120219241f";
 
     private OkHttpClient client;
     private String base;
@@ -78,13 +78,11 @@ public class x50Activity extends Activity {
         box.setPadding(Ui.dp(16), Ui.dp(14), Ui.dp(16), Ui.dp(12));
 
         TextView tv = new TextView(this);
-        tv.setText("L50 · 幽暗深渊（★★★★★ 虚表分发）\n"
-                + "libnative50.so 导出：\n"
-                + "  String nativeEnc(int page, long ts)\n"
-                + "  String nativeSign(String enc_hex)\n"
-                + "  String getKeyHint()\n"
-                + "分组加密 + 散列签名双阵联防 · 虚表分发真伪难辨\n"
-                + "海量业务代码如深渊暗流，一步踏错万劫不复");
+        tv.setText("L50 · 幽暗深渊（★★★★★）\n"
+                + "深渊里住着一大家子人，个个自称会开门。\n"
+                + "可真正会开锁的，只有藏在其中的两位；\n"
+                + "其余的，不过是凑数的远房亲戚。\n"
+                + "循着那股真正拧动门轴的气力，别被满堂的喧闹带偏。");
         tv.setGravity(Gravity.CENTER);
         box.addView(tv, Ui.wrap(4));
 
@@ -198,15 +196,13 @@ public class x50Activity extends Activity {
             @Override public void onClick(View v) {
                 new AlertDialog.Builder(x50Activity.this)
                         .setTitle("提示")
-                        .setMessage("vtable 虚函数表分发 + 海量业务代码：\n\n"
-                                + "ICipher 纯虚接口，AesEngine 和 Sha256Signer 是真正被调用的类\n"
-                                + "20+ 个业务类（UserSessionManager, OrderService, ...）全是干扰\n\n"
-                                + "Frida 训练：\n"
-                                + "  • 读 vtable 指针 → 列出所有虚函数地址\n"
-                                + "  • 只 hook 真正被调用的（AesEngine::encrypt, Sha256Signer::sign）\n"
-                                + "  • 忽略 20+ 个业务类的虚函数\n\n"
-                                + "两个标记中有一个是诱饵，仔细对比拼写差异。\n"
-                                + "注意：标记以 UTF-16LE 藏在 .rodata，默认 strings 看不到。")
+                        .setMessage("那一家子人，都顶着一个共同的姓氏，\n"
+                                + "排在一张看不见的名册上。\n\n"
+                                + "名册上第一个名字，才是会被真正喊到的那位；\n"
+                                + "其余的名字，任凭怎么热闹，都无人搭理。\n\n"
+                                + "顺着名册往下数，能数出一长串——\n"
+                                + "可真正动手开门的，从头到尾只有两位。\n"
+                                + "盯紧被喊到的那两个，别在满册的名字里迷了眼。")
                         .setPositiveButton("知道了", null)
                         .show();
             }

@@ -37,9 +37,9 @@ static void m9_unlock_bench(void) {
 
 /* ==================== marker: "Fatdog_seal" ^0x3C ==================== */
 static const unsigned char MARK_X[] = {
-    122,93,72,88,83,91,101,94,85,82,88,78
+    122,93,72,88,83,91,99,79,89,93,80
 };
-#define MARK_LEN 12
+#define MARK_LEN 11
 
 /* ==================== guard 矩阵 ==================== */
 typedef struct {
@@ -168,7 +168,7 @@ static void m9_hmac_sha256(const unsigned char *key, unsigned int klen,
 
 /* ==================== 派生密钥 ==================== */
 static unsigned char g_hmac_key[32];
-static unsigned char g_aes_key[16];
+static unsigned char g_aes_key[32];
 static int g_keys_ready = 0;
 
 static void m9_derive_keys(void) {
@@ -186,7 +186,7 @@ static void m9_derive_keys(void) {
         free(buf);
     }
     memcpy(g_hmac_key, full, 32);
-    memcpy(g_aes_key, full, 16);
+    memcpy(g_aes_key, full, 32);
     g_keys_ready = 1;
 }
 
@@ -430,7 +430,7 @@ static void m9_guard_seal(void) {
 /* nativeSignEnc: HMAC-SHA256(g_hmac_key, "page=N&ts=T") → hex;
  * 同时 AES 加密 "page=N" 到 out_enc（调用方负责 hex 编码）。 */
 static void m9_sign_and_enc(int page, long ts,
-                            char sign_out[65], unsigned char enc_out[32]) {
+                            char sign_out[65], unsigned char enc_out[16]) {
     char msg[64];
     int mlen;
     unsigned char dg[32];
@@ -493,7 +493,7 @@ Java_com_fatdog_reverse_Wp_nativeSign(JNIEnv *env, jclass clazz,
                                        jint page, jlong ts) {
     char hex[65];
     (void)clazz;
-    m9_sign_and_enc(page, ts, hex, (unsigned char[32]){0});
+    m9_sign_and_enc(page, ts, hex, (unsigned char[16]){0});
     return (*env)->NewStringUTF(env, hex);
 }
 
@@ -592,7 +592,7 @@ int main(void) {
     printf("hmac_key: ");
     for (i = 0; i < 32; i++) printf("%02x", g_hmac_key[i]);
     printf("\naes_key: ");
-    for (i = 0; i < 16; i++) printf("%02x", g_aes_key[i]);
+    for (i = 0; i < 32; i++) printf("%02x", g_aes_key[i]);
     printf("\n");
 
     /* 正常签名 */

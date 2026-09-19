@@ -57,7 +57,7 @@ public class x49Activity extends Activity {
 
     private static final int PAGES = 100;
     private static final int PER_PAGE = 10;
-    private static final String SUM_HASH = "b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a2b3c4";
+    private static final String SUM_HASH = "ae3d021338292413b064ce46ce5695c8195823da0bcd2f5ca21102dd5c43ad94";
 
     private OkHttpClient client;
     private String base;
@@ -81,13 +81,11 @@ public class x49Activity extends Activity {
         box.setPadding(Ui.dp(16), Ui.dp(14), Ui.dp(16), Ui.dp(12));
 
         TextView tv = new TextView(this);
-        tv.setText("L49 · 迷雾森林（★★★ 分发阵法 · RAII）\n"
-                + "libnative49.so 导出：\n"
-                + "  String nativeEnc(int page, long ts)\n"
-                + "  String nativeSign(String enc_hex)\n"
-                + "  String getKeyHint()\n"
-                + "分组加密 + 签名双阵联防 · 分发阵法暗藏玄机\n"
-                + "RAII 之术守代码完整，迷雾重重需静心破阵");
+        tv.setText("L49 · 迷雾森林（★★★）\n"
+                + "林子里有条岔路，岔路口立着一块看不见的告示牌。\n"
+                + "告示牌上记着：报上暗号，才放你走对应的路。\n"
+                + "守林人还有个规矩——东西用过，必会自己收好。\n"
+                + "想走出这片雾，先摸清那块牌子上写了些什么。");
         tv.setGravity(Gravity.CENTER);
         box.addView(tv, Ui.wrap(4));
 
@@ -201,15 +199,13 @@ public class x49Activity extends Activity {
             @Override public void onClick(View v) {
                 new AlertDialog.Builder(x49Activity.this)
                         .setTitle("提示")
-                        .setMessage("std::map 分发 + RAII：\n\n"
-                                + "CryptoBox 类用 std::map<int, function> 做算法分发\n"
-                                + "ManagedBuffer 类用 RAII 自动管理内存\n\n"
-                                + "Frida 训练：\n"
-                                + "  • Memory.scanSync 搜索 std::map 红黑树节点\n"
-                                + "  • hook std::map::operator[] 观察分发\n"
-                                + "  • 观察 SM4 加密和 HMAC 签名\n\n"
-                                + "两个标记中有一个是诱饵，仔细对比拼写差异。\n"
-                                + "注意：标记以 UTF-16LE 藏在 .rodata，默认 strings 看不到。")
+                        .setMessage("那块告示牌，是用一种能自己排序的册子记的，\n"
+                                + "每一页都对上一个暗号、一条路。\n\n"
+                                + "守林人收东西的手段很讲究，\n"
+                                + "东西一离手，就自动归回原处——\n"
+                                + "顺着这个性子，能摸到册子的骨。\n\n"
+                                + "岔路上有两道关卡：一道锁门，一道验人，\n"
+                                + "两道都过了，数字才肯露面。")
                         .setPositiveButton("知道了", null)
                         .show();
             }

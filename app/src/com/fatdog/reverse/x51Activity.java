@@ -77,12 +77,11 @@ public class x51Activity extends Activity {
         box.setPadding(Ui.dp(16), Ui.dp(14), Ui.dp(16), Ui.dp(12));
 
         TextView tv = new TextView(this);
-        tv.setText("L51 · 雷霆山巅（★★★ 模板 · 3 SO 分离）\n"
-                + "libnative51.so  — 主入口 + 分组加密\n"
-                + "libnative51h.so — 散列 + 签名 + 密钥\n"
-                + "libnative51b.so — 业务代码干扰\n"
-                + "三重签名联防 · 模板实例化暗藏玄机\n"
-                + "三 SO 各守一方，缺一不可——雷霆之下步步惊心");
+        tv.setText("L51 · 雷霆山巅（★★★）\n"
+                + "山巅的机关被拆成三份，散在三座阁楼里。\n"
+                + "一份管锁，一份管印，还有一份不过是堆摆设。\n"
+                + "三座阁楼互不信任，缺了哪一座都点不亮门。\n"
+                + "想凑齐三份，得先摸清每座阁楼各自藏着什么。");
         tv.setGravity(Gravity.CENTER);
         box.addView(tv, Ui.wrap(4));
 
@@ -187,15 +186,12 @@ public class x51Activity extends Activity {
             @Override public void onClick(View v) {
                 new AlertDialog.Builder(x51Activity.this)
                         .setTitle("提示")
-                        .setMessage("模板实例化 + 3 SO 分离：\n\n"
-                                + "libnative51.so 里有 TemplateCipher<DesTag>::process()\n"
-                                + "libnative51h.so 里有 SM3 IV 换血 + XOR 密钥\n"
-                                + "libnative51b.so 里是业务代码干扰\n\n"
-                                + "Frida 训练：\n"
-                                + "  • 搜索模板实例化后的唯一符号名\n"
-                                + "  • dlopen 依赖链追踪\n"
-                                + "  • 定位编译期 constexpr 常量\n\n"
-                                + "注意：SM3 IV 有 3 处换血，和标准 SM3 输出不同。")
+                        .setMessage("三座阁楼里，有一座藏着个照方抓药的模子，\n"
+                                + "那模子只有一个会真正用来造钥匙。\n\n"
+                                + "另一座阁楼里，有一味配方被人偷偷换过三处；\n"
+                                + "还有一座，纯粹是堆满账本的杂物间。\n\n"
+                                + "三座阁楼彼此牵着，得顺着它们串门的路线，\n"
+                                + "才能找到真正把钥匙配出来的那一环。")
                         .setPositiveButton("知道了", null)
                         .show();
             }
