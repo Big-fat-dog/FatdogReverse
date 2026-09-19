@@ -746,8 +746,8 @@ public class MainActivity extends Activity {
             }
         } else if (kunlunCat == 9) {
             /* 迷阵：KL51 起，OLLVM 混淆 + 控制流平坦化 */
-            String[] names = {"迷雾初开", "虚实相生"};
-            int[] klNums = {51, 52};
+            String[] names = {"迷雾初开", "虚实相生", "移形换位", "困兽犹斗", "破阵而出"};
+            int[] klNums = {51, 52, 53, 54, 55};
             for (int i = 0; i < names.length; i++) {
                 final int kl = klNums[i];
                 boolean open = PassLog.isDone(this, "KL" + kl);
@@ -760,7 +760,7 @@ public class MainActivity extends Activity {
                         LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
                 lp.topMargin = Ui.dp(12);
                 list.addView(b, lp);
-                final Class<?> target = kl == 51 ? fogActivity.class : phantomActivity.class;
+                final Class<?> target = kl == 51 ? fogActivity.class : kl == 52 ? phantomActivity.class : kl == 53 ? shiftActivity.class : kl == 54 ? beastActivity.class : gateActivity.class;
                 b.setOnClickListener(new View.OnClickListener() {
                     @Override public void onClick(View v) {
                         startActivity(new Intent(MainActivity.this, target));

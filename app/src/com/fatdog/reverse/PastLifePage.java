@@ -155,7 +155,7 @@ final class PastLifePage {
         col.addView(tip, tipLp);
 
         addRange(ctx, col, "主卷", 0xFF409EFF, "L", 1, 53);
-        addRange(ctx, col, "天地秘境", 0xFF00BFA5, "KL", 1, 52,
+        addRange(ctx, col, "天地秘境", 0xFF00BFA5, "KL", 1, 55,
                 new HashSet<Integer>(Arrays.asList(31, 32, 33, 34, 35)));
         addRange(ctx, col, "太玄之初", 0xFFB37FEB, "KKL", 1, 5);
 

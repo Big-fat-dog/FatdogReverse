@@ -548,3 +548,24 @@ LOCAL_MODULE := phantom
 LOCAL_SRC_FILES := phantom.c
 LOCAL_LDLIBS := -llog
 include $(BUILD_SHARED_LIBRARY)
+
+# KL53 迷阵 移形换位（OLLVM 字符串加密：datadiv_decode/init_array/JNI_OnLoad 三变体 + AES-CBC + MD5）
+include $(CLEAR_VARS)
+LOCAL_MODULE := shift
+LOCAL_SRC_FILES := shift.c
+LOCAL_LDLIBS := -llog
+include $(BUILD_SHARED_LIBRARY)
+
+# KL54 迷阵 困兽犹斗（间接跳转 + 函数指针派发 + 指令替换 + 魔改 SM4 + 魔改 Base64）
+include $(CLEAR_VARS)
+LOCAL_MODULE := beast
+LOCAL_SRC_FILES := beast.c
+LOCAL_LDLIBS := -llog
+include $(BUILD_SHARED_LIBRARY)
+
+# KL55 迷阵 破阵而出（综合收官卷：六重叠加 + 魔改 AES + 魔改 Base64 响应）
+include $(CLEAR_VARS)
+LOCAL_MODULE := gate
+LOCAL_SRC_FILES := gate.c
+LOCAL_LDLIBS := -llog
+include $(BUILD_SHARED_LIBRARY)

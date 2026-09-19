@@ -159,6 +159,9 @@
         <activity android:name=".springActivity" android:exported="false" />
         <activity android:name=".fogActivity" android:exported="false" />
         <activity android:name=".phantomActivity" android:exported="false" />
+        <activity android:name=".shiftActivity" android:exported="false" />
+        <activity android:name=".beastActivity" android:exported="false" />
+        <activity android:name=".gateActivity" android:exported="false" />
 
         <!-- Native大陆 L48：落日平原（operator+ 重载） -->
         <activity android:name=".x48Activity" android:exported="false" />

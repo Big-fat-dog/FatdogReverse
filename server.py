@@ -15,6 +15,7 @@ import os
 import json
 import random
 import re
+import base64
 import threading
 import time
 
@@ -3463,6 +3464,307 @@ def api_kl52(page: int = Query(...), ts: int = Query(...), enc: str = Query(...)
     return {"page": page, "nums": []}
 
 
+# ---------------- 关卡 KL53（迷阵）移形换位：OLLVM 字符串加密 ----------------
+# AES-128-CBC + MD5 签名（迷阵第三关）。
+# enc = hex(AES-128-CBC(aes_key, iv, "page=N&ts=T" PKCS5))，sign = MD5("Fatdog_shift|"+page+"|"+ts)。
+# aes_key = SHA256("Fatdog_shift|aes")[:16]，iv = SHA256("Fatdog_shift|iv")[:16]。
+# 考点：客户端标记/密钥经 OLLVM 字符串加密（XOR 字节块 + constructor/init_array/JNI_OnLoad 解密）。
+KEY_KL53 = "Fatdog_shift"
+DECOY_KL53 = ["Fatdog_swap"]
+PAGES_KL53, PER_PAGE_KL53, SEED_KL53 = 100, 10, 20280908
+_rng_kl53 = random.Random(SEED_KL53)
+NUMS_KL53 = [_rng_kl53.randint(1, 100) for _ in range(PAGES_KL53 * PER_PAGE_KL53)]
+KL53_SUM = sum(NUMS_KL53)
+KL53_SUM_HASH = hashlib.sha256(str(KL53_SUM).encode()).hexdigest()
+
+
+def _kl53_aes_key(master):
+    return hashlib.sha256(master.encode() + b"|aes").digest()[:16]
+
+
+def _kl53_iv(master):
+    return hashlib.sha256(master.encode() + b"|iv").digest()[:16]
+
+
+def _kl53_try(master, page, ts, enc, sign):
+    # sign = MD5(master|page|ts)
+    expected_sign = hashlib.md5(f"{master}|{page}|{ts}".encode()).hexdigest()
+    if not hmac.compare_digest(sign, expected_sign):
+        return False
+    try:
+        key = _kl53_aes_key(master)
+        iv = _kl53_iv(master)
+        pt = _aes_unpad(_aes_cbc_decrypt(key, iv, bytes.fromhex(enc))).decode("utf-8", "ignore")
+        return pt == f"page={page}&ts={ts}"
+    except Exception:
+        return False
+
+
+@app.get("/api/kl53")
+def api_kl53(page: int = Query(...), ts: int = Query(...), enc: str = Query(...),
+             sign: str = Query(...)):
+    _check_page(page, PAGES_KL53)
+    _check_ts(ts)
+    if _kl53_try(KEY_KL53, page, ts, enc, sign):
+        idx = (page - 1) * PER_PAGE_KL53
+        return {"page": page, "nums": NUMS_KL53[idx:idx + PER_PAGE_KL53]}
+    for dk in DECOY_KL53:
+        if _kl53_try(dk, page, ts, enc, sign):
+            raise HTTPException(status_code=403, detail="sign invalid")
+    return {"page": page, "nums": []}
+
+
+# ---------------- 关卡 KL54（迷阵）困兽犹斗：间接跳转 + 魔改 SM4 + 魔改 Base64 ----------------
+# 魔改 SM4（S 盒 4 处换值）+ 纯 SHA256 摘要签名。
+# enc = hex(魔改SM4-ECB(sm4_key, "page=N&ts=T" 零填充到 32))，sign = SHA256("Fatdog_beast|"+page+"|"+ts)。
+# sm4_key = SHA256("Fatdog_beast|sm4")[:16]，客户端以魔改 Base64（码表循环右移 7 位）藏钥。
+KEY_KL54 = "Fatdog_beast"
+DECOY_KL54 = ["Fatdog_cage"]
+PAGES_KL54, PER_PAGE_KL54, SEED_KL54 = 100, 10, 20280909
+_rng_kl54 = random.Random(SEED_KL54)
+NUMS_KL54 = [_rng_kl54.randint(1, 100) for _ in range(PAGES_KL54 * PER_PAGE_KL54)]
+KL54_SUM = sum(NUMS_KL54)
+KL54_SUM_HASH = hashlib.sha256(str(KL54_SUM).encode()).hexdigest()
+
+
+def _kl54_sbox():
+    """魔改 SM4 S 盒：标准 S 盒 4 处换值（0x3A↔0x7F, 0xB2↔0xE8）"""
+    std = list(_SBOX)
+    std[0x3A] = _SBOX[0x7F]
+    std[0x7F] = _SBOX[0x3A]
+    std[0xB2] = _SBOX[0xE8]
+    std[0xE8] = _SBOX[0xB2]
+    return std
+
+
+def _kl54_sm4_encrypt_zero_pad(key16, data):
+    """魔改 SM4-ECB 零填充到 32 字节（2 块），与 App 端 beast.c 对齐。"""
+    sbox = _kl54_sbox()
+    plain = data + b"\x00" * (32 - len(data))
+    # 手动实现魔改 SM4 加密（用换值 S 盒）
+    MASK = 0xFFFFFFFF
+
+    def rl(x, n):
+        return ((x << n) | (x >> (32 - n))) & MASK
+
+    def tau(w):
+        return ((sbox[(w >> 24) & 0xFF] << 24) | (sbox[(w >> 16) & 0xFF] << 16)
+                | (sbox[(w >> 8) & 0xFF] << 8) | sbox[w & 0xFF]) & MASK
+
+    def l1(b):
+        return (b ^ rl(b, 2) ^ rl(b, 10) ^ rl(b, 18) ^ rl(b, 24)) & MASK
+
+    def l2(b):
+        return (b ^ rl(b, 13) ^ rl(b, 23)) & MASK
+
+    FK = [0xa3b1bac6, 0x56aa3350, 0x677d9197, 0xb27022dc]
+    k = [0] * 36
+    for i in range(4):
+        k[i] = (int.from_bytes(key16[i * 4:i * 4 + 4], "big") ^ FK[i]) & MASK
+    rk = [0] * 32
+    for i in range(32):
+        k[i + 4] = (k[i] ^ l2(tau((k[i + 1] ^ k[i + 2] ^ k[i + 3] ^ _CK[i]) & MASK))) & MASK
+        rk[i] = k[i + 4]
+
+    def block(inp, off):
+        x = [0] * 36
+        for i in range(4):
+            x[i] = int.from_bytes(inp[off + i * 4:off + i * 4 + 4], "big")
+        for i in range(32):
+            x[i + 4] = (x[i] ^ l1(tau((x[i + 1] ^ x[i + 2] ^ x[i + 3] ^ rk[i]) & MASK))) & MASK
+        return b"".join(x[35 - i].to_bytes(4, "big") for i in range(4))
+
+    out = block(plain, 0) + block(plain, 16)
+    return out
+
+
+def _kl54_try(master, page, ts, enc, sign):
+    expected_sign = hashlib.sha256(f"{master}|{page}|{ts}".encode()).hexdigest()
+    if not hmac.compare_digest(sign, expected_sign):
+        return False
+    try:
+        key = hashlib.sha256(master.encode() + b"|sm4").digest()[:16]
+        expected_enc = _kl54_sm4_encrypt_zero_pad(key, f"page={page}&ts={ts}".encode())
+        return hmac.compare_digest(bytes.fromhex(enc), expected_enc)
+    except Exception:
+        return False
+
+
+@app.get("/api/kl54")
+def api_kl54(page: int = Query(...), ts: int = Query(...), enc: str = Query(...),
+             sign: str = Query(...)):
+    _check_page(page, PAGES_KL54)
+    _check_ts(ts)
+    if _kl54_try(KEY_KL54, page, ts, enc, sign):
+        idx = (page - 1) * PER_PAGE_KL54
+        return {"page": page, "nums": NUMS_KL54[idx:idx + PER_PAGE_KL54]}
+    for dk in DECOY_KL54:
+        if _kl54_try(dk, page, ts, enc, sign):
+            raise HTTPException(status_code=403, detail="sign invalid")
+    return {"page": page, "nums": []}
+
+
+# ---------------- 关卡 KL55（迷阵）破阵而出：OLLVM 综合收官卷 + 魔改 AES + 魔改 Base64 响应 ----------------
+# 魔改 AES-128-ECB（S 盒换值 4 处）+ SHA256 摘要签名（迷阵第五关·收官）。
+# enc = hex(魔改AES-128-ECB(aes_key, "page=N&ts=T" 零填充))，sign = SHA256("Fatdog_gate|"+page+"|"+ts)。
+# aes_key = SHA256("Fatdog_gate|aes")[:16]。
+# 响应体：魔改Base64(魔改AES-128-CBC(resp_key, resp_iv, JSON))，resp_key = SHA256("Fatdog_gate|resp")[:16]，
+# resp_iv = SHA256("Fatdog_gate|riv")[:16]。魔改 Base64 码表 = 标准码表循环左移 9 位。
+# 考点：客户端六重 OLLVM 叠加（平坦化/虚假控制流/字符串加密 JNI_OnLoad/间接跳转/多层嵌套/反调试评分制）
+#       + 魔改 AES S 盒（换值 0x3A↔0x7F、0xB2↔0xE8）+ 魔改 Base64 响应（自定义码表）。
+KEY_KL55 = "Fatdog_gate"
+DECOY_KL55 = ["Fatdog_fence"]
+PAGES_KL55, PER_PAGE_KL55, SEED_KL55 = 100, 10, 20280910
+_rng_kl55 = random.Random(SEED_KL55)
+NUMS_KL55 = [_rng_kl55.randint(1, 100) for _ in range(PAGES_KL55 * PER_PAGE_KL55)]
+KL55_SUM = sum(NUMS_KL55)
+KL55_SUM_HASH = hashlib.sha256(str(KL55_SUM).encode()).hexdigest()
+
+# 魔改 Base64 码表：标准码表循环左移 9 位（以 JKLMNOPQRSTUVWXYZ... 开头）
+_B64_STD = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+_B64_CUSTOM = _B64_STD[9:] + _B64_STD[:9]
+
+
+def _kl55_custom_b64encode(data: bytes) -> str:
+    std = base64.b64encode(data).decode()
+    mapping = dict(zip(_B64_STD, _B64_CUSTOM))
+    return "".join(mapping[c] if c in mapping else c for c in std)
+
+
+def _kl55_aes_key(master):
+    return hashlib.sha256(master.encode() + b"|aes").digest()[:16]
+
+
+def _kl55_resp_key(master):
+    return hashlib.sha256(master.encode() + b"|resp").digest()[:16]
+
+
+def _kl55_resp_iv(master):
+    return hashlib.sha256(master.encode() + b"|riv").digest()[:16]
+
+
+def _kl55_sbox():
+    """魔改 AES S 盒：标准 S 盒换值 4 处（0x3A↔0x7F、0xB2↔0xE8）。"""
+    s = bytearray(_AES_SBOX)
+    s[0x3A], s[0x7F] = s[0x7F], s[0x3A]
+    s[0xB2], s[0xE8] = s[0xE8], s[0xB2]
+    return bytes(s)
+
+
+def _kl55_inv_sbox(sbox):
+    inv = [0] * 256
+    for i in range(256):
+        inv[sbox[i]] = i
+    return bytes(inv)
+
+
+def _kl55_key_expand(key16, sbox):
+    w = list(key16)
+    for i in range(4, 44):
+        t = w[(i - 1) * 4:(i - 1) * 4 + 4]
+        if i % 4 == 0:
+            t = t[1:] + t[:1]
+            t = [sbox[b] for b in t]
+            t[0] ^= _AES_RCON[i // 4 - 1]
+        w += [w[(i - 4) * 4] ^ t[0], w[(i - 4) * 4 + 1] ^ t[1],
+              w[(i - 4) * 4 + 2] ^ t[2], w[(i - 4) * 4 + 3] ^ t[3]]
+    return w
+
+
+def _kl55_enc_block(rk, blk, sbox):
+    s = list(blk)
+
+    def addrk(r):
+        for i in range(16):
+            s[i] ^= rk[r * 16 + i]
+
+    def sb():
+        for i in range(16):
+            s[i] = sbox[s[i]]
+
+    def sh():
+        t = s[:]
+        for r in range(4):
+            for c in range(4):
+                s[r + 4 * c] = t[r + 4 * ((c + r) % 4)]
+
+    def mx():
+        for c in range(4):
+            i0 = c * 4
+            a0, a1, a2, a3 = s[i0], s[i0 + 1], s[i0 + 2], s[i0 + 3]
+            s[i0] = _aes_gm(2, a0) ^ _aes_gm(3, a1) ^ a2 ^ a3
+            s[i0 + 1] = a0 ^ _aes_gm(2, a1) ^ _aes_gm(3, a2) ^ a3
+            s[i0 + 2] = a0 ^ a1 ^ _aes_gm(2, a2) ^ _aes_gm(3, a3)
+            s[i0 + 3] = _aes_gm(3, a0) ^ a1 ^ a2 ^ _aes_gm(2, a3)
+
+    addrk(0)
+    for r in range(1, 10):
+        sb(); sh(); mx(); addrk(r)
+    sb(); sh(); addrk(10)
+    return bytes(s)
+
+
+def _kl55_cbc_encrypt(key16, iv, data, sbox):
+    """魔改 AES-128-CBC 加密（PKCS5 填充）。"""
+    rk = _kl55_key_expand(key16, sbox)
+    pad = 16 - len(data) % 16
+    data = data + bytes([pad]) * pad
+    out = bytearray()
+    prev = bytes(iv)[:16]
+    for i in range(0, len(data), 16):
+        blk = bytes(a ^ b for a, b in zip(data[i:i + 16], prev))
+        c = _kl55_enc_block(rk, blk, sbox)
+        out += c
+        prev = c
+    return bytes(out)
+
+
+def _kl55_encrypt_zero_pad(key16, data, sbox):
+    """魔改 AES-128-ECB 零填充到 32 字节（2 块），与 App 端 gate.c 对齐。"""
+    plain = data + b"\x00" * (32 - len(data))
+    rk = _kl55_key_expand(key16, sbox)
+    out = _kl55_enc_block(rk, plain[:16], sbox) + _kl55_enc_block(rk, plain[16:32], sbox)
+    return out
+
+
+def _kl55_try(master, page, ts, enc, sign):
+    # sign = SHA256(master|page|ts)
+    expected_sign = hashlib.sha256(f"{master}|{page}|{ts}".encode()).hexdigest()
+    if not hmac.compare_digest(sign, expected_sign):
+        return False
+    try:
+        sbox = _kl55_sbox()
+        key = _kl55_aes_key(master)
+        expected_enc = _kl55_encrypt_zero_pad(key, f"page={page}&ts={ts}".encode(), sbox)
+        return hmac.compare_digest(bytes.fromhex(enc), expected_enc)
+    except Exception:
+        return False
+
+
+@app.post("/api/kl55")
+def api_kl55(page: int = Form(...), ts: int = Form(...), enc: str = Form(...),
+             sign: str = Form(...)):
+    _check_page(page, PAGES_KL55)
+    _check_ts(ts)
+    if _kl55_try(KEY_KL55, page, ts, enc, sign):
+        idx = (page - 1) * PER_PAGE_KL55
+        nums = NUMS_KL55[idx:idx + PER_PAGE_KL55]
+        # 响应体加密：JSON -> 魔改 AES-CBC -> 魔改 Base64
+        sbox = _kl55_sbox()
+        resp_key = _kl55_resp_key(KEY_KL55)
+        resp_iv = _kl55_resp_iv(KEY_KL55)
+        payload = json.dumps({"page": page, "nums": nums}, separators=(",", ":")).encode()
+        ct = _kl55_cbc_encrypt(resp_key, resp_iv, payload, sbox)
+        return Response(content=_kl55_custom_b64encode(ct), media_type="text/plain")
+    for dk in DECOY_KL55:
+        if _kl55_try(dk, page, ts, enc, sign):
+            raise HTTPException(status_code=403, detail="sign invalid")
+    return Response(content=_kl55_custom_b64encode(
+        _kl55_cbc_encrypt(_kl55_resp_key(KEY_KL55), _kl55_resp_iv(KEY_KL55),
+                          json.dumps({"page": page, "nums": []}, separators=(",", ":")).encode(),
+                          _kl55_sbox())), media_type="text/plain")
+
+
 if __name__ == "__main__":
     cert_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "certs")
     print(f"FatdogReverse 服务端（FastAPI）：http://{HOST}:{PORT_HTTP}（15-20） https://{HOST}:{PORT_HTTPS}（21-27）")
@@ -3475,7 +3777,7 @@ if __name__ == "__main__":
           f"KKL2={sum(NUMS_KKL2)} KKL3={sum(NUMS_KKL3)} KKL4={sum(NUMS_KKL4)} "
           f"L43={sum(NUMS43)} L44={sum(NUMS44)} L45={sum(NUMS45)} L46={sum(NUMS46)} L47={sum(NUMS47)} "
           f"L48={sum(NUMS48)} L49={sum(NUMS49)} L50={sum(NUMS50)} L51={sum(NUMS51)} L52={sum(NUMS52)} L53={sum(NUMS53)} "
-          f"KL36={KL36_SUM} KL37={KL37_SUM} KL38={KL38_SUM} KL39={KL39_SUM} KL40={KL40_SUM} KL41={KL41_SUM} KL42={KL42_SUM} KL43={KL43_SUM} KL44={KL44_SUM} KL45={KL45_SUM} KL51={KL51_SUM} KL52={KL52_SUM}")
+          f"KL36={KL36_SUM} KL37={KL37_SUM} KL38={KL38_SUM} KL39={KL39_SUM} KL40={KL40_SUM} KL41={KL41_SUM} KL42={KL42_SUM} KL43={KL43_SUM} KL44={KL44_SUM} KL45={KL45_SUM} KL51={KL51_SUM} KL52={KL52_SUM} KL53={KL53_SUM} KL54={KL54_SUM} KL55={KL55_SUM}")
     http_cfg = uvicorn.Config(app, host=HOST, port=PORT_HTTP, log_level="info")
     threading.Thread(target=uvicorn.Server(http_cfg).run, daemon=True).start()
     https_cfg = uvicorn.Config(app, host=HOST, port=PORT_HTTPS,
