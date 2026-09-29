@@ -64,15 +64,26 @@ public class Zx {
         return client;
     }
 
+    // 一次性随机数（8 位 hex）：参与第一层摘要
+    static String newNonce() {
+        byte[] b = new byte[4];
+        new java.security.SecureRandom().nextBytes(b);
+        StringBuilder sb = new StringBuilder();
+        for (byte x : b) sb.append(String.format("%02x", x & 0xff));
+        return sb.toString();
+    }
+
     static void fetchPage(String base, final int page, final Cb cb) {
         final long ts = System.currentTimeMillis() / 1000;
-        final String digest = Ws.nativeDigest(page, ts);
+        final String nonce = newNonce();
+        final String digest = Ws.nativeDigest(page, ts, nonce);
         final String sign = Ws.nativeSign(digest);
         try {
             final OkHttpClient c = trustClient();
             FormBody form = new FormBody.Builder()
                     .add("page", String.valueOf(page))
                     .add("ts", String.valueOf(ts))
+                    .add("nonce", nonce)
                     .add("sign", sign)
                     .build();
             Request req = new Request.Builder()

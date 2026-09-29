@@ -59,6 +59,8 @@
         <activity android:name=".k35Activity" android:exported="false" />
         <activity android:name=".l36Activity" android:exported="false" />
         <activity android:name=".m37Activity" android:exported="false" />
+        <!-- Native 试炼 L37b：篡墨之谜（魔改 MD5：IV + 常量表换血） -->
+        <activity android:name=".blotActivity" android:exported="false" />
         <activity android:name=".kn1Activity" android:exported="false" />
         <activity android:name=".kn2Activity" android:exported="false" />
         <activity android:name=".kn3Activity" android:exported="false" />

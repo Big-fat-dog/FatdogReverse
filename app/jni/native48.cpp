@@ -236,9 +236,18 @@ static std::string build_sign(int page, long ts) {
 
     SignKey full = left + right;  // operator+ 拼接 → "Fatdog_calm_2026"
 
-    char msg[128];
-    snprintf(msg, sizeof(msg), "page=%d&ts=%ld", page, ts);
-    return full.sign(std::string(msg));
+    /* 组装 body → 取 SHA-256 摘要 → 对**摘要**签名（毫秒 ts 写在 body 里） */
+    char body[128];
+    snprintf(body, sizeof(body), "page=%d&ts=%lld", page, (long long) ts);
+    unsigned char dg[32];
+    char dghex[65];
+    sha256_ctx c;
+    sha256_init(&c);
+    sha256_update(&c, (const unsigned char *) body, strlen(body));
+    sha256_final(&c, dg);
+    for (int i = 0; i < 32; i++) snprintf(dghex + i * 2, 3, "%02x", dg[i]);
+    dghex[64] = 0;
+    return full.sign(std::string(dghex));
 }
 
 /* ============================================================

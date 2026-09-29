@@ -135,13 +135,13 @@ static void m4_sha256(const unsigned char *msg, unsigned int len, unsigned char 
 static void m4_hmac_sha256(const unsigned char *key, unsigned int klen,
                            const unsigned char *msg, unsigned int mlen,
                            unsigned char out[32]) {
-    unsigned char k0[64], ipad[64], opad[64], ih[32], buf[192];
+    unsigned char k0[64], ipad[64], opad[64], ih[32], buf[384];
     unsigned int i;
     memset(k0, 0, sizeof(k0));
     if (klen > 64) m4_sha256(key, klen, k0);
     else memcpy(k0, key, klen);
     for (i = 0; i < 64; i++) { ipad[i] = k0[i] ^ 0x36; opad[i] = k0[i] ^ 0x5c; }
-    if (mlen > 120) mlen = 120;
+    if (mlen > 256) mlen = 256;
     memcpy(buf, ipad, 64);
     memcpy(buf + 64, msg, mlen);
     m4_sha256(buf, 64 + mlen, ih);
@@ -199,23 +199,26 @@ static void m4_hex_encode(const unsigned char *d, int n, char *out) {
 
 /* ---------- 业务核心（App 与玩家对拍的是同一套实现） ---------- */
 
-static void m4_core_enc(int page, long long ts, char hex[65]) {
-    char payload[32];
+static void m4_core_enc(int page, long long ts, const char *nonce, const char *dev,
+                        char hex[129]) {
+    char payload[64];
     unsigned char key[16];
-    int n, i;
-    n = snprintf(payload, sizeof(payload), "page=%d&ts=%lld", page, ts);
+    int n;
+    /* payload: multi-field, keys in lexicographic order (dev < nonce < page < ts) */
+    n = snprintf(payload, sizeof(payload), "dev=%s&nonce=%s&page=%d&ts=%lld",
+                 dev ? dev : "", nonce ? nonce : "", page, ts);
     if (n < 0) n = 0;
-    if (n > 31) n = 31;
-    memset(payload + n, 0, (size_t)(32 - n));
+    if (n > 63) n = 63;
+    memset(payload + n, 0, (size_t)(64 - n));
     m4_derive("|rc4", key, 16);
-    m4_rc4(key, 16, (unsigned char *)payload, 32);
-    m4_hex_encode((const unsigned char *)payload, 32, hex);
+    m4_rc4(key, 16, (unsigned char *)payload, 64);
+    m4_hex_encode((const unsigned char *)payload, 64, hex);
 }
 
 static void m4_core_sign(const char *enc, char hex[65]) {
     unsigned char mk[32], dg[32];
     size_t elen = strlen(enc);
-    if (elen > 120) elen = 120;
+    if (elen > 256) elen = 256;
     m4_derive("|mac", mk, 32);
     m4_hmac_sha256(mk, 32, (const unsigned char *)enc, (unsigned int)elen, dg);
     m4_hex_encode(dg, 32, hex);
@@ -250,10 +253,18 @@ unsigned int m4_spin(unsigned int x, int n) {
 #ifndef M4_HOST_TEST
 
 JNIEXPORT jstring JNICALL
-Java_com_fatdog_reverse_Vr_nativeEnc(JNIEnv *env, jclass clazz, jint page, jlong ts) {
-    char hex[65];
+Java_com_fatdog_reverse_Vr_nativeEnc(JNIEnv *env, jclass clazz, jint page, jlong ts,
+                                     jstring nonce, jstring dev) {
+    char hex[129];
+    const char *n, *d;
     (void)clazz;
-    m4_core_enc((int)page, (long long)ts, hex);
+    if (!nonce || !dev) return (*env)->NewStringUTF(env, "ERR_INPUT");
+    n = (*env)->GetStringUTFChars(env, nonce, NULL);
+    d = (*env)->GetStringUTFChars(env, dev, NULL);
+    if (!n || !d) return (*env)->NewStringUTF(env, "ERR_UTF");
+    m4_core_enc((int)page, (long long)ts, n, d, hex);
+    (*env)->ReleaseStringUTFChars(env, nonce, n);
+    (*env)->ReleaseStringUTFChars(env, dev, d);
     return (*env)->NewStringUTF(env, hex);
 }
 
@@ -280,23 +291,23 @@ JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void *reserved) {
 #ifdef M4_HOST_TEST
 /* 主机自测：cc -DM4_HOST_TEST -o jadetest jade.c && ./jadetest */
 int main(void) {
-    char enc[65], sign[65];
-    unsigned char key[16], work[33];
+    char enc[129], sign[65];
+    unsigned char key[16], work[65];
     int i;
-    m4_core_enc(1, 1787013761LL, enc);
+    m4_core_enc(1, 1787013761LL, "1a2b3c4d", "android-34", enc);
     m4_core_sign(enc, sign);
     printf("sample_enc  = %s\n", enc);
     printf("sample_sign = %s\n", sign);
     /* 回环：流异或自反，再跑一遍即还原 */
     m4_derive("|rc4", key, 16);
-    for (i = 0; i < 32; i++) {
+    for (i = 0; i < 64; i++) {
         char c1 = enc[2*i], c2 = enc[2*i+1];
         int hi = (c1<='9')?(c1-'0'):(c1-'a'+10);
         int lo = (c2<='9')?(c2-'0'):(c2-'a'+10);
         work[i] = (unsigned char)((hi<<4)|lo);
     }
-    work[32] = 0;
-    m4_rc4(key, 16, work, 32);
+    work[64] = 0;
+    m4_rc4(key, 16, work, 64);
     printf("roundtrip   = %s\n", work);
     return 0;
 }

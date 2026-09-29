@@ -2514,6 +2514,61 @@ print("总和:", total)                    # 51242
 **坑位提醒**：`Sc.FAKE_KEY = Fatdog_drift` 是动词陷阱；K 表魔数在 so 里以 32 位小端字形态存在（IDA 里按 word 看），别用大端字节序列去搜。
 
 
+### 关卡 37b：篡墨之谜（魔改 MD5：IV + 常量表换血）
+
+**考点**：libink.so 里是一份**被换过血的 MD5**——小端字节序、64 步四轮、T 表常量齐全（"认骨架"的依据），但有两处被动过：① 初始 IV 整组替换为 `MD5("Fatdog_blot|iv")` 的 16 字节小端拆分；② T 表索引 5 / 23 / 41 三处异或 `0x5A5A5A5A`。于是标准 `hashlib.md5` 怎么算都对不上——先认出族群，再 diff 出改动点，谜底自现。
+（另：本关 so 用 C++ 类封装、函数**未加 static**，符号表里能看到 `ink::Digest` / `ink::Signer` 等名字——辨认骨架的又一条线索。）
+
+**协议**
+
+```text
+iv      = MD5("Fatdog_blot|iv") 的 16 字节，按小端拆成 4×u32，整组替换标准 IV
+K[5]    = T[5]  ^ 0x5A5A5A5A          # T = 标准 MD5 常量表 floor(2^32·|sin(i+1)|)
+K[23]   = T[23] ^ 0x5A5A5A5A
+K[41]   = T[41] ^ 0x5A5A5A5A
+payload = "dev=<dev>|nonce=<nonce>|page=<page>|ts=<ts>"     # 字段名字典序、竖线分隔
+sign    = hex( MD5变体(payload) )                            # 小端填充，长度字段小端
+```
+
+**Python 全复刻（先 python server.py；md37b_digest/sign_37b 可直接复用 server.py 内同名函数）**
+
+```python
+import time, secrets, requests
+
+# —— 与 server.py 完全一致的变体实现（此处引用，省略重复定义）——
+from server_md37b import sign_37b
+
+BASE  = "https://127.0.0.1:8443"          # 真机改 127.0.0.1，模拟器 10.0.2.2
+DEV   = "android-34"                       # 与 App 的 deviceTag() 一致即可（它参与签名）
+total = 0
+for page in range(1, 101):
+    ts      = int(time.time())
+    nonce   = secrets.token_hex(4)                         # 每次都变，但确实参与签名
+    payload = f"dev={DEV}|nonce={nonce}|page={page}|ts={ts}"   # 注意分隔符是竖线
+    sign    = sign_37b(payload)
+    r = requests.get(f"{BASE}/api/l37b",
+                     params={"dev": DEV, "nonce": nonce, "page": page,
+                             "ts": ts, "sign": sign},
+                     verify="certs/ca.crt", timeout=10)
+    total += sum(r.json()["nums"])
+print("总和:", total)                      # 49076
+```
+
+对拍样例：`sign_37b("dev=android|nonce=1a2b3c4d|page=1|ts=1787013761") = fe152d9036b8530ed53c640b741bd965`；
+同一串的标准实现 `hashlib.md5(...) = 24dd13bc14d6d99802daa8b6fbf65c43`——**两者不同**，正是"被改"的铁证。
+
+**动态路线**：本关符号是 C++ mangled 名（未加 static），可直接按名定位：
+- `Module.enumerateSymbols('libink.so')` 找 `ink::Signer::sign` / `ink::Digest::compute`；
+- Hook `ink::Digest::compute` 入口，dump 第一个参数（状态字数组 m_state）——发现不是 `67452301 efcdab89 98badcfe 10325476` 而是 `dd320353 c13c7b22 36cbf4fe c6aaa27f`，**IV 换血当场实锤**；
+- Hook `ink::compressBlock`，dump 第二参数（K 表）与标准 T 表 diff，即见索引 5 / 23 / 41 三处不同。
+
+**坑位提醒**：
+- `Sd.FAKE_KEY = Fatdog_bolt` 与真标记 `Fatdog_blot` **一字之差**（o/l 换位），别抄错；
+- payload 的**被签分隔符是竖线 `|`**，而 URL 查询参数用 `&`——混用直接 403，这是本关最常见的坑；
+- T 表在 so 里以 32 位小端字形态存在（IDA 里按 word 看），别用大端字节序列去搜；
+- 常量表与状态字都在 `libink.so` 的 `.rodata` / 栈上，`strings` 只能拿到明文诱饵标记，真标记是 UTF-16 码元（`strings -el` 可取证）。
+
+
 ---
 
 
@@ -2770,12 +2825,13 @@ print(total)   # 49906
 ```text
 certHash = SHA-256(从 APK 签名中提取的 X.509 证书 DER)
 derivedKey = SHA-256(certHash ‖ b"Fatdog_bind")
-sign = HMAC-SHA256(derivedKey, "page=N&ts=T")
+payload  = "nonce=<n>&page=<p>&ts=<t>"          # 字段名字典序；nonce 每次请求都变
+sign     = HMAC-SHA256(derivedKey, payload)
 ```
 
 重打包者的证书不同→certHash 不同→derivedKey 不同→HMAC 全部 403——零提示，零 if 判断。服务端用同样的逻辑独立派生相同 key 验签。
 
-**协议**：POST `https://…:8443/api/l46`，表单字段 page、ts、sign。
+**协议**：POST `https://…:8443/api/l46`，表单字段 **page、ts、nonce、sign**（`nonce` 为 8 位随机 hex，每次请求都变，且与其他字段一起参与签名）。
 
 **静态路线（Python 全复刻，先 python server.py）**
 
@@ -2784,12 +2840,15 @@ import hashlib, hmac, time, requests
 
 cert_hash = bytes.fromhex("3bb2134ca3b10bacd43965d0838efa90eef3765eed8832929168ca0e221237fe")
 derived_key = hashlib.sha256(cert_hash + b"Fatdog_bind").digest()
+import secrets
 total = 0
 for page in range(1, 101):
-    ts   = int(time.time())
-    sign = hmac.new(derived_key, f"page={page}&ts={ts}".encode(), hashlib.sha256).hexdigest()
+    ts    = int(time.time())
+    nonce = secrets.token_hex(4)                       # ★ 每次请求都变
+    payload = f"nonce={nonce}&page={page}&ts={ts}"      # ★ 字段名字典序
+    sign  = hmac.new(derived_key, payload.encode(), hashlib.sha256).hexdigest()
     r = requests.post("https://127.0.0.1:8443/api/l46",
-                      data={"page": page, "ts": ts, "sign": sign},
+                      data={"page": page, "ts": ts, "nonce": nonce, "sign": sign},
                       verify="certs/ca.crt", timeout=5).json()
     assert len(r["nums"]) == 10, r
     total += sum(r["nums"])
@@ -2897,64 +2956,43 @@ print(total)   # 52437
 ## Native大陆（L48-L53）
 
 
-### 关卡 48：落日平原（手写 TEA · std::map 分发 · JNI 回调 Java 取时间戳）
+### 关卡 48：落日平原（C++ operator+ 派生密钥 · body 摘要参与签名）
 
-**考点**：Native大陆首关——全程在 C++ native 层完成加密+签名，JNI 只负责传入 page 和时间戳。手写 TEA（Tiny Encryption Algorithm）对 payload 加密，HMAC-SHA256 签名，POST 协议传输。
+**考点**：密钥由两段（`Fatdog_calm_` + `2026`）经 `operator+` 拼接派生；POST 提交，**ts 为毫秒**（不再是秒），而签名对象**不是明文参数，而是 body 的 SHA-256 摘要**——这是 POST 场景的标准做法，也是本关的题眼。
 
 ```text
 协议：POST /api/l48
-  表单字段：enc, sign, algo=0
-  enc  = hex(TEA-ECB(tea_key, "page=N&ts=T"))
-  sign = HMAC-SHA256(hmac_key, enc)
-  algo = 0
+  表单字段：page, ts（毫秒）, sign
+  body   = "page=N&ts=T"
+  digest = sha256_hex(body)
+  sign   = HMAC-SHA256("Fatdog_calm_2026", digest)
 
-密钥（XOR 数组解码）：
-  tea_key  = Fatdog_sunset_2026（XOR ^0x29）
-  hmac_key = Fatdog_plains_2026（XOR ^0x41）
+密钥（XOR 数组解码后 operator+ 拼接）：
+  Fatdog_calm_  +  2026  →  Fatdog_calm_2026
 ```
 
-**静态路线（Python 全复刻，先 python server.py）**
+**Python 全复刻（先 python server.py）**
 
 ```python
-import hashlib, hmac, time, requests, struct
+import hashlib, hmac, time, requests
 
-TEA_KEY = b"Fatdog_sunset_2026"
-HMAC_KEY = b"Fatdog_plains_2026"
-
-def tea_encrypt(key, v0, v1):
-    mask = 0xFFFFFFFF
-    k = struct.unpack('<4I', key.ljust(16, b'\0'))
-    delta = 0x9E3779B9
-    s = 0
-    for _ in range(32):
-        s = (s + delta) & mask
-        v0 = (v0 + (((v1 << 4) + k[0]) ^ (v1 + s) ^ ((v1 >> 5) + k[1]))) & mask
-        v1 = (v1 + (((v0 << 4) + k[2]) ^ (v0 + s) ^ ((v0 >> 5) + k[3]))) & mask
-    return v0, v1
-
-def pkcs7_pad(data):
-    pad_len = 16 - (len(data) % 16)
-    return data + bytes([pad_len] * pad_len)
-
+KEY = b"Fatdog_calm_2026"
 total = 0
 for page in range(1, 101):
-    ts = int(time.time())
-    payload = f"page={page}&ts={ts}".encode()
-    padded = pkcs7_pad(payload)
-    # TEA-ECB: 加密每 8 字节块
-    enc_bytes = b''
-    for i in range(0, len(padded), 8):
-        v0, v1 = struct.unpack('<2Q', padded[i:i+8])
-        v0, v1 = tea_encrypt(TEA_KEY, v0, v1)
-        enc_bytes += struct.pack('<2Q', v0, v1)
-    enc = enc_bytes.hex()
-    sign = hmac.new(HMAC_KEY, enc.encode(), hashlib.sha256).hexdigest()
+    ts = int(time.time() * 1000)                       # ★ 毫秒
+    body = f"page={page}&ts={ts}"
+    digest = hashlib.sha256(body.encode()).hexdigest()  # ★ 签的是摘要
+    sign = hmac.new(KEY, digest.encode(), hashlib.sha256).hexdigest()
     r = requests.post("https://127.0.0.1:8443/api/l48",
-                      data={"enc": enc, "sign": sign, "algo": 0},
+                      data={"page": page, "ts": ts, "sign": sign},
                       verify="certs/ca.crt", timeout=5).json()
-    assert len(r["nums"]) == 10, r
     total += sum(r["nums"])
 print(total)
+```
+
+对拍样例：`body = page=1&ts=1787013761123` → `digest = 8e0f4985690fabb04692a4f23ec35a7ee06b1cf06ac80d1f7ab4bd5db0ab0785` → `sign = 194c7e10589f5e8f5df604a0741ea0290c1f859e431f553a99ee50bd3b3214cb`。
+
+**动态路线**：Frida hook `Bk48.nativeSign`，观察入参 ts 是 13 位（毫秒）——一眼识破时间格式；再 hook 内部 `sha256_*` 可见"先摘要后签名"的两段结构。
 ```
 
 **动态路线**：IDA 定位 `nativeEnc` → 追踪 TEA 密钥调度（delta 异或展开 32 轮）→ 还原 XOR 数组 → 静态复刻。本关无反调试、无记账守卫，纯算法识别。
@@ -3363,6 +3401,28 @@ public DvmObject<?> callStaticObjectMethod(BaseVM vm, DvmClass dvc, String sig, 
 
 ## 天地秘境 · 流沙河（KL6-10）
 
+
+> **⚠️ 载荷协议已升级（2026-09-29）**：五关的加密载荷由原来的 `page=N&ts=T` 扩为**多字段、字段名字典序**，并把一次性 `nonce`（与 `dev`）一并**加密进载荷**。`sign = HMAC-SHA256(mac, enc)` 覆盖整个密文——载荷一变，enc/sign 全变。
+
+| 关 | 请求参数 | 被加密的载荷（字段名字典序） |
+|---|---|---|
+| KL6 | `GET /api/kl6?page&ts&nonce&enc&sign` | `dev=<d>&nonce=<n>&page=<p>&ts=<t>` |
+| KL7 | `POST /api/kl7` 表单 `page,ts,nonce,enc,sign` | `dev=<d>&nonce=<n>&page=<p>&ts=<t>` |
+| KL8 | `GET /api/kl8?page&ts&nonce&enc&sign` | `dev=<d>&nonce=<n>&page=<p>&ts=<t>` |
+| KL9 | `GET /api/kl9?page&ts&nonce&enc&sign` | `dev=<d>&nonce=<n>&page=<p>&ts=<t>` |
+| KL10 | `POST /api/kl10` 表单 `page,ts,nonce,sign` | `nonce=<n>&page=<p>&ts=<t>`（本关变体 SHA 边界 48B，只用 3 字段） |
+
+> **通用复刻骨架**（KL6 为例；其余关仅换"加密函数"与端点）：
+> ```python
+> import hmac, hashlib, secrets
+> nonce = secrets.token_hex(4)                        # 每次请求都变
+> dev   = "android-34"
+> payload = f"dev={dev}&nonce={nonce}&page={page}&ts={ts}".encode()
+> ct   = <本关加密>(payload.ljust(64, b"\x00"))        # KL6/7/8/9 均零填充到 64 字节
+> enc  = ct.hex()
+> sign = hmac.new(mac_key, enc.encode(), hashlib.sha256).hexdigest()
+> ```
+> 各关正文的 `page=N&ts=T` 说明与 Python 片段，请按上表**替换载荷串**后再运行。
 
 ### KL6：冰封之钥（流沙河首关 · 魔改 AES-128）
 

@@ -12,7 +12,7 @@ public class Vr {
     }
 
     // 魔改 RC4(钥匙, "page=N&ts=T" 零填充)
-    public static native String nativeEnc(int page, long ts);
+    public static native String nativeEnc(int page, long ts, String nonce, String dev);
 
     // HMAC-SHA256(mac, enc)，mac 由标记运行时派生
     public static native String nativeSign(String enc);

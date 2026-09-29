@@ -181,8 +181,9 @@ for _i in range(8):
 DECOY_BLOB = ecb_crypt(DECOY_KEY, pad(DECOY_PAYLOAD.encode()), CK_MOD)
 
 
-def core_enc(page, ts):
-    return ecb_crypt(SM4_KEY, pad(f"page={page}&ts={ts}".encode()), CK_MOD)
+def core_enc(page, ts, nonce, dev):
+    payload = f"dev={dev}&nonce={nonce}&page={page}&ts={ts}".encode()
+    return ecb_crypt(SM4_KEY, payload.ljust(64, b"\x00"), CK_MOD)
 
 
 def core_sign(enc_hex):
@@ -326,13 +327,13 @@ static void m3_sha256(const unsigned char *msg, unsigned int len, unsigned char 
 static void m3_hmac_sha256(const unsigned char *key, unsigned int klen,
                            const unsigned char *msg, unsigned int mlen,
                            unsigned char out[32]) {
-    unsigned char k0[64], ipad[64], opad[64], ih[32], buf[192];
+    unsigned char k0[64], ipad[64], opad[64], ih[32], buf[384];
     unsigned int i;
     memset(k0, 0, sizeof(k0));
     if (klen > 64) m3_sha256(key, klen, k0);
     else memcpy(k0, key, klen);
     for (i = 0; i < 64; i++) { ipad[i] = k0[i] ^ 0x36; opad[i] = k0[i] ^ 0x5c; }
-    if (mlen > 120) mlen = 120;
+    if (mlen > 256) mlen = 256;
     memcpy(buf, ipad, 64);
     memcpy(buf + 64, msg, mlen);
     m3_sha256(buf, 64 + mlen, ih);
@@ -426,27 +427,30 @@ static void m3_hex_encode(const unsigned char *d, int n, char *out) {
 
 /* ---------- 业务核心（App 与玩家对拍的是同一套实现） ---------- */
 
-static void m3_core_enc(int page, long long ts, char hex[65]) {
-    char payload[32];
-    unsigned char pt[32], ct[32], key[16];
+static void m3_core_enc(int page, long long ts, const char *nonce, const char *dev,
+                        char hex[129]) {
+    char payload[160];
+    unsigned char pt[64], ct[64], key[16];
     unsigned int rk[32];
     int n, i;
-    n = snprintf(payload, sizeof(payload), "page=%d&ts=%lld", page, ts);
+    /* payload: multi-field, keys in lexicographic order (dev < nonce < page < ts) */
+    n = snprintf(payload, sizeof(payload), "dev=%s&nonce=%s&page=%d&ts=%lld",
+                 dev ? dev : "", nonce ? nonce : "", page, ts);
     if (n < 0) n = 0;
-    if (n > 31) n = 31;
+    if (n > 63) n = 63;
     memset(pt, 0, sizeof(pt));
     for (i = 0; i < n; i++) pt[i] = (unsigned char)payload[i];
     m3_derive("|sm4", key, 16);
     m3_key_expand(key, rk);
-    for (i = 0; i < 32; i += 16)
+    for (i = 0; i < 64; i += 16)
         m3_crypt_block(pt + i, ct + i, rk, 0);
-    m3_hex_encode(ct, 32, hex);
+    m3_hex_encode(ct, 64, hex);
 }
 
 static void m3_core_sign(const char *enc, char hex[65]) {
     unsigned char mk[32], dg[32];
     size_t elen = strlen(enc);
-    if (elen > 120) elen = 120;
+    if (elen > 256) elen = 256;
     m3_derive("|mac", mk, 32);
     m3_hmac_sha256(mk, 32, (const unsigned char *)enc, (unsigned int)elen, dg);
     m3_hex_encode(dg, 32, hex);
@@ -481,10 +485,18 @@ unsigned int m3_spin(unsigned int x, int n) {
 #ifndef M3_HOST_TEST
 
 JNIEXPORT jstring JNICALL
-Java_com_fatdog_reverse_Uq_nativeEnc(JNIEnv *env, jclass clazz, jint page, jlong ts) {
-    char hex[65];
+Java_com_fatdog_reverse_Uq_nativeEnc(JNIEnv *env, jclass clazz, jint page, jlong ts,
+                                     jstring nonce, jstring dev) {
+    char hex[129];
+    const char *n, *d;
     (void)clazz;
-    m3_core_enc((int)page, (long long)ts, hex);
+    if (!nonce || !dev) return (*env)->NewStringUTF(env, "ERR_INPUT");
+    n = (*env)->GetStringUTFChars(env, nonce, NULL);
+    d = (*env)->GetStringUTFChars(env, dev, NULL);
+    if (!n || !d) return (*env)->NewStringUTF(env, "ERR_UTF");
+    m3_core_enc((int)page, (long long)ts, n, d, hex);
+    (*env)->ReleaseStringUTFChars(env, nonce, n);
+    (*env)->ReleaseStringUTFChars(env, dev, d);
     return (*env)->NewStringUTF(env, hex);
 }
 
@@ -511,19 +523,19 @@ JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void *reserved) {
 #ifdef M3_HOST_TEST
 /* 主机自测：cc -DM3_HOST_TEST -o ivorytest ivory.c && ./ivorytest */
 int main(void) {
-    char enc[65], sign[65];
+    char enc[129], sign[65];
     unsigned char key[16];
     unsigned int rk[32];
-    unsigned char back[33];
+    unsigned char back[65];
     int i, j;
-    m3_core_enc(1, 1787013761LL, enc);
+    m3_core_enc(1, 1787013761LL, "1a2b3c4d", "android-34", enc);
     m3_core_sign(enc, sign);
     printf("sample_enc  = %s\n", enc);
     printf("sample_sign = %s\n", sign);
     /* 回环：用同一把钥匙解开自己的密文 */
     m3_derive("|sm4", key, 16);
     m3_key_expand(key, rk);
-    for (i = 0; i < 32; i += 16) {
+    for (i = 0; i < 64; i += 16) {
         unsigned char ct[16];
         for (j = 0; j < 16; j++) {
             char c1 = enc[2*(i+j)], c2 = enc[2*(i+j)+1];
@@ -533,7 +545,7 @@ int main(void) {
         }
         m3_crypt_block(ct, back + i, rk, 1);
     }
-    back[32] = 0;
+    back[64] = 0;
     printf("roundtrip   = %s\n", back);
     return 0;
 }
@@ -557,7 +569,8 @@ def main():
         f.write(csrc)
 
     sample_page, sample_ts = 1, 1787013761
-    enc = core_enc(sample_page, sample_ts).hex()
+    sample_nonce, sample_dev = "1a2b3c4d", "android-34"
+    enc = core_enc(sample_page, sample_ts, sample_nonce, sample_dev).hex()
     print()
     print("[emit] %s (%d lines)" % (out_path, csrc.count("\n") + 1))
     print("[info] marker       =", MARKER, "(UTF-16 hidden)")

@@ -17,15 +17,14 @@ import javax.net.ssl.X509TrustManager;
 
 import okhttp3.Call;
 import okhttp3.Callback;
-import okhttp3.FormBody;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.Response;
 import okhttp3.ResponseBody;
 
-// TLS 客户端：信任链复用内置 CA（Tm.caDer()）；
-// enc 由 Tp.nativeEncDes 的魔改 3DES 算、sign 由 Tp.nativeSign 算，POST /api/kl7。
-public class Vq {
+// 关卡 37b 的 TLS 客户端：信任链复用内置 CA（Tm.caDer()）；
+// 载荷含设备串与一次性随机数，签名由 Qb.nativeSign 算。
+public class Rc {
     static final String BASE = NetHost.httpsBase();
 
     public interface Cb {
@@ -64,38 +63,19 @@ public class Vq {
         return client;
     }
 
-    // 一次性随机数（8 位 hex）与设备串：一并参与加密载荷
-    static String newNonce() {
-        byte[] b = new byte[4];
-        new java.security.SecureRandom().nextBytes(b);
-        StringBuilder sb = new StringBuilder();
-        for (byte x : b) sb.append(String.format("%02x", x & 0xff));
-        return sb.toString();
-    }
-
-    static String deviceTag() {
-        return "android-" + android.os.Build.VERSION.SDK_INT;
-    }
-
     static void fetchPage(String base, final int page, final Cb cb) {
         final long ts = System.currentTimeMillis() / 1000;
         final String nonce = newNonce();
         final String dev = deviceTag();
-        final String enc = Tp.nativeEncDes(page, ts, nonce, dev);
-        final String sign = Tp.nativeSign(enc);
+        final String sign = Qb.nativeSign(page, ts, nonce, dev);
         try {
             final OkHttpClient c = trustClient();
-            FormBody form = new FormBody.Builder()
-                    .add("page", String.valueOf(page))
-                    .add("ts", String.valueOf(ts))
-                    .add("nonce", nonce)
-                    .add("enc", enc)
-                    .add("sign", sign)
-                    .build();
+            String url = base + "/api/l37b?dev=" + dev + "&nonce=" + nonce
+                    + "&page=" + page + "&ts=" + ts + "&sign=" + sign;
             Request req = new Request.Builder()
-                    .url(base + "/api/kl7")
+                    .url(url)
                     .header("User-Agent", "Fatdog/1.0 (Android)")
-                    .post(form)
+                    .get()
                     .build();
             c.newCall(req).enqueue(new Callback() {
                 @Override
@@ -124,5 +104,19 @@ public class Vq {
         } catch (Exception e) {
             cb.onError(e == null ? "TLS 初始化失败" : e.getMessage());
         }
+    }
+
+    // 一次性随机数：每次都变，但它确实参与了签名
+    static String newNonce() {
+        byte[] b = new byte[4];
+        new SecureRandom().nextBytes(b);
+        StringBuilder sb = new StringBuilder();
+        for (byte x : b) sb.append(String.format("%02x", x & 0xff));
+        return sb.toString();
+    }
+
+    // 设备串：参与签名，与接口版本一起构成"多字段载荷"
+    static String deviceTag() {
+        return "android-" + android.os.Build.VERSION.SDK_INT;
     }
 }

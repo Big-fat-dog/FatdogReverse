@@ -40,7 +40,7 @@ public class MainActivity extends Activity {
             {R.id.btn_x38, R.id.btn_x39, R.id.btn_x40, R.id.btn_x41, R.id.btn_x42},
             {R.id.btn_pages15, R.id.btn_rc16, R.id.btn_f17, R.id.btn_r18, R.id.btn_l19},
             {R.id.btn_t21, R.id.btn_p22, R.id.btn_w23, R.id.btn_g24, R.id.btn_n25, R.id.btn_m26, R.id.btn_f27},
-            {R.id.btn_l28, R.id.btn_l29, R.id.btn_l30, R.id.btn_l31, R.id.btn_l32, R.id.btn_l33, R.id.btn_l34, R.id.btn_l35, R.id.btn_l36, R.id.btn_l37},
+            {R.id.btn_l28, R.id.btn_l29, R.id.btn_l30, R.id.btn_l31, R.id.btn_l32, R.id.btn_l33, R.id.btn_l34, R.id.btn_l35, R.id.btn_l36, R.id.btn_l37, R.id.btn_l37b},
             {R.id.btn_l43, R.id.btn_l44, R.id.btn_l45, R.id.btn_l46, R.id.btn_l47},
             {R.id.btn_l48, R.id.btn_l49, R.id.btn_l50, R.id.btn_l51, R.id.btn_l52, R.id.btn_l53},
     };
@@ -291,6 +291,7 @@ public class MainActivity extends Activity {
         bind(R.id.btn_l35, k35Activity.class);
         bind(R.id.btn_l36, l36Activity.class);
         bind(R.id.btn_l37, m37Activity.class);
+        bind(R.id.btn_l37b, blotActivity.class);
         bind(R.id.btn_l43, s43Activity.class);
         bind(R.id.btn_l44, t44Activity.class);
         bind(R.id.btn_l45, u45Activity.class);

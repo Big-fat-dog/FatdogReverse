@@ -65,6 +65,14 @@ LOCAL_MODULE := wyvern
 LOCAL_SRC_FILES := wyvern.c
 include $(BUILD_SHARED_LIBRARY)
 
+# L37b 篡墨之谜（魔改 MD5：IV + T 表换血；C++17 类封装 + 命名空间）
+include $(CLEAR_VARS)
+LOCAL_MODULE := ink
+LOCAL_SRC_FILES := ink.cpp
+LOCAL_CPPFLAGS := -std=c++17 -fexceptions -frtti
+LOCAL_LDLIBS := -llog
+include $(BUILD_SHARED_LIBRARY)
+
 # KL1
 include $(CLEAR_VARS)
 LOCAL_MODULE := cedar

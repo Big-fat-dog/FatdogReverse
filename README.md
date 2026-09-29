@@ -1,9 +1,9 @@
 # FatdogReverse
 
-**Android 逆向工程实战靶场 · 108 关 · 本地离线 · 答案可复现**
+**Android 逆向工程实战靶场 · 109 关 · 本地离线 · 答案可复现**
 
 ![Platform](https://img.shields.io/badge/Platform-Android%205%2B-3DDC84)
-![Levels](https://img.shields.io/badge/Levels-108-blue)
+![Levels](https://img.shields.io/badge/Levels-109-blue)
 ![Build](https://img.shields.io/badge/Build-No%20Gradle-orange)
 ![Server](https://img.shields.io/badge/Server-FastAPI-009688)
 ![Tools](https://img.shields.io/badge/Tools-Frida%20%7C%20jadx%20%7C%20IDA%20%7C%20apktool-lightgrey)
@@ -48,14 +48,14 @@ FatdogReverse 是一套**完全离线运行**的 Android 逆向工程练习靶�
 
 ## 关卡总览
 
-当前共 **108 关**，分为主流程与天地秘境两大块。
+当前共 **109 关**，分为主流程与天地秘境两大块。
 
 | 编号 | 数量 | 内容 |
 |---|---:|---|
 | `L1-L53` | 53 关 | 主流程，按大厅分类推进 |
 | `KL1-KL55` | 50 关 | 天地秘境（`KL31-KL35` 规划中，暂未开放） |
 | `KKL1-KKL5` | 5 关 | 太玄之初追加卷（C++ 壳零件与 VMP 签名链） |
-| **合计** | **108 关** | |
+| **合计** | **109 关** | |
 
 ### 主流程 `L1-L53`
 
@@ -66,7 +66,7 @@ FatdogReverse 是一套**完全离线运行**的 Android 逆向工程练习靶�
 | Frida Hook（Java 层） | `L10-L14` | 5 | `MessageDigest`、`Mac`、`Cipher`、多层变换、诱饵类 |
 | 网络对抗 | `L15-L19` | 5 | HMAC 签名、RC4、国密 SM4/SM3、RSA/DES、AES + R8 混淆 |
 | SSL 抓包 | `L21-L27` | 7 | TrustManager、CertificatePinner、WebView 证书错误、反 Hook 守卫、JNI 门禁、mTLS |
-| Native 试炼 | `L28-L37` | 10 | 字符串加密、动态注册、指针派发、跨层调用、反调试、CRC 自校验 |
+| Native 试炼 | `L28-L37`、`L37b` | 11 | 字符串加密、动态注册、指针派发、跨层调用、反调试、CRC 自校验、魔改 MD5 |
 | Xposed 实战 | `L38-L42` | 5 | Hook 返回值、篡改入参、读取私有字段、替换方法体、持久化验证 |
 | 签名校验对抗 | `L43-L47` | 5 | SigningInfo、Native 摘要下沉、APK 自解析、证书派生密钥、综合收官 |
 | Native大陆 | `L48-L53` | 6 | C++ name mangling、STL 容器、vtable、模板、异常控制流、魔改算法 |
@@ -174,7 +174,7 @@ adb reverse --list    # 确认映射生效
 | 端口 | 协议 | 适用关卡 |
 |---|---|---|
 | `8787` | HTTP | `L15-L19`、`KKL2-KKL5` |
-| `8443` | HTTPS | `L21-L25`、`L27-L37`、`L43-L53`、`KL6-KL10`、`KL30` |
+| `8443` | HTTPS | `L21-L25`、`L27-L37`、`L37b`、`L43-L53`、`KL6-KL10`、`KL30` |
 | `8444` | HTTPS + mTLS | `L26` |
 
 App 的地址选择逻辑位于 `NetHost.java`：`httpBase()` → `8787`，`httpsBase()` → `8443`，`mtlsBase()` → `8444`。

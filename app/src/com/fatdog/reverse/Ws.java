@@ -13,7 +13,7 @@ public class Ws {
     }
 
     // 第一层：魔改 SHA256("page=N&ts=T")
-    public static native String nativeDigest(int page, long ts);
+    public static native String nativeDigest(int page, long ts, String nonce);
 
     // 第二层：魔改 AES-128-ECB(aes_key, digest)
     public static native String nativeSign(String digest);

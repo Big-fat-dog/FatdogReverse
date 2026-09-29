@@ -175,17 +175,23 @@ Java_com_fatdog_reverse_Wg_nativeKeySeed(JNIEnv *env, jclass clazz, jbyteArray d
     return result;
 }
 
-/* nativeSign: HMAC-SHA256(g_key, "page=N&ts=T") → hex string */
+/* nativeSign: HMAC-SHA256(g_key, "nonce=<n>&page=<p>&ts=<t>") → hex string
+ * 被签串按字段名字典序拼接（nonce < page < ts）；nonce 每次请求都变。 */
 JNIEXPORT jstring JNICALL
 Java_com_fatdog_reverse_Wg_nativeSign(JNIEnv *env, jclass clazz,
-                                       jint page, jlong ts) {
-    (void)clazz;
-    char msg[64];
-    int mlen = snprintf(msg, sizeof(msg), "page=%d&ts=%lld", page, (long long)ts);
+                                       jint page, jlong ts, jstring nonce) {
+    const char *n = NULL;
+    char msg[128];
+    int mlen;
     unsigned char dg[32];
     char hex[65];
     static const char *H = "0123456789abcdef";
     int i;
+
+    (void)clazz;
+    if (nonce) n = (*env)->GetStringUTFChars(env, nonce, NULL);
+    mlen = snprintf(msg, sizeof(msg), "nonce=%s&page=%d&ts=%lld",
+                    n ? n : "", page, (long long)ts);
 
     if (!g_key_ready) m8_derive_key();
     m8_hmac_sha256(g_key, 32, (const unsigned char *)msg, (unsigned int)mlen, dg);
@@ -195,6 +201,7 @@ Java_com_fatdog_reverse_Wg_nativeSign(JNIEnv *env, jclass clazz,
         hex[2*i+1] = H[dg[i] & 0xF];
     }
     hex[64] = 0;
+    if (n) (*env)->ReleaseStringUTFChars(env, nonce, n);
 
     return (*env)->NewStringUTF(env, hex);
 }

@@ -63,14 +63,30 @@ public class Vv {
         return client;
     }
 
+    // 一次性随机数（8 位 hex）：参与加密载荷，每次请求都变
+    static String newNonce() {
+        byte[] b = new byte[4];
+        new java.security.SecureRandom().nextBytes(b);
+        StringBuilder sb = new StringBuilder();
+        for (byte x : b) sb.append(String.format("%02x", x & 0xff));
+        return sb.toString();
+    }
+
+    // 设备串：一并参与加密载荷
+    static String deviceTag() {
+        return "android-" + android.os.Build.VERSION.SDK_INT;
+    }
+
     static void fetchPage(String base, final int page, final Cb cb) {
         final long ts = System.currentTimeMillis() / 1000;
-        final String enc = Tj.nativeEnc(page, ts);
+        final String nonce = newNonce();
+        final String dev = deviceTag();
+        final String enc = Tj.nativeEnc(page, ts, nonce, dev);
         final String sign = Tj.nativeSign(enc);
         try {
             final OkHttpClient c = trustClient();
             String url = base + "/api/kl6?page=" + page + "&ts=" + ts
-                    + "&enc=" + enc + "&sign=" + sign;
+                    + "&nonce=" + nonce + "&enc=" + enc + "&sign=" + sign;
             Request req = new Request.Builder()
                     .url(url)
                     .header("User-Agent", "Fatdog/1.0 (Android)")

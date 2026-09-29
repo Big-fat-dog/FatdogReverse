@@ -244,12 +244,13 @@ AES_KEY = hashlib.sha256(MARKER.encode() + b"|key").digest()[:16]
 DECOY_KEY = hashlib.sha256(DECOY_MARKER.encode() + b"|key").digest()[:16]
 
 
-def core_digest(page, ts):
-    return sha_var(f"page={page}&ts={ts}".encode(), IV_WORDS, boundary=48)
+def core_digest(page, ts, nonce):
+    payload = f"nonce={nonce}&page={page}&ts={ts}".encode()
+    return sha_var(payload, IV_WORDS, boundary=48)
 
 
-def core_sign(page, ts):
-    return ecb_encrypt(AES_KEY, pad(core_digest(page, ts)), mix_swap=True)
+def core_sign(page, ts, nonce):
+    return ecb_encrypt(AES_KEY, pad(core_digest(page, ts, nonce)), mix_swap=True)
 
 
 DECOY_BLOB = ecb_encrypt(DECOY_KEY, pad(DECOY_PAYLOAD.encode()), mix_swap=True)
@@ -512,14 +513,16 @@ static void m5_hex_encode(const unsigned char *d, int n, char *out) {
 
 /* ---------- 业务核心 ---------- */
 
-/* 第一层：魔改 SHA256("page=N&ts=T") -> hex */
-static void m5_core_digest(int page, long long ts, char hex[65]) {
-    char payload[32];
+/* 第一层：魔改 SHA256("dev=<d>&nonce=<n>&page=<p>&ts=<t>") -> hex */
+static void m5_core_digest(int page, long long ts, const char *nonce, char hex[65]) {
+    char payload[160];
     unsigned char dg[32];
     int n;
-    n = snprintf(payload, sizeof(payload), "page=%d&ts=%lld", page, ts);
+    /* payload: multi-field, lexicographic order (nonce < page < ts); kept <= 48B */
+    n = snprintf(payload, sizeof(payload), "nonce=%s&page=%d&ts=%lld",
+                 nonce ? nonce : "", page, ts);
     if (n < 0) n = 0;
-    if (n > 31) n = 31;
+    if (n > 159) n = 159;
     payload[n] = 0;
     m5_sha_variant((const unsigned char *)payload, (unsigned int)n, dg);
     m5_hex_encode(dg, 32, hex);
@@ -563,10 +566,16 @@ unsigned int m5_spin(unsigned int x, int n) {
 #ifndef M5_HOST_TEST
 
 JNIEXPORT jstring JNICALL
-Java_com_fatdog_reverse_Ws_nativeDigest(JNIEnv *env, jclass clazz, jint page, jlong ts) {
+Java_com_fatdog_reverse_Ws_nativeDigest(JNIEnv *env, jclass clazz, jint page, jlong ts,
+                                        jstring nonce) {
     char hex[65];
+    const char *n;
     (void)clazz;
-    m5_core_digest((int)page, (long long)ts, hex);
+    if (!nonce) return (*env)->NewStringUTF(env, "ERR_INPUT");
+    n = (*env)->GetStringUTFChars(env, nonce, NULL);
+    if (!n) return (*env)->NewStringUTF(env, "ERR_UTF");
+    m5_core_digest((int)page, (long long)ts, n, hex);
+    (*env)->ReleaseStringUTFChars(env, nonce, n);
     return (*env)->NewStringUTF(env, hex);
 }
 
@@ -602,7 +611,7 @@ JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void *reserved) {
 /* 主机自测：cc -DM5_HOST_TEST -o onytest onyx.c && ./onytest */
 int main(void) {
     char dig[65], sign[65];
-    m5_core_digest(1, 1787013761LL, dig);
+    m5_core_digest(1, 1787013761LL, "1a2b3c4d", dig);
     printf("sample_digest = %s\n", dig);
     /* 复用 nativeSign 的解析路径 */
     {
@@ -640,8 +649,9 @@ def main():
         f.write(csrc)
 
     sample_page, sample_ts = 1, 1787013761
-    dig = core_digest(sample_page, sample_ts).hex()
-    sign = core_sign(sample_page, sample_ts).hex()
+    sample_nonce = "1a2b3c4d"
+    dig = core_digest(sample_page, sample_ts, sample_nonce).hex()
+    sign = core_sign(sample_page, sample_ts, sample_nonce).hex()
     print()
     print("[emit] %s (%d lines)" % (out_path, csrc.count("\n") + 1))
     print("[info] marker       =", MARKER, "(UTF-16 hidden)")

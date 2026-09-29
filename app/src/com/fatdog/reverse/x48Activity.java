@@ -32,6 +32,7 @@ import javax.net.ssl.X509TrustManager;
 import okhttp3.Call;
 import okhttp3.Callback;
 import okhttp3.OkHttpClient;
+import okhttp3.FormBody;
 import okhttp3.Request;
 import okhttp3.Response;
 
@@ -305,11 +306,15 @@ public class x48Activity extends Activity {
         loading = true;
         status.setText("正在请求第 " + page + " 页…");
 
-        final long ts = System.currentTimeMillis() / 1000;
+        final long ts = System.currentTimeMillis();          // 毫秒时间戳（不再是秒）
         String sign = Bk48.nativeSign(page, ts);
-        String url = base + "/api/l48?page=" + page + "&ts=" + ts + "&sign=" + sign;
+        FormBody form = new FormBody.Builder()
+                .add("page", String.valueOf(page))
+                .add("ts", String.valueOf(ts))
+                .add("sign", sign)
+                .build();
 
-        Request req = new Request.Builder().url(url).get().build();
+        Request req = new Request.Builder().url(base + "/api/l48").post(form).build();
 
         client.newCall(req).enqueue(new Callback() {
             @Override public void onFailure(Call call, java.io.IOException e) {

@@ -321,6 +321,115 @@ def api_l37(page: int = Query(...), ts: int = Query(...), sign: str = Query(...)
         return {"page": page, "nums": NUMS37[idx:idx + PER_PAGE37]}
     raise HTTPException(status_code=403, detail="sign invalid")
 
+# ---------------- 关卡 37b：篡墨之谜（魔改 MD5：IV 与 K 表换血） ----------------
+KEY37B_MARKER = b"Fatdog_blot"
+DECOY37B_KEYS = [b"Fatdog_bolt"]
+PAGES37B, PER_PAGE37B, SEED37B = 100, 10, 20271224
+_rng37b = random.Random(SEED37B)
+NUMS37B = [_rng37b.randint(1, 100) for _ in range(PAGES37B * PER_PAGE37B)]
+
+# 标准 MD5 的 T 表（floor(2^32 * |sin(i+1)|)）与移位表——骨架照抄教科书，便于玩家"认骨架"
+_MD5_T37B = [
+    0xd76aa478, 0xe8c7b756, 0x242070db, 0xc1bdceee,
+    0xf57c0faf, 0x4787c62a, 0xa8304613, 0xfd469501,
+    0x698098d8, 0x8b44f7af, 0xffff5bb1, 0x895cd7be,
+    0x6b901122, 0xfd987193, 0xa679438e, 0x49b40821,
+    0xf61e2562, 0xc040b340, 0x265e5a51, 0xe9b6c7aa,
+    0xd62f105d, 0x02441453, 0xd8a1e681, 0xe7d3fbc8,
+    0x21e1cde6, 0xc33707d6, 0xf4d50d87, 0x455a14ed,
+    0xa9e3e905, 0xfcefa3f8, 0x676f02d9, 0x8d2a4c8a,
+    0xfffa3942, 0x8771f681, 0x6d9d6122, 0xfde5380c,
+    0xa4beea44, 0x4bdecfa9, 0xf6bb4b60, 0xbebfbc70,
+    0x289b7ec6, 0xeaa127fa, 0xd4ef3085, 0x04881d05,
+    0xd9d4d039, 0xe6db99e5, 0x1fa27cf8, 0xc4ac5665,
+    0xf4292244, 0x432aff97, 0xab9423a7, 0xfc93a039,
+    0x655b59c3, 0x8f0ccc92, 0xffeff47d, 0x85845dd1,
+    0x6fa87e4f, 0xfe2ce6e0, 0xa3014314, 0x4e0811a1,
+    0xf7537e82, 0xbd3af235, 0x2ad7d2bb, 0xeb86d391,
+]
+_MD5_S37B = [
+    7, 12, 17, 22, 7, 12, 17, 22, 7, 12, 17, 22, 7, 12, 17, 22,
+    5, 9, 14, 20, 5, 9, 14, 20, 5, 9, 14, 20, 5, 9, 14, 20,
+    4, 11, 16, 23, 4, 11, 16, 23, 4, 11, 16, 23, 4, 11, 16, 23,
+    6, 10, 15, 21, 6, 10, 15, 21, 6, 10, 15, 21, 6, 10, 15, 21,
+]
+_M37B = 0xFFFFFFFF
+
+
+def _md37b_iv():
+    """魔改点①：初始 IV 整组换血 → md5("Fatdog_blot|iv") 小端拆四字"""
+    d = hashlib.md5(b"Fatdog_blot|iv").digest()
+    return [int.from_bytes(d[i * 4:i * 4 + 4], "little") for i in range(4)]
+
+
+def _md37b_k():
+    """魔改点②：T 表三处换血（索引 5/23/41 异或 0x5A5A5A5A）"""
+    k = list(_MD5_T37B)
+    for i in (5, 23, 41):
+        k[i] ^= 0x5A5A5A5A
+    return k
+
+
+def _rotl37b(x, n):
+    return ((x << n) | (x >> (32 - n))) & _M37B
+
+
+def md37b_digest(data: bytes) -> bytes:
+    """手写 MD5：骨架标准，但 IV 与 T 表被改——hashlib 永远对不上"""
+    iv = _md37b_iv()
+    K = _md37b_k()
+    m = bytearray(data)
+    ml = len(m) * 8
+    m.append(0x80)
+    while len(m) % 64 != 56:
+        m.append(0)
+    m += ml.to_bytes(8, "little")
+    a, b, c, d = iv
+    for off in range(0, len(m), 64):
+        M = [int.from_bytes(m[off + i * 4:off + i * 4 + 4], "little") for i in range(16)]
+        A, B, C, D = a, b, c, d
+        for i in range(64):
+            if i < 16:
+                f = (B & C) | ((~B & _M37B) & D)
+                g = i
+            elif i < 32:
+                f = (D & B) | ((~D & _M37B) & C)
+                g = (5 * i + 1) % 16
+            elif i < 48:
+                f = B ^ C ^ D
+                g = (3 * i + 5) % 16
+            else:
+                f = C ^ (B | (~D & _M37B))
+                g = (7 * i) % 16
+            f = (f + A + K[i] + M[g]) & _M37B
+            A = D
+            D = C
+            C = B
+            B = (B + _rotl37b(f, _MD5_S37B[i])) & _M37B
+        a = (a + A) & _M37B
+        b = (b + B) & _M37B
+        c = (c + C) & _M37B
+        d = (d + D) & _M37B
+    return b"".join(x.to_bytes(4, "little") for x in (a, b, c, d))
+
+
+def sign_37b(payload: str) -> str:
+    """sign = hex(魔改MD5(payload))"""
+    return md37b_digest(payload.encode()).hex()
+
+
+@app.get("/api/l37b")
+def api_l37b(page: int = Query(...), ts: int = Query(...), nonce: str = Query(...),
+             dev: str = Query(...), sign: str = Query(...)):
+    _check_page(page, PAGES37B)
+    _check_ts(ts)
+    # 被签串：字段名按字典序、竖线分隔（dev < nonce < page < ts）
+    payload = f"dev={dev}|nonce={nonce}|page={page}|ts={ts}"
+    if not hmac.compare_digest(sign, sign_37b(payload)):
+        raise HTTPException(status_code=403, detail="sign invalid")
+    idx = (page - 1) * PER_PAGE37B
+    return {"page": page, "nums": NUMS37B[idx:idx + PER_PAGE37B]}
+
 # ---------------- 关卡 36：查表识君（手写 AES-128 + Base64 藏钥） ----------------
 KEY36_MASTER = b"Fatdog_break"
 DECOY36_KEYS = [b"Fatdog_bluff"]
@@ -482,7 +591,7 @@ def aes_kl6_ecb_decrypt(key16: bytes, data: bytes) -> bytes:
     return out
 
 
-def _kl6_try(master: str, page: int, ts: int, enc: str, sign: str) -> bool:
+def _kl6_try(master: str, page: int, ts: int, nonce: str, enc: str, sign: str) -> bool:
     mk = master.encode()
     akey = hashlib.sha256(mk + b"|aes").digest()[:16]
     mack = hashlib.sha256(mk + b"|mac").digest()
@@ -493,20 +602,21 @@ def _kl6_try(master: str, page: int, ts: int, enc: str, sign: str) -> bool:
         plain = p.split(b"\x00")[0].decode("utf-8", "ignore")
     except Exception:
         return False
-    m = re.fullmatch(r"page=(\d+)&ts=(\d+)", plain or "")
-    return bool(m) and int(m.group(1)) == page and int(m.group(2)) == ts
+    # 载荷：dev=<d>&nonce=<n>&page=<p>&ts=<t>（字段名字典序；nonce 参与且须与请求一致）
+    m = re.fullmatch(r"dev=([^&]+)&nonce=([^&]+)&page=(\d+)&ts=(\d+)", plain or "")
+    return bool(m) and int(m.group(3)) == page and int(m.group(4)) == ts and m.group(2) == nonce
 
 
 @app.get("/api/kl6")
-def api_kl6(page: int = Query(...), ts: int = Query(...), enc: str = Query(...),
-            sign: str = Query(...)):
+def api_kl6(page: int = Query(...), ts: int = Query(...), nonce: str = Query(...),
+            enc: str = Query(...), sign: str = Query(...)):
     _check_ts(ts)
-    if _kl6_try(KL6_MASTER, page, ts, enc, sign):
+    if _kl6_try(KL6_MASTER, page, ts, nonce, enc, sign):
         _check_page(page, PAGES_KL6)
         idx = (page - 1) * PER_PAGE_KL6
         return {"page": page, "nums": NUMS_KL6[idx:idx + PER_PAGE_KL6]}
     for dk in DECOY_KL6:
-        if _kl6_try(dk, page, ts, enc, sign):
+        if _kl6_try(dk, page, ts, nonce, enc, sign):
             raise HTTPException(status_code=403, detail="sign invalid")
     return {"page": page, "nums": []}
 
@@ -914,7 +1024,7 @@ def des_kl7_ede_decrypt(key24: bytes, data: bytes) -> bytes:
     return out
 
 
-def _kl7_try(master: str, page: int, ts: int, enc: str, sign: str) -> bool:
+def _kl7_try(master: str, page: int, ts: int, nonce: str, enc: str, sign: str) -> bool:
     mk = master.encode()
     dk = hashlib.sha256(mk + b"|des").digest()[:24]
     mack = hashlib.sha256(mk + b"|mac").digest()
@@ -925,20 +1035,21 @@ def _kl7_try(master: str, page: int, ts: int, enc: str, sign: str) -> bool:
         plain = p.split(b"\x00")[0].decode("utf-8", "ignore")
     except Exception:
         return False
-    m = re.fullmatch(r"page=(\d+)&ts=(\d+)", plain or "")
-    return bool(m) and int(m.group(1)) == page and int(m.group(2)) == ts
+    # 载荷：dev=<d>&nonce=<n>&page=<p>&ts=<t>（字段名字典序；nonce 须与请求一致）
+    m = re.fullmatch(r"dev=([^&]+)&nonce=([^&]+)&page=(\d+)&ts=(\d+)", plain or "")
+    return bool(m) and int(m.group(3)) == page and int(m.group(4)) == ts and m.group(2) == nonce
 
 
 @app.post("/api/kl7")
-def api_kl7(page: int = Form(...), ts: int = Form(...), enc: str = Form(...),
-            sign: str = Form(...)):
+def api_kl7(page: int = Form(...), ts: int = Form(...), nonce: str = Form(...),
+            enc: str = Form(...), sign: str = Form(...)):
     _check_ts(ts)
-    if _kl7_try(KL7_MASTER, page, ts, enc, sign):
+    if _kl7_try(KL7_MASTER, page, ts, nonce, enc, sign):
         _check_page(page, PAGES_KL7)
         idx = (page - 1) * PER_PAGE_KL7
         return {"page": page, "nums": NUMS_KL7[idx:idx + PER_PAGE_KL7]}
     for dk in DECOY_KL7:
-        if _kl7_try(dk, page, ts, enc, sign):
+        if _kl7_try(dk, page, ts, nonce, enc, sign):
             raise HTTPException(status_code=403, detail="sign invalid")
     return {"page": page, "nums": []}
 
@@ -1023,7 +1134,7 @@ def sm4_kl8_decrypt(key16: bytes, data: bytes) -> bytes:
     return out
 
 
-def _kl8_try(master: str, page: int, ts: int, enc: str, sign: str) -> bool:
+def _kl8_try(master: str, page: int, ts: int, nonce: str, enc: str, sign: str) -> bool:
     mk = master.encode()
     skey = hashlib.sha256(mk + b"|sm4").digest()[:16]
     mack = hashlib.sha256(mk + b"|mac").digest()
@@ -1034,20 +1145,21 @@ def _kl8_try(master: str, page: int, ts: int, enc: str, sign: str) -> bool:
         plain = p.split(b"\x00")[0].decode("utf-8", "ignore")
     except Exception:
         return False
-    m = re.fullmatch(r"page=(\d+)&ts=(\d+)", plain or "")
-    return bool(m) and int(m.group(1)) == page and int(m.group(2)) == ts
+    # 载荷：dev=<d>&nonce=<n>&page=<p>&ts=<t>（字段名字典序；nonce 须与请求一致）
+    m = re.fullmatch(r"dev=([^&]+)&nonce=([^&]+)&page=(\d+)&ts=(\d+)", plain or "")
+    return bool(m) and int(m.group(3)) == page and int(m.group(4)) == ts and m.group(2) == nonce
 
 
 @app.get("/api/kl8")
-def api_kl8(page: int = Query(...), ts: int = Query(...), enc: str = Query(...),
-            sign: str = Query(...)):
+def api_kl8(page: int = Query(...), ts: int = Query(...), nonce: str = Query(...),
+            enc: str = Query(...), sign: str = Query(...)):
     _check_ts(ts)
-    if _kl8_try(KL8_MASTER, page, ts, enc, sign):
+    if _kl8_try(KL8_MASTER, page, ts, nonce, enc, sign):
         _check_page(page, PAGES_KL8)
         idx = (page - 1) * PER_PAGE_KL8
         return {"page": page, "nums": NUMS_KL8[idx:idx + PER_PAGE_KL8]}
     for dk in DECOY_KL8:
-        if _kl8_try(dk, page, ts, enc, sign):
+        if _kl8_try(dk, page, ts, nonce, enc, sign):
             raise HTTPException(status_code=403, detail="sign invalid")
     return {"page": page, "nums": []}
 
@@ -1097,7 +1209,7 @@ def rc4_kl9_crypt(key16: bytes, data: bytes) -> bytes:
     return bytes(out)
 
 
-def _kl9_try(master: str, page: int, ts: int, enc: str, sign: str) -> bool:
+def _kl9_try(master: str, page: int, ts: int, nonce: str, enc: str, sign: str) -> bool:
     mk = master.encode()
     rkey = hashlib.sha256(mk + b"|rc4").digest()[:16]
     mack = hashlib.sha256(mk + b"|mac").digest()
@@ -1108,20 +1220,21 @@ def _kl9_try(master: str, page: int, ts: int, enc: str, sign: str) -> bool:
         plain = p.split(b"\x00")[0].decode("utf-8", "ignore")
     except Exception:
         return False
-    m = re.fullmatch(r"page=(\d+)&ts=(\d+)", plain or "")
-    return bool(m) and int(m.group(1)) == page and int(m.group(2)) == ts
+    # 载荷：dev=<d>&nonce=<n>&page=<p>&ts=<t>（字段名字典序；nonce 须与请求一致）
+    m = re.fullmatch(r"dev=([^&]+)&nonce=([^&]+)&page=(\d+)&ts=(\d+)", plain or "")
+    return bool(m) and int(m.group(3)) == page and int(m.group(4)) == ts and m.group(2) == nonce
 
 
 @app.get("/api/kl9")
-def api_kl9(page: int = Query(...), ts: int = Query(...), enc: str = Query(...),
-            sign: str = Query(...)):
+def api_kl9(page: int = Query(...), ts: int = Query(...), nonce: str = Query(...),
+            enc: str = Query(...), sign: str = Query(...)):
     _check_ts(ts)
-    if _kl9_try(KL9_MASTER, page, ts, enc, sign):
+    if _kl9_try(KL9_MASTER, page, ts, nonce, enc, sign):
         _check_page(page, PAGES_KL9)
         idx = (page - 1) * PER_PAGE_KL9
         return {"page": page, "nums": NUMS_KL9[idx:idx + PER_PAGE_KL9]}
     for dk in DECOY_KL9:
-        if _kl9_try(dk, page, ts, enc, sign):
+        if _kl9_try(dk, page, ts, nonce, enc, sign):
             raise HTTPException(status_code=403, detail="sign invalid")
     return {"page": page, "nums": []}
 
@@ -1282,9 +1395,11 @@ def variant_sign_kl10(payload: bytes, master: str = "Fatdog_eclipse") -> str:
 
 
 @app.post("/api/kl10")
-def api_kl10(page: int = Form(...), ts: int = Form(...), sign: str = Form(...)):
+def api_kl10(page: int = Form(...), ts: int = Form(...), nonce: str = Form(...),
+             sign: str = Form(...)):
     _check_ts(ts)
-    payload = f"page={page}&ts={ts}".encode()
+    # 载荷多字段、字段名字典序：nonce < page < ts
+    payload = f"nonce={nonce}&page={page}&ts={ts}".encode()
     if hmac.compare_digest(sign, variant_sign_kl10(payload)):
         _check_page(page, PAGES_KL10)
         idx = (page - 1) * PER_PAGE_KL10
@@ -1392,21 +1507,24 @@ _rng46 = random.Random(SEED46)
 NUMS46 = [_rng46.randint(1, 100) for _ in range(PAGES46 * PER_PAGE46)]
 
 
-def _l46_try(derived_key: bytes, page: int, ts: int, sign: str) -> bool:
+def _l46_try(derived_key: bytes, page: int, ts: int, nonce: str, sign: str) -> bool:
+    # 被签串：字段名字典序（nonce < page < ts）；nonce 每次请求都变
+    payload = f"nonce={nonce}&page={page}&ts={ts}"
     return hmac.compare_digest(
-        sign, hmac.new(derived_key, f"page={page}&ts={ts}".encode(), hashlib.sha256).hexdigest())
+        sign, hmac.new(derived_key, payload.encode(), hashlib.sha256).hexdigest())
 
 
 @app.post("/api/l46")
-def api_l46(page: int = Form(...), ts: int = Form(...), sign: str = Form(...)):
+def api_l46(page: int = Form(...), ts: int = Form(...),
+            nonce: str = Form(...), sign: str = Form(...)):
     _check_ts(ts)
-    if _l46_try(_L46_DERIVED_KEY, page, ts, sign):
+    if _l46_try(_L46_DERIVED_KEY, page, ts, nonce, sign):
         _check_page(page, PAGES46)
         idx = (page - 1) * PER_PAGE46
         return {"page": page, "nums": NUMS46[idx:idx + PER_PAGE46]}
     for dk in DECOY46_KEYS:
         dk_bytes = hashlib.sha256(_L46_CERT_HASH + dk.encode()).digest()
-        if _l46_try(dk_bytes, page, ts, sign):
+        if _l46_try(dk_bytes, page, ts, nonce, sign):
             raise HTTPException(status_code=403, detail="sign invalid")
     return {"page": page, "nums": []}
 
@@ -1465,11 +1583,16 @@ _rng48 = random.Random(SEED48)
 NUMS48 = [_rng48.randint(1, 100) for _ in range(PAGES48 * PER_PAGE48)]
 
 
-@app.get("/api/l48")
-def api_l48(page: int = Query(...), ts: int = Query(...), sign: str = Query(...)):
+@app.post("/api/l48")
+def api_l48(page: int = Form(...), ts: int = Form(...), sign: str = Form(...)):
     _check_page(page, PAGES48)
-    _check_ts(ts)
-    if not hmac.compare_digest(sign, hmac.new(KEY48_HMAC, f"page={page}&ts={ts}".encode(), hashlib.sha256).hexdigest()):
+    # ts 为**毫秒**（真实 App 常见）；时间窗按毫秒换算
+    if abs(int(time.time() * 1000) - ts) > TS_WINDOW * 1000:
+        raise HTTPException(status_code=403, detail="timestamp expired")
+    # 签名对象不是明文参数，而是 body 的摘要（body = "page=N&ts=T"）——POST 场景标准做法
+    body = f"page={page}&ts={ts}"
+    digest = hashlib.sha256(body.encode()).hexdigest()
+    if not hmac.compare_digest(sign, hmac.new(KEY48_HMAC, digest.encode(), hashlib.sha256).hexdigest()):
         raise HTTPException(status_code=403, detail="sign invalid")
     idx = (page - 1) * PER_PAGE48
     return {"page": page, "nums": NUMS48[idx:idx + PER_PAGE48]}

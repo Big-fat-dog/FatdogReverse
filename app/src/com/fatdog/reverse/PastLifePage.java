@@ -155,6 +155,16 @@ final class PastLifePage {
         col.addView(tip, tipLp);
 
         addRange(ctx, col, "主卷", 0xFF409EFF, "L", 1, 53);
+        /* 主卷补充关：L37b（篡墨之谜）——单格，保持 4 列布局 */
+        {
+            LinearLayout extraRow = new LinearLayout(ctx);
+            extraRow.setOrientation(LinearLayout.HORIZONTAL);
+            LinearLayout.LayoutParams cp = new LinearLayout.LayoutParams(0, dp(ctx, 46), 1f);
+            cp.setMargins(dp(ctx, 2), dp(ctx, 2), dp(ctx, 2), dp(ctx, 2));
+            extraRow.addView(buildCell(ctx, "L37b"), cp);
+            col.addView(extraRow, new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+        }
         addRange(ctx, col, "天地秘境", 0xFF00BFA5, "KL", 1, 55,
                 new HashSet<Integer>(Arrays.asList(31, 32, 33, 34, 35)));
         addRange(ctx, col, "太玄之初", 0xFFB37FEB, "KKL", 1, 5);

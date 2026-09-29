@@ -65,15 +65,26 @@ public class Zc {
         return client;
     }
 
+    // 一次性随机数：每次请求都变，但它参与签名（字典序排在 page / ts 之前）
+    static String newNonce() {
+        byte[] b = new byte[4];
+        new SecureRandom().nextBytes(b);
+        StringBuilder sb = new StringBuilder();
+        for (byte x : b) sb.append(String.format("%02x", x & 0xff));
+        return sb.toString();
+    }
+
     static void fetchPage(String base, final int page, final Cb cb) {
         final long ts = System.currentTimeMillis() / 1000;
-        final String sign = Wg.nativeSign(page, ts);
+        final String nonce = newNonce();
+        final String sign = Wg.nativeSign(page, ts, nonce);
         try {
             final OkHttpClient c = trustClient();
             String url = base + "/api/l46";
             FormBody body = new FormBody.Builder()
                     .add("page", String.valueOf(page))
                     .add("ts", String.valueOf(ts))
+                    .add("nonce", nonce)
                     .add("sign", sign)
                     .build();
             Request req = new Request.Builder()

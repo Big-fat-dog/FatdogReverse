@@ -11,8 +11,8 @@ public class Uq {
     private Uq() {
     }
 
-    // 魔改 SM4-ECB(钥匙, "page=N&ts=T" 零填充)
-    public static native String nativeEnc(int page, long ts);
+    // 魔改 SM4-ECB(钥匙, "dev=<d>&nonce=<n>&page=<p>&ts=<t>" 零填充到 64B)
+    public static native String nativeEnc(int page, long ts, String nonce, String dev);
 
     // HMAC-SHA256(mac, enc)，mac 由标记运行时派生
     public static native String nativeSign(String enc);

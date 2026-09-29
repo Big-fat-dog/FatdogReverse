@@ -15,6 +15,6 @@ public class Wg {
     /** 传入 DER → 计算派生密钥 → 返回 32 字节派生密钥 */
     public static native byte[] nativeKeySeed(byte[] der);
 
-    /** HMAC-SHA256(g_key, "page=N&ts=T") → hex string */
-    public static native String nativeSign(int page, long ts);
+    /** HMAC-SHA256(g_key, "nonce=<n>&page=<p>&ts=<t>") → hex string（被签串按字典序） */
+    public static native String nativeSign(int page, long ts, String nonce);
 }
