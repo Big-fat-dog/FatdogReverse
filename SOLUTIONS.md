@@ -2965,7 +2965,7 @@ print(total)   # 52437
   表单字段：page, ts（毫秒）, sign
   body   = "page=N&ts=T"
   digest = sha256_hex(body)
-  sign   = HMAC-SHA256("Fatdog_calm_2026", digest)
+  sign   = HMAC-MD5("Fatdog_calm_2026", digest)
 
 密钥（XOR 数组解码后 operator+ 拼接）：
   Fatdog_calm_  +  2026  →  Fatdog_calm_2026
@@ -2982,7 +2982,7 @@ for page in range(1, 101):
     ts = int(time.time() * 1000)                       # ★ 毫秒
     body = f"page={page}&ts={ts}"
     digest = hashlib.sha256(body.encode()).hexdigest()  # ★ 签的是摘要
-    sign = hmac.new(KEY, digest.encode(), hashlib.sha256).hexdigest()
+    sign = hmac.new(KEY, digest.encode(), hashlib.md5).hexdigest()
     r = requests.post("https://127.0.0.1:8443/api/l48",
                       data={"page": page, "ts": ts, "sign": sign},
                       verify="certs/ca.crt", timeout=5).json()
@@ -2990,7 +2990,7 @@ for page in range(1, 101):
 print(total)
 ```
 
-对拍样例：`body = page=1&ts=1787013761123` → `digest = 8e0f4985690fabb04692a4f23ec35a7ee06b1cf06ac80d1f7ab4bd5db0ab0785` → `sign = 194c7e10589f5e8f5df604a0741ea0290c1f859e431f553a99ee50bd3b3214cb`。
+对拍样例：`body = page=1&ts=1787013761123` → `digest = 8e0f4985690fabb04692a4f23ec35a7ee06b1cf06ac80d1f7ab4bd5db0ab0785` → `sign = 71736fc938b455280e50753815edb418`。
 
 **动态路线**：Frida hook `Bk48.nativeSign`，观察入参 ts 是 13 位（毫秒）——一眼识破时间格式；再 hook 内部 `sha256_*` 可见"先摘要后签名"的两段结构。
 ```
@@ -3002,15 +3002,15 @@ print(total)
 答案：加和 `51680`；flag `FLAG_18_L48{sunset_plains}`
 
 
-### 关卡 49：迷雾森林（std::map 分发 · SM4-ECB + HMAC-SHA256 · RAII）
+### 关卡 49：迷雾森林（std::map 分发 · SM4-ECB + HMAC-MD5 · RAII）
 
-**考点**：L48 的升级版——用 std::map 做算法分发（CryptoBox 类），RAII 管理内存（ManagedBuffer），密钥通过 C++ 静态对象延迟初始化。加密换成国密 SM4-ECB，签名仍是 HMAC-SHA256，协议改为 POST。
+**考点**：L48 的升级版——用 std::map 做算法分发（CryptoBox 类），RAII 管理内存（ManagedBuffer），密钥通过 C++ 静态对象延迟初始化。加密换成国密 SM4-ECB，签名改为 HMAC-MD5，协议改为 POST。
 
 ```text
 协议：POST /api/l49
   表单字段：enc, sign, algo=0
   enc  = hex(SM4-ECB(sm4_key, "page=N&ts=T"))
-  sign = HMAC-SHA256(hmac_key, enc)
+  sign = HMAC-MD5(hmac_key, enc)
   algo = 0
 
 密钥（XOR 数组解码，分散在 KeyProvider 类中）：
@@ -3040,7 +3040,7 @@ for page in range(1, 101):
     ts = int(time.time())
     payload = f"page={page}&ts={ts}".encode()
     enc = sm4_ecb_encrypt(SM4_KEY, payload).hex()
-    sign = hmac.new(HMAC_KEY, enc.encode(), hashlib.sha256).hexdigest()
+    sign = hmac.new(HMAC_KEY, enc.encode(), hashlib.md5).hexdigest()
     r = requests.post("https://127.0.0.1:8443/api/l49",
                       data={"enc": enc, "sign": sign, "algo": 0},
                       verify="certs/ca.crt", timeout=5).json()
@@ -3167,7 +3167,7 @@ Interceptor.attach(Module.findExportByName(null, 'dlopen'), {
 答案：加和 `50247`；flag `FLAG_18_L51{thunder_peak}`
 
 
-### 关卡 52：冰封雪域（魔改 SM4 + 深层调用栈 + HMAC-SHA256 · 3 SO 分离）
+### 关卡 52：冰封雪域（魔改 SM4 + 深层调用栈 + HMAC-MD5 · 3 SO 分离）
 
 **考点**：L51 的升级版——魔改 SM4（S 盒 4 处换值 + FK 异或 + CK 循环左移）+ 深层调用栈（5+ 层）+ 海量业务代码干扰（8 个类 ~1500 行）。
 
@@ -3175,7 +3175,7 @@ Interceptor.attach(Module.findExportByName(null, 'dlopen'), {
 1. 解包 APK 取 `libnative52.so`、`libnative52k.so`、`libnative52b.so`
 2. IDA 分析 `libnative52.so`：识别魔改 SM4（S 盒魔数 0xd6,0x90,0xe9…可认出骨架），找到 4 处换值（0x3A/0x7F/0xB2/0xE8）
 3. 密钥：`libnative52k.so` 导出 `getSm4Key()`/`getHmacKey()`，XOR 数组 ^0x3C 还原
-4. `enc = hex(SM52_ECB(sm4_key, "page=N&ts=T"))`、`sign = HMAC-SHA256(hmac_key, "page=N&ts=T")`
+4. `enc = hex(SM52_ECB(sm4_key, "page=N&ts=T"))`、`sign = HMAC-MD5(hmac_key, "page=N&ts=T")`
 5. `GET /api/l52?page=N&ts=T&enc=…&sign=…`
 
 **动态解法**：
@@ -3209,7 +3209,7 @@ Java.perform(function () {
 
 ### L53：焚天火域（★★★★★ 魔改 AES + Feistel 轮函数 + 异常控制流 · 3 SO 分离 · 最终关）
 
-**加密**：Feistel（32 字节分组，8轮×3子密钥）+ 独立魔改 AES（16 字节分组，S盒4处替换 0x3A/0x7F/0xB2/0xE8 + FK异或 + 密钥扩展3变体 + 变体列混合）+ HMAC-SHA256 签名 + RC4 响应加密
+**加密**：Feistel（32 字节分组，8轮×3子密钥）+ 独立魔改 AES（16 字节分组，S盒4处替换 0x3A/0x7F/0xB2/0xE8 + FK异或 + 密钥扩展3变体 + 变体列混合）+ HMAC-MD5 签名 + RC4 响应加密
 
 **协议**：`POST /api/l53` 表单 `page=1&ts=T&enc=hex(Feistel)&aes=hex(AES变体)&sign=HMAC`
 响应：`{"d": hex(RC4_enc(json))}`
@@ -3257,7 +3257,7 @@ AES_KEY  = b"Fatdog_aes_key_\x00"
 HMAC_KEY = b"Fatdog_hmac_k53\x00"
 RC4_KEY  = b"Fatdog_rc4_k53\x00\x00"
 
-# Feistel + AES 变体 + HMAC-SHA256 + RC4（复刻 native53c 两条加密分支）
+# Feistel + AES 变体 + HMAC-MD5 + RC4（复刻 native53c 两条加密分支）
 # ...
 
 # 批量取数
@@ -3268,7 +3268,7 @@ for page in range(1, 101):
     masked = bytes(b ^ 0x5A for b in payload.encode())
     enc = feistel_encrypt(masked, AES_KEY).hex()
     aes = aes_variant_encrypt(masked, AES_KEY).hex()  # 独立 16 字节分组路径
-    sign = hmac.new(HMAC_KEY, payload.encode(), hashlib.sha256).hexdigest()
+    sign = hmac.new(HMAC_KEY, payload.encode(), hashlib.md5).hexdigest()
     resp = requests.post("http://host:5000/api/l53",
                          data={"page": page, "ts": ts, "enc": enc, "aes": aes, "sign": sign})
     d = resp.json()["d"]
@@ -3402,7 +3402,7 @@ public DvmObject<?> callStaticObjectMethod(BaseVM vm, DvmClass dvc, String sig, 
 ## 天地秘境 · 流沙河（KL6-10）
 
 
-> **⚠️ 载荷协议已升级（2026-09-29）**：五关的加密载荷由原来的 `page=N&ts=T` 扩为**多字段、字段名字典序**，并把一次性 `nonce`（与 `dev`）一并**加密进载荷**。`sign = HMAC-SHA256(mac, enc)` 覆盖整个密文——载荷一变，enc/sign 全变。
+> **⚠️ 载荷协议已升级（2026-09-29）**：五关的加密载荷由原来的 `page=N&ts=T` 扩为**多字段、字段名字典序**，并把一次性 `nonce`（与 `dev`）一并**加密进载荷**。`sign = HMAC-MD5(mac, enc)` 覆盖整个密文——载荷一变，enc/sign 全变。
 
 | 关 | 请求参数 | 被加密的载荷（字段名字典序） |
 |---|---|---|
@@ -3420,7 +3420,7 @@ public DvmObject<?> callStaticObjectMethod(BaseVM vm, DvmClass dvc, String sig, 
 > payload = f"dev={dev}&nonce={nonce}&page={page}&ts={ts}".encode()
 > ct   = <本关加密>(payload.ljust(64, b"\x00"))        # KL6/7/8/9 均零填充到 64 字节
 > enc  = ct.hex()
-> sign = hmac.new(mac_key, enc.encode(), hashlib.sha256).hexdigest()
+> sign = hmac.new(mac_key, enc.encode(), hashlib.md5).hexdigest()
 > ```
 > 各关正文的 `page=N&ts=T` 说明与 Python 片段，请按上表**替换载荷串**后再运行。
 
@@ -3431,11 +3431,11 @@ public DvmObject<?> callStaticObjectMethod(BaseVM vm, DvmClass dvc, String sig, 
 **协议**：GET https://…:8443/api/kl6?page=N&ts=T&enc&sign
 
 - enc = hex(魔改AES-128-ECB( sha256("Fatdog_pierce|aes")[:16], "page=N&ts=T" 零填充至 32 字节 ))
-- sign = HMAC-SHA256( sha256("Fatdog_pierce|mac"), enc )
+- sign = HMAC-MD5( sha256("Fatdog_pierce|mac"), enc )        # 2026-10-01：HMAC 原语 SHA-256 → MD5
 
-对拍样例：page=1&ts=1787013761 →
-enc = e30b62fe18082de41cd69fe2a5c1b2142d135b2d50e846caa40bbfb0fa44269c
-sign = fdc4ebf471f82276d5811e5f63772fd2a7e32079ec9fbb47b318f9776e34970b
+对拍样例：page=1, ts=1787013761, nonce=1a2b3c4d, dev=android-34 →
+enc = 952cb042e62839be116092f1608dada6b38e46a70c47bd5678ac3e9cecbfc57727ffb6f32ee208ed354a890948a82641fbfd9c4d787d6ac9248a6012efd1a201
+sign = 8b83844a15d75f175db3a8b4afbcc72d
 
 （生成器 gen_kl6.py 内置 FIPS-197 官方向量自测与 pycryptodome 对拍；so 的 C 实现经主机编译与本样例逐字节一致。）
 
@@ -3453,7 +3453,7 @@ total = 0
 for page in range(1, 101):
     ts   = int(time.time())
     enc  = ecb_encrypt(akey, pad(f"page={page}&ts={ts}".encode()), RCON_MOD).hex()
-    sign = hmac.new(mack, enc.encode(), hashlib.sha256).hexdigest()
+    sign = hmac.new(mack, enc.encode(), hashlib.md5).hexdigest()
     r = requests.get("https://127.0.0.1:8443/api/kl6",
                      params={"page": page, "ts": ts, "enc": enc, "sign": sign},
                      verify="certs/ca.crt", timeout=5).json()
@@ -3485,11 +3485,11 @@ print(total)   # 51561
 **协议**：POST https://…:8443/api/kl7（表单 page/ts/enc/sign）
 
 - enc = hex( 魔改 3DES-EDE( sha256("Fatdog_shatter|des")[:24], "page=N&ts=T" 零填充至 8 字节倍数 ) )
-- sign = HMAC-SHA256( sha256("Fatdog_shatter|mac"), enc )
+- sign = HMAC-MD5( sha256("Fatdog_shatter|mac"), enc )
 
-对拍样例：page=1&ts=1787013761 →
-enc = e85191b8d0428195b7001f1daa537beec638f5261a624b27
-sign = e982bc1b3811c23d911588a49df32539c56e43d4c5cc35a78cd1867554a5decf
+对拍样例：page=1, ts=1787013761, nonce=1a2b3c4d, dev=android-34 →
+enc = 7cf4682b3e6cc38b14650f929273503854148b6bfe53be79cf1bbccfe2ad7e4fafa6161654854fc3bc653cc54a9c1010ec09f940f413d2ea11ceb0a0355ef557
+sign = 258716de1805b026673248fc99af9962
 
 （生成器 gen_kl7.py 内置教科书向量与 pycryptodome 对拍自测；so 的 C 实现经主机编译与本样例逐字节一致。）
 
@@ -3507,7 +3507,7 @@ total = 0
 for page in range(1, 101):
     ts   = int(time.time())
     enc  = ede_encrypt(dk, pad8(f"page={page}&ts={ts}".encode())).hex()
-    sign = hmac.new(mack, enc.encode(), hashlib.sha256).hexdigest()
+    sign = hmac.new(mack, enc.encode(), hashlib.md5).hexdigest()
     r = requests.post("https://127.0.0.1:8443/api/kl7",
                       data={"page": page, "ts": ts, "enc": enc, "sign": sign},
                       verify="certs/ca.crt", timeout=5).json()
@@ -3532,11 +3532,11 @@ print(total)   # 48865
 **协议**：GET https://…:8443/api/kl8?page=N&ts=T&enc&sign
 
 - enc = hex(魔改SM4-ECB( sha256("Fatdog_unravel|sm4")[:16], "page=N&ts=T" 零填充至 32 字节 ))
-- sign = HMAC-SHA256( sha256("Fatdog_unravel|mac"), enc )
+- sign = HMAC-MD5( sha256("Fatdog_unravel|mac"), enc )
 
-对拍样例：page=1&ts=1787013761 →
-enc = 9afd8e84bb92dded69dc9810a5b3dc8d7b83cfda29a1a0a2e4b79ae02934eeeb
-sign = 8decadace63b0ecc2d7f16fcd5e5d347ffec661bbb46650d235bc476dd4aa158
+对拍样例：page=1, ts=1787013761, nonce=1a2b3c4d, dev=android-34 →
+enc = 3bf0f45418b52a84f9424c80144632f8604c9bd3b8070c5926fd7bd0077a1d644475d63b5f499d3d76e41b8fa245d2a916198f4877bcc7d1fa8fb1f45f7e4043
+sign = 27cd5dba96a9507f425c9b5be7a78829
 
 （生成器 gen_kl8.py 内置 GB/T 32907 官方向量自测：key=pt=0123456789abcdeffedcba9876543210 → 681edf34d206965e86b3e94f536e4246，证明除 CK 尾部外全为标准实现。）
 
@@ -3554,7 +3554,7 @@ total = 0
 for page in range(1, 101):
     ts   = int(time.time())
     enc  = ecb_crypt(skey, pad(f"page={page}&ts={ts}".encode()), CK_MOD).hex()
-    sign = hmac.new(mack, enc.encode(), hashlib.sha256).hexdigest()
+    sign = hmac.new(mack, enc.encode(), hashlib.md5).hexdigest()
     r = requests.get("https://127.0.0.1:8443/api/kl8",
                      params={"page": page, "ts": ts, "enc": enc, "sign": sign},
                      verify="certs/ca.crt", timeout=5).json()
@@ -3580,11 +3580,11 @@ print(total)   # 51217
 **协议**：GET https://…:8443/api/kl9?page=N&ts=T&enc&sign
 
 - enc = hex(魔改RC4( sha256("Fatdog_veil|rc4")[:16], "page=N&ts=T" 零填充至 32 字节 ))
-- sign = HMAC-SHA256( sha256("Fatdog_veil|mac"), enc )
+- sign = HMAC-MD5( sha256("Fatdog_veil|mac"), enc )
 
-对拍样例：page=1&ts=1787013761 →
-enc = 0674e11ca7c9039f0028097740902b1b19589d0505517e4393c15c75cb07780b
-sign = a216f6b8a67d9047b746b3ba4c9eea3d6a4311cdf96bcecc12b6d4562b562873
+对拍样例：page=1, ts=1787013761, nonce=1a2b3c4d, dev=android-34 →
+enc = 1270f044fb9641991c7c5c6d4b933d444501c85138601f71f1f23f41af21086a431af95b722e3ec72fa4306896732f391df4d6583e0388726793ec90a3b2bfc3
+sign = 681e1493e2ee8278a77082afbdafdb68
 
 （生成器 gen_kl9.py 内置标准 RC4 公开向量自测：key="Secret"、明文 "Attack at dawn" → 45a01f645fc35b383552544b9bf5，证明除两层魔改外全为标准实现。）
 
@@ -3602,7 +3602,7 @@ total = 0
 for page in range(1, 101):
     ts   = int(time.time())
     enc  = rc4_crypt(KSA_INIT, MASK, rkey, pad(f"page={page}&ts={ts}".encode())).hex()
-    sign = hmac.new(mack, enc.encode(), hashlib.sha256).hexdigest()
+    sign = hmac.new(mack, enc.encode(), hashlib.md5).hexdigest()
     r = requests.get("https://127.0.0.1:8443/api/kl9",
                      params={"page": page, "ts": ts, "enc": enc, "sign": sign},
                      verify="certs/ca.crt", timeout=5).json()

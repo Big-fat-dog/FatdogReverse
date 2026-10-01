@@ -595,7 +595,7 @@ def _kl6_try(master: str, page: int, ts: int, nonce: str, enc: str, sign: str) -
     mk = master.encode()
     akey = hashlib.sha256(mk + b"|aes").digest()[:16]
     mack = hashlib.sha256(mk + b"|mac").digest()
-    if not hmac.compare_digest(sign, hmac.new(mack, enc.encode(), hashlib.sha256).hexdigest()):
+    if not hmac.compare_digest(sign, hmac.new(mack, enc.encode(), hashlib.md5).hexdigest()):
         return False
     try:
         p = aes_kl6_ecb_decrypt(akey, bytes.fromhex(enc))
@@ -1028,7 +1028,7 @@ def _kl7_try(master: str, page: int, ts: int, nonce: str, enc: str, sign: str) -
     mk = master.encode()
     dk = hashlib.sha256(mk + b"|des").digest()[:24]
     mack = hashlib.sha256(mk + b"|mac").digest()
-    if not hmac.compare_digest(sign, hmac.new(mack, enc.encode(), hashlib.sha256).hexdigest()):
+    if not hmac.compare_digest(sign, hmac.new(mack, enc.encode(), hashlib.md5).hexdigest()):
         return False
     try:
         p = des_kl7_ede_decrypt(dk, bytes.fromhex(enc))
@@ -1138,7 +1138,7 @@ def _kl8_try(master: str, page: int, ts: int, nonce: str, enc: str, sign: str) -
     mk = master.encode()
     skey = hashlib.sha256(mk + b"|sm4").digest()[:16]
     mack = hashlib.sha256(mk + b"|mac").digest()
-    if not hmac.compare_digest(sign, hmac.new(mack, enc.encode(), hashlib.sha256).hexdigest()):
+    if not hmac.compare_digest(sign, hmac.new(mack, enc.encode(), hashlib.md5).hexdigest()):
         return False
     try:
         p = sm4_kl8_decrypt(skey, bytes.fromhex(enc))
@@ -1213,7 +1213,7 @@ def _kl9_try(master: str, page: int, ts: int, nonce: str, enc: str, sign: str) -
     mk = master.encode()
     rkey = hashlib.sha256(mk + b"|rc4").digest()[:16]
     mack = hashlib.sha256(mk + b"|mac").digest()
-    if not hmac.compare_digest(sign, hmac.new(mack, enc.encode(), hashlib.sha256).hexdigest()):
+    if not hmac.compare_digest(sign, hmac.new(mack, enc.encode(), hashlib.md5).hexdigest()):
         return False
     try:
         p = rc4_kl9_crypt(rkey, bytes.fromhex(enc))
@@ -1592,7 +1592,7 @@ def api_l48(page: int = Form(...), ts: int = Form(...), sign: str = Form(...)):
     # 签名对象不是明文参数，而是 body 的摘要（body = "page=N&ts=T"）——POST 场景标准做法
     body = f"page={page}&ts={ts}"
     digest = hashlib.sha256(body.encode()).hexdigest()
-    if not hmac.compare_digest(sign, hmac.new(KEY48_HMAC, digest.encode(), hashlib.sha256).hexdigest()):
+    if not hmac.compare_digest(sign, hmac.new(KEY48_HMAC, digest.encode(), hashlib.md5).hexdigest()):
         raise HTTPException(status_code=403, detail="sign invalid")
     idx = (page - 1) * PER_PAGE48
     return {"page": page, "nums": NUMS48[idx:idx + PER_PAGE48]}
@@ -2262,7 +2262,7 @@ async def api_l49(enc: str = Form(...), sign: str = Form(...), algo: int = Form(
     _check_page(page, PAGES49)
     _check_ts(ts)
     # 验证 HMAC 签名
-    expected = hmac.new(KEY49_HMAC, enc.encode(), hashlib.sha256).hexdigest()
+    expected = hmac.new(KEY49_HMAC, enc.encode(), hashlib.md5).hexdigest()
     if not hmac.compare_digest(sign, expected):
         raise HTTPException(status_code=403, detail="sign mismatch")
     idx = (page - 1) * PER_PAGE49
@@ -2535,7 +2535,7 @@ def api_l52(page: int = Query(...), ts: int = Query(...),
         raise HTTPException(status_code=403, detail="decrypt failed")
     _check_page(page, PAGES52)
     # 验证 HMAC
-    expected_sign = hmac.new(KEY52_HMAC, f"page={page}&ts={ts}".encode(), hashlib.sha256).hexdigest()
+    expected_sign = hmac.new(KEY52_HMAC, f"page={page}&ts={ts}".encode(), hashlib.md5).hexdigest()
     if not hmac.compare_digest(sign, expected_sign):
         raise HTTPException(status_code=403, detail="sign mismatch")
     idx = (page - 1) * PER_PAGE52
@@ -2773,7 +2773,7 @@ def api_l53(page: int = Form(...), ts: int = Form(...),
         raise HTTPException(status_code=403, detail="decrypt failed")
     _check_page(page, PAGES53)
     # 验证 HMAC
-    expected_sign = hmac.new(KEY53_HMAC, payload, hashlib.sha256).hexdigest()
+    expected_sign = hmac.new(KEY53_HMAC, payload, hashlib.md5).hexdigest()
     if not hmac.compare_digest(sign, expected_sign):
         raise HTTPException(status_code=403, detail="sign mismatch")
     idx = (page - 1) * PER_PAGE53
