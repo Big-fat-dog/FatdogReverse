@@ -47,7 +47,9 @@ public class t44Activity extends Activity {
         box.setPadding(Ui.dp(16), Ui.dp(14), Ui.dp(16), Ui.dp(12));
 
         TextView tv = new TextView(this);
-        tv.setText("这一关的签名校验藏进了 libpearl.so：Java 只递证书字节，\n"
+        tv.setText("这一关的门被封死了——不拆开这个 App 就推不开。本关不欢迎动态注入，\n"
+                + "请用「解包 → 改 → 重打包 → 重签名 → 安装」的方式进来。\n"
+                + "进来之后还有第二重门：签名校验藏在 libpearl.so，Java 只递证书字节，\n"
                 + "算哈希、比基准、记账全在 so 里。挂 Hook 摘要？它压根不走 Java。");
         tv.setGravity(Gravity.CENTER);
         box.addView(tv, Ui.wrap(4));
@@ -165,11 +167,14 @@ public class t44Activity extends Activity {
             public void onClick(View v) {
                 new AlertDialog.Builder(t44Activity.this)
                         .setTitle("提示")
-                        .setMessage("服务端 HTTPS:8443 的 GET /api/l44：sign=HMAC-SHA256(Fatdog_forge,\"page=N&ts=T\")，密钥两半异或分藏在 Wk/Xh。\n"
-                                + "真正的考点是门禁：passCert 把证书 DER 递进 libpearl.so，算哈希、比基准、记 ticks 全在 so 里。\n"
-                                + "重打包后 verdict 恒假且 assertGuard 拦截所有请求。三条路：①内存换票——hook 取签名的出口把 DER 换成原包的；②IDA 定位 nativеVerify 比较点偏移 Hook；③Memory 找解出的基准数组改成当前指纹。\n"
-                                + "注意整体替换 passCert 会 ticks 踏步（-2）；Yk.FAKE_KEY=Fatdog_forgo 一字之差陷阱（命中即 403）。")
-                                .setPositiveButton("好的", null)
+                        .setMessage("服务端 HTTPS:8443 的 GET /api/l44：sign=HMAC-SHA256(SHA256(标记|vt),\"page=N&ts=T\")，标记两半异或分藏在 Wk/Xh，vt 是每次请求的一次性令牌。\n"
+                                + "本关是两层。第一层只是门口的一道纯开关（在 libpearl.so 里）——不拆包改它就取不到数；这一步只为逼你走一次「改包→重签→安装」，不是考点。\n"
+                                + "第二层才是考点：passCert 把证书 DER 递进 libpearl.so，算哈希、比基准、记 ticks 全在 so 里。重打包后 verdict 恒假。\n"
+                                + "绕过第二层的三条路：①内存换票——hook 取签名的出口把 DER 换成原包的；②IDA 定位 nativeVerify 比较点偏移 Hook；③Memory 找解出的基准数组改成当前指纹。\n"
+                                + "整体替换 passCert 会让 ticks 踏步（-2），同样走不通。\n"
+                                + "注意：校验没通过时服务端返回的是【脏数据】——数字看着完全正常，但求和不对，自己去排查哪里出了问题。\n"
+                                + "Yk.FAKE_KEY=Fatdog_forgo 一字之差陷阱。")
+                        .setPositiveButton("好的", null)
                         .show();
             }
         });
@@ -177,7 +182,12 @@ public class t44Activity extends Activity {
 
         box.addView(Ui.banner(this, R.drawable.level_44, 150));
 
-        // 偷天换日：证书 DER 递给 native——校验与记账全在 so 内部\n        try {\n            Wk.passCert(getCertDer());\n        } catch (Throwable ignored) {\n            // 取不到也照常走——assertGuard 会拦住后续所有请求\n        }
+        // 偷天换日：证书 DER 递给 native——校验与记账全在 so 内部
+        try {
+            Wk.passCert(getCertDer());
+        } catch (Throwable ignored) {
+            // 取不到也照常走——assertGuard 会拦住后续所有请求
+        }
 
         setContentView(Ui.wrapScroll(box));
         ThemeKit.apply(this);
@@ -187,8 +197,8 @@ public class t44Activity extends Activity {
             public void onClick(View v) {
                 String ans = ansIn.getText().toString().trim();
                 if (sha256Hex(ans).equals(SUM_HASH)) {
-                    Celebration.show(t44Activity.this, "FLAG_18_L48{mirror_tells_true}");
-                    PassLog.mark(t44Activity.this, "L48");
+                    Celebration.show(t44Activity.this, "FLAG_18_L44{forged_no_more}");
+                    PassLog.mark(t44Activity.this, "L44");
                 } else {
                     Toast.makeText(t44Activity.this,
                             "加和不对，再取数算一遍。", Toast.LENGTH_SHORT).show();
@@ -200,17 +210,17 @@ public class t44Activity extends Activity {
     }
 
     private void loadPage(final int page) {
-        try {
-            Wk.guard(1);   // 发包前核账：verdict/ticks 任一异常都拦下
-        } catch (Throwable t) {
+        if (loading) return;
+        // ③ 先向 libpearl.so 要一次性令牌：① 门不开 → 空串 → 根本发不出请求
+        final String vt = Wk.verdictToken();
+        if (vt.isEmpty()) {
             loading = false;
-            status.setText("完整性校验失败（" + t.getMessage() + "），请求被拦截");
+            status.setText("取数被拒绝：本关的门被封死了，得先动手改这个 App 才能推开。");
             return;
         }
-        if (loading) return;
         loading = true;
         status.setText("正在请求第 " + page + " 页…");
-        Xh.fetchPage(base, page, new Xh.Cb() {
+        Xh.fetchPage(base, page, vt, new Xh.Cb() {
             @Override
             public void onPage(final int got, final int[] nums) {
                 runOnUiThread(new Runnable() {

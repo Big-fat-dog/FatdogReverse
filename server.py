@@ -1410,101 +1410,175 @@ def api_kl10(page: int = Form(...), ts: int = Form(...), nonce: str = Form(...),
     return {"page": page, "nums": []}
 
 
-# ---------------- 关卡 43（签名校验对抗）照妖之镜：标准 HMAC + 近亲假钥点名 ----------------
+# ---------------- 关卡 43（签名校验对抗）照妖之镜 ----------------
+# 2026-10-02 改造（双层强制链路）：
+#   ① 提交按钮默认隐藏，必须改 smali 才出现（入场券，只为逼出「重打包重签」）
+#   ② 重签后证书指纹变化 → Wi.audit 不过 → App 改用【诱饵钥】签名
+#      → 本服务端返回【脏数据】（HTTP 200，数字看着正常，求和必错；不再 403）
+#   ③ 绕过 ② 后才用真钥 + 每次随机 vt 签名 → 真数据
+#   key = SHA256(标记 ‖ vt)  —— vt 由 App 运行时生成并随请求上报，
+#   静态党拿不到 vt，无法纯离线复刻取数。
 KEY43_MASTER = "Fatdog_scan"
 DECOY43_KEYS = ["Fatdog_span"]
 PAGES43, PER_PAGE43, SEED43 = 100, 10, 20280214
 _rng43 = random.Random(SEED43)
 NUMS43 = [_rng43.randint(1, 100) for _ in range(PAGES43 * PER_PAGE43)]
+# 脏数据序列：与真序列同源不同种，确定性可复现（验收用）
+_rng43_dirty = random.Random(SEED43 + 0x5A5A)
+NUMS43_DIRTY = [_rng43_dirty.randint(1, 100) for _ in range(PAGES43 * PER_PAGE43)]
 
 
-def _l43_try(master: str, page: int, ts: int, sign: str) -> bool:
-    mk = master.encode()
-    if not hmac.compare_digest(
-            sign, hmac.new(mk, f"page={page}&ts={ts}".encode(), hashlib.sha256).hexdigest()):
-        return False
-    return True
+def _l43_key(master: str, vt: str) -> bytes:
+    """验签密钥 = SHA256(标记 ‖ vt) 的十六进制摘要（作 HMAC key 字节）"""
+    return hashlib.sha256((master + "|" + vt).encode()).hexdigest().encode()
+
+
+def _l43_try(master: str, page: int, ts: int, vt: str, sign: str) -> bool:
+    mk = _l43_key(master, vt)
+    return hmac.compare_digest(
+        sign, hmac.new(mk, f"page={page}&ts={ts}".encode(), hashlib.sha256).hexdigest())
 
 
 @app.get("/api/l43")
-def api_l43(page: int = Query(...), ts: int = Query(...), sign: str = Query(...)):
+def api_l43(page: int = Query(...), ts: int = Query(...), vt: str = Query(...),
+            sign: str = Query(...)):
     _check_ts(ts)
-    if _l43_try(KEY43_MASTER, page, ts, sign):
+    if _l43_try(KEY43_MASTER, page, ts, vt, sign):
         _check_page(page, PAGES43)
         idx = (page - 1) * PER_PAGE43
         return {"page": page, "nums": NUMS43[idx:idx + PER_PAGE43]}
     for dk in DECOY43_KEYS:
-        if _l43_try(dk, page, ts, sign):
-            raise HTTPException(status_code=403, detail="sign invalid")
-    return {"page": page, "nums": []}
+        if _l43_try(dk, page, ts, vt, sign):
+            # 诱饵命中 → 返回【脏数据】而非 403（静默投毒风格）
+            _check_page(page, PAGES43)
+            idx = (page - 1) * PER_PAGE43
+            return {"page": page, "nums": NUMS43_DIRTY[idx:idx + PER_PAGE43]}
+    # 两侧都对不上 = 协议级错误（缺 vt / 签名格式错）→ 403
+    raise HTTPException(status_code=403, detail="sign invalid")
 
 
 # ---------------- 关卡 44（签名校验对抗）偷天换日：标准 HMAC + 近亲假钥点名 ----------------
+# 2026-10-02 改造（双层强制链路，同 L43）：
+#   ① libpearl.so 内一个纯开关常量（g_door），不开则 nativeVerdictToken 返回空串
+#      → App 根本发不出请求（"取不到数"）；改这一字节必须重打包重签。
+#   ② 重签后证书指纹变化 → assertGuard 非 0 → App 改用【诱饵钥 Fatdog_forgo】签名
+#      → 本服务端返回【脏数据】（HTTP 200，数字看着正常，求和必错；不再 403）
+#   ③ 绕过 ② 后才用真钥 Fatdog_forge + 随机 vt → 真数据
+#   key = SHA256(标记 ‖ vt)
 KEY44_MASTER = "Fatdog_forge"
 DECOY44_KEYS = ["Fatdog_forgo"]
 PAGES44, PER_PAGE44, SEED44 = 100, 10, 20280301
 _rng44 = random.Random(SEED44)
 NUMS44 = [_rng44.randint(1, 100) for _ in range(PAGES44 * PER_PAGE44)]
+# 脏数据序列：与真序列同源不同种，确定性可复现（验收用）
+_rng44_dirty = random.Random(SEED44 + 0x5A5A)
+NUMS44_DIRTY = [_rng44_dirty.randint(1, 100) for _ in range(PAGES44 * PER_PAGE44)]
 
 
-def _l44_try(master: str, page: int, ts: int, sign: str) -> bool:
-    mk = master.encode()
+def _l44_key(master: str, vt: str) -> bytes:
+    """验签密钥 = SHA256(标记 ‖ vt) 的十六进制摘要（作 HMAC key 字节）"""
+    return hashlib.sha256((master + "|" + vt).encode()).hexdigest().encode()
+
+
+def _l44_try(master: str, page: int, ts: int, vt: str, sign: str) -> bool:
+    mk = _l44_key(master, vt)
     return hmac.compare_digest(
         sign, hmac.new(mk, f"page={page}&ts={ts}".encode(), hashlib.sha256).hexdigest())
 
 
 @app.get("/api/l44")
-def api_l44(page: int = Query(...), ts: int = Query(...), sign: str = Query(...)):
+def api_l44(page: int = Query(...), ts: int = Query(...), vt: str = Query(...),
+            sign: str = Query(...)):
     _check_ts(ts)
-    if _l44_try(KEY44_MASTER, page, ts, sign):
+    if _l44_try(KEY44_MASTER, page, ts, vt, sign):
         _check_page(page, PAGES44)
         idx = (page - 1) * PER_PAGE44
         return {"page": page, "nums": NUMS44[idx:idx + PER_PAGE44]}
     for dk in DECOY44_KEYS:
-        if _l44_try(dk, page, ts, sign):
-            raise HTTPException(status_code=403, detail="sign invalid")
-    return {"page": page, "nums": []}
+        if _l44_try(dk, page, ts, vt, sign):
+            # 诱饵命中 → 返回【脏数据】而非 403（静默投毒风格）
+            _check_page(page, PAGES44)
+            idx = (page - 1) * PER_PAGE44
+            return {"page": page, "nums": NUMS44_DIRTY[idx:idx + PER_PAGE44]}
+    # 两侧都对不上 = 协议级错误（缺 vt / 签名格式错）→ 403
+    raise HTTPException(status_code=403, detail="sign invalid")
 
 
 # ---------------- 关卡 45（签名校验对抗）移形换影：标准 HMAC + 近亲假钥点名 ----------------
+# 2026-10-02 改造（双层强制链路，同 L43/L44）：
+#   ① Java 侧一个「关不掉的弹窗」（setCancelable(false)）+ gateOpen() 恒假 → 取数被拦（入场券）
+#      改 smali 拆掉它必须重打包重签。
+#   ② 重签后证书指纹变化 → assertGuard 非 0 → 客户端改用【诱饵钥 Fatdog_lark】签名
+#      → 本服务端返回【脏数据】（HTTP 200，数字看着正常，求和必错；不再 403）
+#   ③ 绕过 ② 后才用真钥 Fatdog_lurk + 随机 vt → 真数据
+#   key = SHA256(标记 ‖ vt)
 KEY45_MASTER = "Fatdog_lurk"
 DECOY45_KEYS = ["Fatdog_lark"]
 PAGES45, PER_PAGE45, SEED45 = 100, 10, 20280318
 _rng45 = random.Random(SEED45)
 NUMS45 = [_rng45.randint(1, 100) for _ in range(PAGES45 * PER_PAGE45)]
+# 脏数据序列：与真序列同源不同种，确定性可复现（验收用）
+_rng45_dirty = random.Random(SEED45 + 0x5A5A)
+NUMS45_DIRTY = [_rng45_dirty.randint(1, 100) for _ in range(PAGES45 * PER_PAGE45)]
 
 
-def _l45_try(master: str, page: int, ts: int, sign: str) -> bool:
-    mk = master.encode()
+def _l45_key(master: str, vt: str) -> bytes:
+    """验签密钥 = SHA256(标记 ‖ vt) 的十六进制摘要（作 HMAC key 字节）"""
+    return hashlib.sha256((master + "|" + vt).encode()).hexdigest().encode()
+
+
+def _l45_try(master: str, page: int, ts: int, vt: str, sign: str) -> bool:
+    mk = _l45_key(master, vt)
     return hmac.compare_digest(
         sign, hmac.new(mk, f"page={page}&ts={ts}".encode(), hashlib.sha256).hexdigest())
 
 
 @app.get("/api/l45")
-def api_l45(page: int = Query(...), ts: int = Query(...), sign: str = Query(...)):
+def api_l45(page: int = Query(...), ts: int = Query(...), vt: str = Query(...),
+            sign: str = Query(...)):
     _check_ts(ts)
-    if _l45_try(KEY45_MASTER, page, ts, sign):
+    if _l45_try(KEY45_MASTER, page, ts, vt, sign):
         _check_page(page, PAGES45)
         idx = (page - 1) * PER_PAGE45
         return {"page": page, "nums": NUMS45[idx:idx + PER_PAGE45]}
     for dk in DECOY45_KEYS:
-        if _l45_try(dk, page, ts, sign):
-            raise HTTPException(status_code=403, detail="sign invalid")
-    return {"page": page, "nums": []}
+        if _l45_try(dk, page, ts, vt, sign):
+            # 诱饵命中 → 返回【脏数据】而非 403（静默投毒风格）
+            _check_page(page, PAGES45)
+            idx = (page - 1) * PER_PAGE45
+            return {"page": page, "nums": NUMS45_DIRTY[idx:idx + PER_PAGE45]}
+    # 两侧都对不上 = 协议级错误（缺 vt / 签名格式错）→ 403
+    raise HTTPException(status_code=403, detail="sign invalid")
 
 
 # ---------------- 关卡 46（签名校验对抗）以签为钥：L4 派生型 · 主打 ----------
 # key = SHA256(certDER ‖ b"Fatdog_bind")，直接 HMAC-SHA256 整个表单。
-# 没有任何 if 判断签名对错——重打包者的证书不同→派生 key 不同→全部 403 零提示。
+# 没有任何 if 判断签名对错——重打包者的证书摘要不同→派生 key 不同→验签自然不过。
 # 服务端内置原包证书 DER 的 SHA-256，独立派生相同 key 验签。
+#
+# 2026-10-02 改造（双层强制链路，同 L43-L45）：
+#   ① libamber.so 内一个纯开关常量（g_door）——不开则 nativeSign/VerdictToken 返回空串，
+#      App 发不出请求（"取不到数"）；改这一字节必须重打包重签。
+#   ② 重签后 nativeKeySeed 比对失败 → 客户端改用【诱饵标记 Fatdog_band】派生 key
+#      → 本服务端识别为诱饵，返回【脏数据】（HTTP 200，求和必错；不再 403）
+#   ③ 绕过 ② 后才用真标记 Fatdog_bind + 随机 vt 派生 → 真数据
+#   key = SHA256(原包 certHash ‖ 标记 ‖ vt)
 _L46_CERT_HASH = bytes.fromhex("3bb2134ca3b10bacd43965d0838efa90eef3765eed8832929168ca0e221237fe")
 _L46_MARKER = b"Fatdog_bind"
-_L46_DERIVED_KEY = hashlib.sha256(_L46_CERT_HASH + _L46_MARKER).digest()
-KEY46_MASTER = "Fatdog_bind"   # 标记名（仅供日志/识别；实际密钥是派生的 32 字节）
+_L46_DMARKER = b"Fatdog_band"          # 诱饵标记（与真标记一字之差，客户端校验不过时使用）
+KEY46_MASTER = "Fatdog_bind"           # 标记名（仅供日志/识别；实际密钥是派生的 32 字节）
 DECOY46_KEYS = ["Fatdog_band"]
 PAGES46, PER_PAGE46, SEED46 = 100, 10, 20280406
 _rng46 = random.Random(SEED46)
 NUMS46 = [_rng46.randint(1, 100) for _ in range(PAGES46 * PER_PAGE46)]
+# 脏数据序列：与真序列同源不同种，确定性可复现（验收用）
+_rng46_dirty = random.Random(SEED46 + 0x5A5A)
+NUMS46_DIRTY = [_rng46_dirty.randint(1, 100) for _ in range(PAGES46 * PER_PAGE46)]
+
+
+def _l46_key(marker: bytes, vt: str) -> bytes:
+    """派生密钥 = SHA256(原包 certHash ‖ 标记 ‖ vt)（32 字节，直接作 HMAC key）"""
+    return hashlib.sha256(_L46_CERT_HASH + marker + vt.encode()).digest()
 
 
 def _l46_try(derived_key: bytes, page: int, ts: int, nonce: str, sign: str) -> bool:
@@ -1515,33 +1589,48 @@ def _l46_try(derived_key: bytes, page: int, ts: int, nonce: str, sign: str) -> b
 
 
 @app.post("/api/l46")
-def api_l46(page: int = Form(...), ts: int = Form(...),
-            nonce: str = Form(...), sign: str = Form(...)):
+def api_l46(page: int = Form(...), ts: int = Form(...), nonce: str = Form(...),
+            vt: str = Form(...), sign: str = Form(...)):
     _check_ts(ts)
-    if _l46_try(_L46_DERIVED_KEY, page, ts, nonce, sign):
+    if _l46_try(_l46_key(_L46_MARKER, vt), page, ts, nonce, sign):
         _check_page(page, PAGES46)
         idx = (page - 1) * PER_PAGE46
         return {"page": page, "nums": NUMS46[idx:idx + PER_PAGE46]}
-    for dk in DECOY46_KEYS:
-        dk_bytes = hashlib.sha256(_L46_CERT_HASH + dk.encode()).digest()
-        if _l46_try(dk_bytes, page, ts, nonce, sign):
-            raise HTTPException(status_code=403, detail="sign invalid")
-    return {"page": page, "nums": []}
+    if _l46_try(_l46_key(_L46_DMARKER, vt), page, ts, nonce, sign):
+        # 诱饵标记命中 → 返回【脏数据】而非 403（静默投毒风格）
+        _check_page(page, PAGES46)
+        idx = (page - 1) * PER_PAGE46
+        return {"page": page, "nums": NUMS46_DIRTY[idx:idx + PER_PAGE46]}
+    # 两侧都对不上 = 协议级错误（缺 vt / 签名格式错）→ 403
+    raise HTTPException(status_code=403, detail="sign invalid")
 
 
 # ---------------- 关卡 47（签名校验对抗）幽冥合卷：收官综合卷 ----------
-# 三点互验记账 + CRC 自校验 + certHash 参与密钥派生 + 响应 AES 加密。
-# marker = "Fatdog_seal"（诱饵 "steal"），hmac_key / aes_key 均由 certHash 派生。
-# POST page/ts/sign/enc → sign 校验 + enc 解密页码 → 响应 {"d": hex(AES(nums))}。
+# 四重防线：守卫矩阵（启动记账 / Activity 核账 / 当前包证书摘要 / 基准数组 CRC32）
+#          + 证书摘要参与密钥派生 + 响应体 AES-ECB 加密。
+#
+# 2026-10-02 改造（双层强制链路，同 L43-L46）：
+#   ① libfelix.so 内一个纯开关常量（g_door）＋ smali 里提交按钮默认隐藏（形态 A+C）
+#      → 必须重打包重签 → 自动触发 ②
+#   ② 守卫矩阵任一路不过 → 客户端改用【诱饵标记 Fatdog_steal】派生 key
+#      → 本服务端识别为诱饵，返回【脏数据】（HTTP 200，求和必错；不再 403/投毒）
+#   ③ 绕过 ② 后才用真标记 Fatdog_seal + 随机 vt 派生 → 真数据
+#   key = SHA256(原包 certHash ‖ 标记 ‖ vt)，hmac_key 与 aes_key 同一把
 _L47_CERT_HASH = bytes.fromhex("3bb2134ca3b10bacd43965d0838efa90eef3765eed8832929168ca0e221237fe")
 _L47_MARKER = b"Fatdog_seal"
-_L47_HMAC_KEY = hashlib.sha256(_L47_CERT_HASH + _L47_MARKER).digest()
-_L47_AES_KEY = hashlib.sha256(_L47_CERT_HASH + _L47_MARKER).digest()
-KEY47_MASTER = "Fatdog_seal"
-DECOY47_KEYS = ["Fatdog_steal"]
+_L47_DMARKER = b"Fatdog_steal"        # 诱饵标记（与真标记一字之差，守卫不过时客户端使用）
+KEY47_MASTER = "Fatdog_seal"          # 标记名（仅供日志/识别；实际密钥是派生的 32 字节）
 PAGES47, PER_PAGE47, SEED47 = 100, 10, 20280426
 _rng47 = random.Random(SEED47)
 NUMS47 = [_rng47.randint(1, 100) for _ in range(PAGES47 * PER_PAGE47)]
+# 脏数据序列：与真序列同源不同种，确定性可复现（验收用）
+_rng47_dirty = random.Random(SEED47 + 0x5A5A)
+NUMS47_DIRTY = [_rng47_dirty.randint(1, 100) for _ in range(PAGES47 * PER_PAGE47)]
+
+
+def _l47_key(marker: bytes, vt: str) -> bytes:
+    """派生密钥 = SHA256(原包 certHash ‖ 标记 ‖ vt)（32 字节，hmac 与 aes 共用）"""
+    return hashlib.sha256(_L47_CERT_HASH + marker + vt.encode()).digest()
 
 
 def _l47_try(hmac_key: bytes, page: int, ts: int, sign: str) -> bool:
@@ -1550,17 +1639,22 @@ def _l47_try(hmac_key: bytes, page: int, ts: int, sign: str) -> bool:
 
 
 @app.post("/api/l47")
-def api_l47(page: int = Form(...), ts: int = Form(...), sign: str = Form(...), enc: str = Form(...)):
+def api_l47(page: int = Form(...), ts: int = Form(...), sign: str = Form(...),
+            enc: str = Form(...), vt: str = Form(...)):
     _check_ts(ts)
-    if not _l47_try(_L47_HMAC_KEY, page, ts, sign):
-        for dk in DECOY47_KEYS:
-            dk_bytes = hashlib.sha256(_L47_CERT_HASH + dk.encode()).digest()
-            if _l47_try(dk_bytes, page, ts, sign):
-                raise HTTPException(status_code=403, detail="sign invalid")
+    if _l47_try(_l47_key(_L47_MARKER, vt), page, ts, sign):
+        real, marker = True, _L47_MARKER
+    elif _l47_try(_l47_key(_L47_DMARKER, vt), page, ts, sign):
+        # 诱饵标记命中 → 走脏数据分支（下面照常解 enc、照常加密响应，玩家看不出差别）
+        real, marker = False, _L47_DMARKER
+    else:
+        # 两侧都对不上 = 协议级错误（缺 vt / 签名格式错）→ 403
         raise HTTPException(status_code=403, detail="sign invalid")
+
+    aes_key = _l47_key(marker, vt)
     # enc = hex(AES_ECB(aes_key, "page=N"))
     try:
-        plain = aes_dec(_L47_AES_KEY, bytes.fromhex(enc)).decode("utf-8", "ignore")
+        plain = aes_dec(aes_key, bytes.fromhex(enc)).decode("utf-8", "ignore")
     except Exception:
         raise HTTPException(status_code=400, detail="bad enc")
     m = re.fullmatch(r"page=(\d+)", plain)
@@ -1571,8 +1665,9 @@ def api_l47(page: int = Form(...), ts: int = Form(...), sign: str = Form(...), e
         raise HTTPException(status_code=403, detail="enc/param mismatch")
     _check_page(page, PAGES47)
     idx = (page - 1) * PER_PAGE47
-    body = f"page={page}|nums={','.join(str(n) for n in NUMS47[idx:idx + PER_PAGE47])}"
-    return {"d": aes_enc(_L47_AES_KEY, body.encode()).hex()}
+    src = NUMS47 if real else NUMS47_DIRTY
+    body = f"page={page}|nums={','.join(str(n) for n in src[idx:idx + PER_PAGE47])}"
+    return {"d": aes_enc(aes_key, body.encode()).hex()}
 
 
 # ---------------- 关卡 48（Native大陆）落日平原：operator+ 重载 ----------

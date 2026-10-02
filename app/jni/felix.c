@@ -1,19 +1,24 @@
-/* libm9.so ——「幽冥合卷」（签名校验对抗 · L47，收官综合卷）
- * 三点互验记账（Application 记账 → Activity 核账 → native 再核账互锁）
- * + CRC 自校验基线（L33 手法回收）
- * + certHash 参与 AES 密钥派生（L46 手法回收）
+/* libfelix.so ——「幽冥合卷」（签名校验对抗 · L47，收官综合卷）
+ * 三点互验记账（Activity 记账 → Activity 核账 → native 再核账互锁）
+ * + CRC 自校验基线（覆盖三个基准数组的**烘焙常量**）
+ * + 当前包 certHash 参与密钥派生（L46 手法回收）
  * + 响应体 AES-ECB 加密。
- * 任一环节缺失 → 静默投毒一字节（L32 手法回收）。
+ * 任一环节不满足 → 派生落到诱饵标记 → 服务端回【脏数据】（不再报错）。
  *
- * 守卫矩阵：g_guard.audit == 1 && g_guard.tick == 0xABCD && g_guard.recheck == 1
- * CRC 自校验：启动时对 guard_fn 前 256 字节做 CRC32，与基准比对。
+ * 守卫矩阵：g_guard.audit == 1 && tick == 0xABCD && recheck == 1 && certOk == 1
+ * CRC 自校验：CRC32(MARK_X ‖ DMARK_X ‖ BENCH_X) 与烘焙基准比对——
+ *             把基准数组改成自己的证书摘要会被当场抓到。
  *
- * 正解三条：①Frida spawn 抢跑伪造三点位；②patch so 废 CRC 校验+比较；
- * ③重打包 + 完整复刻派生链（最硬核）。
+ * 2026-10-02 双层链路改造：
+ *   ① g_door 纯开关常量：出厂 0x2E，改成 0x9B 才允许取数（逼出一次重打包重签）；
+ *   ② nativeSeed(der) 把「当前包证书摘要」纳入守卫矩阵——原先 ② 只查"guard 函数有没有被调用"，
+ *      重打包者原样保留调用即可通过，证书其实从未参与判定（派生用的是内置基准）；
+ *   ③ nativeVerdictToken() 产出一次性令牌 vt，参与密钥派生：key = SHA256(基准 ‖ 标记 ‖ vt)。
  */
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <time.h>
 
 #ifndef M9_HOST_TEST
 #include <jni.h>
@@ -41,18 +46,35 @@ static const unsigned char MARK_X[] = {
 };
 #define MARK_LEN 11
 
+/* "Fatdog_steal" ^0x3C ——诱饵标记（与真标记一字之差；守卫不过时用它派生 → 服务端回脏数据） */
+static const unsigned char DMARK_X[] = {
+    122,93,72,88,83,91,99,79,72,89,93,80
+};
+#define DMARK_LEN 12
+
+/* ---------- ① 第一层障碍：纯开关常量（非判定逻辑，刻意做轻） ----------
+ * 出厂值 0x2E；门不开则 nativeSignAndEnc / nativeVerdictToken 返回空 → App 取不到数。
+ * 把这一字节改成 0x9B（或把下面那条比较改掉）即可开门。 */
+volatile unsigned int g_door = 0x2E;
+#define M9_DOOR_OPEN 0x9B
+
+static int m9_door_open(void) {
+    return (g_door == (unsigned int)M9_DOOR_OPEN) ? 1 : 0;
+}
+
 /* ==================== guard 矩阵 ==================== */
 typedef struct {
-    int audit;     /* Application.audit() 递增 */
+    int audit;     /* 启动记账：递增 */
     int tick;      /* Activity 传入固定值 0xABCD */
     int recheck;   /* native 再核账 = 1 */
+    int cert_ok;   /* 当前包证书摘要 == 内置基准 */
 } GuardState;
 
-static GuardState g_guard = {0, 0, 0};
-static int g_guard_activated = 0;
+static GuardState g_guard = {0, 0, 0, 0};
+static int g_checked = 0;
 
-/* ==================== CRC 自校验 ==================== */
-static unsigned int g_crc_baseline = 0;
+/* ==================== CRC 自校验（覆盖基准数组的烘焙常量） ==================== */
+#define M9_CRC_BASELINE 0xCDDA9987u
 static int g_crc_ready = 0;
 
 static unsigned int m9_crc32(const unsigned char *data, unsigned int len) {
@@ -68,19 +90,22 @@ static unsigned int m9_crc32(const unsigned char *data, unsigned int len) {
     return ~crc;
 }
 
-/* CRC 覆盖区域：guard_check 函数前 256 字节（解法②：patch 此区域不影响 CRC 基准） */
-extern void m9_guard_check(void);
-static void m9_crc_init(void) {
-    /* 用函数指针地址前 256 字节算 CRC */
-    const unsigned char *fn = (const unsigned char *)((void *)m9_guard_check);
-    g_crc_baseline = m9_crc32(fn, 256);
-    g_crc_ready = 1;
+/* CRC 覆盖三个基准数组（MARK_X ‖ DMARK_X ‖ BENCH_X）。
+ * 它们是编译期常量，因此基准值可烘焙：改动任一数组（最常见的攻击：把 BENCH_X
+ * 换成自己证书的摘要，或把诱饵标记改成真标记）都会被当场抓到。 */
+static unsigned int m9_arrays_crc(void) {
+    unsigned char buf[MARK_LEN + DMARK_LEN + 32];
+    int n = 0, i;
+    for (i = 0; i < MARK_LEN; i++)  buf[n++] = MARK_X[i];
+    for (i = 0; i < DMARK_LEN; i++) buf[n++] = DMARK_X[i];
+    for (i = 0; i < 32; i++)        buf[n++] = BENCH_X[i];
+    return m9_crc32(buf, (unsigned int)n);
 }
 
 static int m9_crc_verify(void) {
-    const unsigned char *fn = (const unsigned char *)((void *)m9_guard_check);
-    return m9_crc32(fn, 256) == g_crc_baseline;
+    return m9_arrays_crc() == (unsigned int)M9_CRC_BASELINE;
 }
+
 
 /* ==================== SHA-256 ==================== */
 static const unsigned int K256[64] = {
@@ -166,29 +191,53 @@ static void m9_hmac_sha256(const unsigned char *key, unsigned int klen,
     m9_sha256(outer, 64 + 32, out);
 }
 
-/* ==================== 派生密钥 ==================== */
-static unsigned char g_hmac_key[32];
-static unsigned char g_aes_key[32];
-static int g_keys_ready = 0;
+/* ==================== 派生密钥 + ③ 一次性令牌 ==================== */
 
-static void m9_derive_keys(void) {
-    unsigned char full[32];
-    int i;
-    if (!g_bench_ready) m9_unlock_bench();
-    /* full = SHA256(certHash || "Fatdog_seal") */
-    {
-        unsigned char *buf = (unsigned char *)malloc(32 + MARK_LEN);
-        if (!buf) return;
-        memcpy(buf, g_bench, 32);
-        for (i = 0; i < MARK_LEN; i++)
-            buf[32 + i] = (unsigned char)(MARK_X[i] ^ 0x3C);
-        m9_sha256(buf, 32 + MARK_LEN, full);
-        free(buf);
+static unsigned int g_rng_state = 0;
+
+static unsigned int m9_rng_next(void) {
+    unsigned int x;
+    if (g_rng_state == 0) {
+        g_rng_state = (((unsigned int)time(NULL)) ^ 0x9E3779B9u) | 1u;
     }
-    memcpy(g_hmac_key, full, 32);
-    memcpy(g_aes_key, full, 32);
-    g_keys_ready = 1;
+    x = g_rng_state;
+    x ^= x << 13;
+    x ^= x >> 17;
+    x ^= x << 5;
+    g_rng_state = x;
+    return x;
 }
+
+/* 守卫矩阵 + CRC 全过才算"已封缄通过"；否则走诱饵标记 */
+static int m9_sealed_ok(void) {
+    if (!g_checked) return 0;         /* nativeSeed 还没跑 = 证书未校验 */
+    if (!g_crc_ready) return 0;       /* 启动记账还没跑 */
+    if (g_guard.audit != 1 || g_guard.tick != 0xABCD || g_guard.recheck != 1) return 0;
+    if (!g_guard.cert_ok) return 0;
+    if (!m9_crc_verify()) return 0;
+    return 1;
+}
+
+/* key = SHA256(内置基准(32) ‖ 标记(11) ‖ vt(ascii ≤16))，hmac 与 aes 同一把。
+ *   守卫全过 → 标记 "Fatdog_seal"  → 服务端认，给真数据
+ *   任一不过 → 标记 "Fatdog_steal" → 服务端认作诱饵，回【脏数据】 */
+static void m9_derive_keys(const char *vt, unsigned char out[32]) {
+    unsigned char buf[64];          /* 32 + 12(最长标记) + 16(vt) = 60，留余量 */
+    const unsigned char *m;
+    int mklen, i, n = 0;
+    if (!g_bench_ready) m9_unlock_bench();
+    if (m9_sealed_ok()) { m = MARK_X;  mklen = MARK_LEN;  }
+    else                { m = DMARK_X; mklen = DMARK_LEN; }
+    memcpy(buf, g_bench, 32);
+    n = 32;
+    for (i = 0; i < mklen; i++)
+        buf[n++] = (unsigned char)(m[i] ^ 0x3C);
+    if (vt) {
+        for (i = 0; vt[i] && i < 16; i++) buf[n++] = (unsigned char)vt[i];
+    }
+    m9_sha256(buf, (unsigned int)n, out);
+}
+
 
 /* ==================== AES-256-ECB（最小实现） ==================== */
 static const unsigned char SBOX[256] = {
@@ -340,22 +389,38 @@ static void m9_aes256_inv_shift(unsigned char state[16]) {
     unsigned char t;
     t=state[13]; state[13]=state[9]; state[9]=state[5]; state[5]=state[1]; state[1]=t;
     t=state[2]; state[2]=state[10]; state[10]=t; t=state[6]; state[6]=state[14]; state[14]=t;
+    /* 第 3 行：正向 ShiftRows 是左旋 3，InvShiftRows 必须是左旋 1（右旋 3）。
+     * 原实现误把正向写法抄了过来 → 解密永远失败（2026-10-02 修正）。 */
     t=state[3]; state[3]=state[7]; state[7]=state[11]; state[11]=state[15]; state[15]=t;
 }
 
-static unsigned char m9_xtime2(unsigned char x) {
-    return (unsigned char)((x << 1) ^ (((x >> 7) & 1) * 0x1b));
+/* GF(2^8) 乘法（AES 多项式 0x11B） */
+static unsigned char m9_gmul(unsigned char a, unsigned char b) {
+    unsigned char p = 0;
+    int i;
+    for (i = 0; i < 8; i++) {
+        if (b & 1) p ^= a;
+        {
+            unsigned char hi = (unsigned char)(a & 0x80);
+            a = (unsigned char)(a << 1);
+            if (hi) a ^= 0x1b;
+        }
+        b = (unsigned char)(b >> 1);
+    }
+    return p;
 }
 
+/* 标准 InvMixColumns：每列乘以 [0e 0b 0d 09] 的循环矩阵。
+ * 原实现是一组凭经验凑的 xtime 组合，与标准不符 → 解密结果全错（2026-10-02 修正）。 */
 static void m9_aes256_inv_mix(unsigned char state[16]) {
     int c;
     for (c = 0; c < 4; c++) {
         int i = c * 4;
         unsigned char a0=state[i], a1=state[i+1], a2=state[i+2], a3=state[i+3];
-        state[i]   = (unsigned char)(m9_xtime2(m9_xtime2(a0^a2)) ^ m9_xtime2(a1^a3) ^ a0^a1^a2^a3);
-        state[i+1] = (unsigned char)(m9_xtime2(m9_xtime2(a1^a3)) ^ m9_xtime2(a0^a2) ^ a0^a1^a2^a3);
-        state[i+2] = (unsigned char)(m9_xtime2(m9_xtime2(a0^a2)) ^ m9_xtime2(a0^a1) ^ a0^a1^a2^a3);
-        state[i+3] = (unsigned char)(m9_xtime2(m9_xtime2(a1^a3)) ^ m9_xtime2(a2^a3) ^ a0^a1^a2^a3);
+        state[i]   = (unsigned char)(m9_gmul(a0,0x0e) ^ m9_gmul(a1,0x0b) ^ m9_gmul(a2,0x0d) ^ m9_gmul(a3,0x09));
+        state[i+1] = (unsigned char)(m9_gmul(a0,0x09) ^ m9_gmul(a1,0x0e) ^ m9_gmul(a2,0x0b) ^ m9_gmul(a3,0x0d));
+        state[i+2] = (unsigned char)(m9_gmul(a0,0x0d) ^ m9_gmul(a1,0x09) ^ m9_gmul(a2,0x0e) ^ m9_gmul(a3,0x0b));
+        state[i+3] = (unsigned char)(m9_gmul(a0,0x0b) ^ m9_gmul(a1,0x0d) ^ m9_gmul(a2,0x09) ^ m9_gmul(a3,0x0e));
     }
 }
 
@@ -376,15 +441,6 @@ static void m9_aes256_block_dec(unsigned char out[16], const unsigned char in[16
     memcpy(out, state, 16);
 }
 
-static void m9_aes256_ecb_dec(const unsigned char key[32],
-                              const unsigned char *cipher, unsigned int len,
-                              unsigned char *plain) {
-    unsigned int i;
-    m9_aes256_expand(key);
-    for (i = 0; i + 16 <= len; i += 16)
-        m9_aes256_block_dec(plain + i, cipher + i);
-}
-
 static unsigned int m9_pkcs7_unpad(const unsigned char *data, unsigned int len) {
     if (len == 0 || len % 16 != 0) return 0;
     unsigned char pad_val = data[len - 1];
@@ -395,71 +451,38 @@ static unsigned int m9_pkcs7_unpad(const unsigned char *data, unsigned int len) 
     return len - pad_val;
 }
 
-/* ==================== guard_check（CRC 覆盖区域起点） ==================== */
-void m9_guard_check(void) {
-    volatile int dummy = 0;
-    dummy++;
-    dummy += g_bench_ready;
-    dummy += g_keys_ready;
-    dummy += g_crc_baseline;
-}
-
-/* ==================== 静默投毒 ==================== */
-static void m9_poison(unsigned char *data, unsigned int len) {
-    if (len > 0) data[0] ^= 0xFF;
-}
-
 /* ==================== 签名 + 加密复合操作 ==================== */
 
-/* guard_seal: 验证 guard 矩阵 + CRC，通过才正常签名+加密 */
-static int g_sealed = 0;
-
-static void m9_guard_seal(void) {
-    /* 三重检查 */
-    if (g_guard.audit != 1 || g_guard.tick != 0xABCD || g_guard.recheck != 1) {
-        g_sealed = 1; /* 标记：输出将被投毒 */
-        return;
-    }
-    if (g_crc_ready && !m9_crc_verify()) {
-        g_sealed = 1;
-        return;
-    }
-    g_sealed = 0;
-}
-
-/* nativeSignEnc: HMAC-SHA256(g_hmac_key, "page=N&ts=T") → hex;
- * 同时 AES 加密 "page=N" 到 out_enc（调用方负责 hex 编码）。 */
-static void m9_sign_and_enc(int page, long ts,
+/* nativeSignEnc: HMAC-SHA256(key, "page=N&ts=T") → hex;
+ * 同时 AES 加密 "page=N" 到 out_enc（调用方负责 hex 编码）。
+ * key 由 m9_sealed_ok() 的结论挑标记后派生——守卫不过则走诱饵标记，
+ * 服务端据此回【脏数据】，而不是让本地输出报废（静默投毒改为静默喂假数据）。 */
+static void m9_sign_and_enc(int page, long ts, const char *vt,
                             char sign_out[65], unsigned char enc_out[16]) {
     char msg[64];
     int mlen;
+    unsigned char key[32];
     unsigned char dg[32];
     static const char *H = "0123456789abcdef";
     int i;
 
-    if (!g_keys_ready) m9_derive_keys();
+    m9_derive_keys(vt, key);
 
     /* 签名 */
     mlen = snprintf(msg, sizeof(msg), "page=%d&ts=%lld", page, (long long)ts);
-    m9_hmac_sha256(g_hmac_key, 32, (const unsigned char *)msg, (unsigned int)mlen, dg);
+    m9_hmac_sha256(key, 32, (const unsigned char *)msg, (unsigned int)mlen, dg);
     for (i = 0; i < 32; i++) {
         sign_out[2*i]   = H[dg[i] >> 4];
         sign_out[2*i+1] = H[dg[i] & 0xF];
     }
     sign_out[64] = 0;
 
-    /* 加密 "page=N" */
+    /* 加密 "page=N"（与 hmac 同一把 key 派生） */
     {
         char plain[16];
         int plen = snprintf(plain, sizeof(plain), "page=%d", page);
-        m9_aes256_ecb_enc(g_aes_key, (const unsigned char *)plain,
+        m9_aes256_ecb_enc(key, (const unsigned char *)plain,
                           (unsigned int)plen, enc_out);
-    }
-
-    /* 投毒检查 */
-    if (g_sealed) {
-        m9_poison((unsigned char *)sign_out, 64);
-        m9_poison(enc_out, 16);
     }
 }
 
@@ -467,49 +490,96 @@ static void m9_sign_and_enc(int page, long ts,
 
 #ifndef M9_HOST_TEST
 
-/* audit: Application 启动时调用，递增审计计数 */
+/* audit: 启动记账，递增审计计数（并确认 CRC 检查已就绪） */
 JNIEXPORT void JNICALL
 Java_com_fatdog_reverse_Wp_nativeAudit(JNIEnv *env, jclass clazz) {
     (void)env; (void)clazz;
     if (!g_bench_ready) m9_unlock_bench();
-    if (!g_crc_ready) m9_crc_init();
+    g_crc_ready = 1;
     g_guard.audit++;
 }
 
-/* guard: Activity 核账，传入固定 tick 值 + recheck 值 */
+/* seed: 递入当前包的证书 DER —— native 内摘要并与内置基准比对，纳入守卫矩阵 */
+JNIEXPORT void JNICALL
+Java_com_fatdog_reverse_Wp_nativeSeed(JNIEnv *env, jclass clazz, jbyteArray der) {
+    unsigned char dg[32];
+    (void)clazz;
+    if (!g_bench_ready) m9_unlock_bench();
+    g_checked = 1;
+    g_guard.cert_ok = 0;
+    if (der) {
+        jsize len = (*env)->GetArrayLength(env, der);
+        jbyte *p = (*env)->GetByteArrayElements(env, der, NULL);
+        if (p) {
+            m9_sha256((const unsigned char *)p, (unsigned int)len, dg);
+            (*env)->ReleaseByteArrayElements(env, der, p, JNI_ABORT);
+            g_guard.cert_ok = (memcmp(dg, g_bench, 32) == 0) ? 1 : 0;
+        }
+    }
+}
+
+/* guard: Activity 核账，传入固定 tick 值 + recheck 值；返回守卫矩阵结论 */
 JNIEXPORT jboolean JNICALL
 Java_com_fatdog_reverse_Wp_nativeGuard(JNIEnv *env, jclass clazz,
                                         jint tick, jint recheck) {
     (void)env; (void)clazz;
     g_guard.tick = tick;
     g_guard.recheck = recheck;
-    m9_guard_seal();
-    return g_sealed ? JNI_FALSE : JNI_TRUE;
+    return m9_sealed_ok() ? JNI_TRUE : JNI_FALSE;
 }
 
-/* sign: HMAC-SHA256 签名，返回 hex string */
+/* ③ 取数令牌：门未开 → 空串（Java 侧据此不发包，即"取不到数"）；门已开 → 16 位 hex */
+JNIEXPORT jstring JNICALL
+Java_com_fatdog_reverse_Wp_nativeVerdictToken(JNIEnv *env, jclass clazz) {
+    static const char H[] = "0123456789abcdef";
+    char out[17];
+    unsigned int a, b;
+    int i;
+    (void)clazz;
+    if (!m9_door_open()) return (*env)->NewStringUTF(env, "");
+    a = m9_rng_next();
+    b = m9_rng_next() ^ (((unsigned int)g_guard.audit) * 0x9E3779B9u);
+    for (i = 0; i < 8; i++) out[i]     = H[(a >> (4 * i)) & 0xF];
+    for (i = 0; i < 8; i++) out[8 + i] = H[(b >> (4 * i)) & 0xF];
+    out[16] = 0;
+    return (*env)->NewStringUTF(env, out);
+}
+
+/* sign: HMAC-SHA256 签名，返回 hex string；① 门未开 → 空串 */
 JNIEXPORT jstring JNICALL
 Java_com_fatdog_reverse_Wp_nativeSign(JNIEnv *env, jclass clazz,
-                                       jint page, jlong ts) {
+                                       jint page, jlong ts, jstring vt) {
     char hex[65];
+    const char *v = NULL;
     (void)clazz;
-    m9_sign_and_enc(page, ts, hex, (unsigned char[16]){0});
+    if (!m9_door_open()) return (*env)->NewStringUTF(env, "");
+    if (vt) v = (*env)->GetStringUTFChars(env, vt, NULL);
+    m9_sign_and_enc(page, ts, v, hex, (unsigned char[16]){0});
+    if (v) (*env)->ReleaseStringUTFChars(env, vt, v);
     return (*env)->NewStringUTF(env, hex);
 }
 
-/* signAndEnc: 签名 + 加密，返回 [sign_hex, enc_hex] */
+/* signAndEnc: 签名 + 加密，返回 [sign_hex, enc_hex]；① 门未开 → 返回空数组 */
 JNIEXPORT jobjectArray JNICALL
 Java_com_fatdog_reverse_Wp_nativeSignAndEnc(JNIEnv *env, jclass clazz,
-                                             jint page, jlong ts) {
+                                             jint page, jlong ts, jstring vt) {
     char sign_hex[65];
     unsigned char enc_raw[16];
     char enc_hex[33];
     static const char *H = "0123456789abcdef";
     jobjectArray result;
+    const char *v = NULL;
     int i;
     (void)clazz;
 
-    m9_sign_and_enc(page, ts, sign_hex, enc_raw);
+    if (!m9_door_open()) {
+        return (*env)->NewObjectArray(env, 0,
+                    (*env)->FindClass(env, "java/lang/String"), NULL);
+    }
+
+    if (vt) v = (*env)->GetStringUTFChars(env, vt, NULL);
+    m9_sign_and_enc(page, ts, v, sign_hex, enc_raw);
+    if (v) (*env)->ReleaseStringUTFChars(env, vt, v);
 
     for (i = 0; i < 16; i++) {
         enc_hex[2*i]   = H[enc_raw[i] >> 4];
@@ -526,13 +596,16 @@ Java_com_fatdog_reverse_Wp_nativeSignAndEnc(JNIEnv *env, jclass clazz,
     return result;
 }
 
-/* decryptResp: AES-ECB 解密 hex 密文 → 明文字符串 */
+/* decryptResp: AES-ECB 解密 hex 密文 → 明文字符串。
+ * 必须带上该次请求用的 vt，才能复算出同一把 key。 */
 JNIEXPORT jstring JNICALL
 Java_com_fatdog_reverse_Wp_nativeDecrypt(JNIEnv *env, jclass clazz,
-                                          jstring hexCipher) {
+                                          jstring hexCipher, jstring vt) {
     const char *hex;
+    const char *v = NULL;
     unsigned char *ct;
     unsigned char plain[128];
+    unsigned char key[32];
     unsigned int ct_len, pt_len;
     int i;
     (void)clazz;
@@ -555,8 +628,11 @@ Java_com_fatdog_reverse_Wp_nativeDecrypt(JNIEnv *env, jclass clazz,
     }
     (*env)->ReleaseStringUTFChars(env, hexCipher, hex);
 
-    if (!g_keys_ready) m9_derive_keys();
-    m9_aes256_expand(g_aes_key);
+    if (vt) v = (*env)->GetStringUTFChars(env, vt, NULL);
+    m9_derive_keys(v, key);
+    if (v) (*env)->ReleaseStringUTFChars(env, vt, v);
+
+    m9_aes256_expand(key);
     for (i = 0; i + 16 <= (int)ct_len; i += 16)
         m9_aes256_block_dec(plain + i, ct + i);
     free(ct);
@@ -578,43 +654,68 @@ JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void *reserved) {
 int main(void) {
     char sign_hex[65];
     unsigned char enc_raw[16];
+    unsigned char key[32];
+    const char *VT = "0123456789abcdef";
     static const char *H = "0123456789abcdef";
     int i;
 
     printf("=== L47 幽冥合卷 · 本地自测 ===\n");
 
     m9_unlock_bench();
-    m9_crc_init();
-    printf("CRC baseline: 0x%08x\n", g_crc_baseline);
-    printf("CRC verify: %s\n", m9_crc_verify() ? "PASS" : "FAIL");
+    printf("CRC actual : 0x%08x  (烘焙基准 0x%08x) -> %s\n",
+           m9_arrays_crc(), (unsigned int)M9_CRC_BASELINE,
+           m9_crc_verify() ? "PASS" : "FAIL");
 
-    m9_derive_keys();
-    printf("hmac_key: ");
-    for (i = 0; i < 32; i++) printf("%02x", g_hmac_key[i]);
-    printf("\naes_key: ");
-    for (i = 0; i < 32; i++) printf("%02x", g_aes_key[i]);
+    printf("door_open(default) = %d (expect 0)\n", m9_door_open());
+    g_door = M9_DOOR_OPEN;
+    printf("door_open(patched) = %d (expect 1)\n", m9_door_open());
+
+    /* 守卫全过 → 真标记派生 */
+    g_crc_ready = 1; g_checked = 1;
+    g_guard.audit = 1; g_guard.tick = 0xABCD; g_guard.recheck = 1; g_guard.cert_ok = 1;
+    printf("sealed_ok(real) = %d (expect 1)\n", m9_sealed_ok());
+    m9_derive_keys(VT, key);
+    printf("real  key = ");
+    for (i = 0; i < 32; i++) printf("%02x", key[i]);
     printf("\n");
 
-    /* 正常签名 */
-    g_guard.audit = 1; g_guard.tick = 0xABCD; g_guard.recheck = 1;
-    m9_guard_seal();
-    printf("guard: %s\n", g_sealed ? "SEALED (bad)" : "OK");
-
-    m9_sign_and_enc(1, 1700000000L, sign_hex, enc_raw);
+    m9_sign_and_enc(1, 1700000000L, VT, sign_hex, enc_raw);
     printf("sign(page=1&ts=1700000000) = %s\n", sign_hex);
     printf("enc(page=1) = ");
     for (i = 0; i < 16; i++) printf("%02x", enc_raw[i]);
     printf("\n");
 
-    /* 投毒测试 */
-    g_guard.audit = 0;  /* 破坏 audit */
-    m9_guard_seal();
-    printf("guard (bad audit): %s\n", g_sealed ? "SEALED (poison)" : "OK");
-    m9_sign_and_enc(1, 1700000000L, sign_hex, enc_raw);
-    printf("poisoned sign[0..3]: %02x%02x%02x%02x\n",
-           (unsigned char)sign_hex[0], (unsigned char)sign_hex[1],
-           (unsigned char)sign_hex[2], (unsigned char)sign_hex[3]);
+    /* AES 往返 + PKCS7 去填充（服务端响应用同一条路径解密，这里验证一致性） */
+    {
+        unsigned char pt[16];
+        unsigned int dl;
+        m9_aes256_expand(key);
+        m9_aes256_block_dec(pt, enc_raw);
+        dl = m9_pkcs7_unpad(pt, 16);
+        if (dl > 0 && dl < 16) pt[dl] = 0;
+        printf("dec(page=1) = %s (len=%u, expect 6)\n", dl ? (char *)pt : "<fail>", dl);
+    }
 
+    /* 破坏 cert_ok → 诱饵标记派生（不再是投毒） */
+    g_guard.cert_ok = 0;
+    printf("sealed_ok(bad cert) = %d (expect 0)\n", m9_sealed_ok());
+    m9_derive_keys(VT, key);
+    printf("decoy key = ");
+    for (i = 0; i < 32; i++) printf("%02x", key[i]);
+    printf("\n");
+
+    /* 破坏 CRC 基准（模拟把 BENCH_X 改成自己的证书摘要）→ 同样走诱饵 */
+    g_guard.cert_ok = 1;
+    BENCH_X[0] ^= 0x01;
+    printf("sealed_ok(bad crc) = %d (expect 0)\n", m9_sealed_ok());
+    BENCH_X[0] ^= 0x01;
+    printf("sealed_ok(restored) = %d (expect 1)\n", m9_sealed_ok());
+
+    g_guard.tick = 0x1234;
+    printf("sealed_ok(bad tick) = %d (expect 0)\n", m9_sealed_ok());
+
+    printf("vt a = %08x  vt b = %08x  (expect differ)\n", m9_rng_next(), m9_rng_next());
+    (void)H;
     return 0;
 }
 

@@ -64,11 +64,12 @@ public class Zd {
         return client;
     }
 
-    static void fetchPage(String base, final int page, final Cb cb) {
+    static void fetchPage(String base, final int page, final String vt, final Cb cb) {
         final long ts = System.currentTimeMillis() / 1000;
-        final String[] parts = Wp.nativeSignAndEnc(page, ts);
+        // ③ vt 参与密钥派生；① 门未开时 native 返回空数组
+        final String[] parts = Wp.nativeSignAndEnc(page, ts, vt);
         if (parts == null || parts.length < 2) {
-            cb.onError("native sign/enc 失败");
+            cb.onError("取数被拒绝（门未开）");
             return;
         }
         final String sign = parts[0];
@@ -103,7 +104,8 @@ public class Zd {
                         }
                         JSONObject obj = new JSONObject(text);
                         String hexD = obj.getString("d");
-                        String plain = Wp.nativeDecrypt(hexD);
+                        // 用同一次请求的 vt 复算密钥再解密（真/诱饵两条路都能解开）
+                        String plain = Wp.nativeDecrypt(hexD, vt);
                         if (plain == null || plain.isEmpty()) {
                             cb.onError("解密失败");
                             return;

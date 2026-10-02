@@ -1,4 +1,4 @@
-/* libm6.so ——「偷天换日」（签名校验对抗 · L44）
+/* libpearl.so ——「偷天换日」（签名校验对抗 · L44）
  * 把签名摘要的计算与记账全部下沉 native：
  *   - Java 只递证书 DER 字节（passCert），SHA-256 与基准比对都在本库内完成；
  *   - verdict / ticks 存放在本库全局，Java 层拿不到中间值；
@@ -8,9 +8,17 @@
  *     整体替换 passCert/assertGuard 会因 ticks 不再增长而当场现形。
  * 基准哈希以 ^0x66 异或数组存放（非 const 全局，防编译器折叠），
  * 首次使用时才还原到内存——静态分析看到的是一堆乱码字节。
+ *
+ * 2026-10-02 双层链路改造：
+ *   ① g_door 纯开关常量：出厂 0x2E，改成 0x9B 才允许取数
+ *      （刻意做轻，只为逼出一次「解包→改 so→重打包→重签名」）；
+ *   ③ nativeVerdictToken()：门开后产出一次性随机令牌 vt，Java 侧随请求上报，
+ *      服务端按 key = SHA256(标记 ‖ vt) 派生当次验签密钥。
+ *   ② 的结论（assertGuard 是否为 0）由 Java 侧读取，决定用真标记还是诱饵标记签。
  */
 #include <string.h>
 #include <stdio.h>
+#include <time.h>
 
 #ifndef M6_HOST_TEST
 #include <jni.h>
@@ -102,6 +110,34 @@ static void m6_sha256(const unsigned char *msg, unsigned int len, unsigned char 
     }
 }
 
+/* ---------- ① 第一层障碍：纯开关常量（非判定逻辑，刻意做轻） ----------
+ * 出厂值 0x2E；门不开则 nativeVerdictToken 一律返回空串 → App 取不到数。
+ * 把这一字节改成 0x9B（或把下面那条比较改掉）即可开门。
+ * 它只是"入场券"：唯一作用是逼你走一次重打包重签，本关考点在第二层。
+ */
+volatile unsigned int g_door = 0x2E;
+#define M6_DOOR_OPEN 0x9B
+
+static int m6_door_open(void) {
+    return (g_door == (unsigned int)M6_DOOR_OPEN) ? 1 : 0;
+}
+
+/* ---------- ③ 一次性令牌（vt）：xorshift32 ---------- */
+static unsigned int g_rng_state = 0;
+
+static unsigned int m6_rng_next(void) {
+    unsigned int x;
+    if (g_rng_state == 0) {
+        g_rng_state = (((unsigned int)time(NULL)) ^ 0x9E3779B9u) | 1u;
+    }
+    x = g_rng_state;
+    x ^= x << 13;
+    x ^= x >> 17;
+    x ^= x << 5;
+    g_rng_state = x;
+    return x;
+}
+
 #ifdef M6_HOST_TEST
 static void m6_hex(const unsigned char *d, int n, char *out) {
     static const char *H = "0123456789abcdef";
@@ -145,6 +181,25 @@ Java_com_fatdog_reverse_Wk_assertGuard(JNIEnv *env, jclass clazz, jint minTicks)
     return 0;
 }
 
+/* ③ 取数令牌：门未开 → 空串（Java 侧据此不发包，即"取不到数"）；
+ *            门已开 → 16 位 hex 一次性令牌（并非本库不信任该值，而是让
+ *            "照标记写死的离线脚本"失效：签名不再是标记的纯函数）。 */
+JNIEXPORT jstring JNICALL
+Java_com_fatdog_reverse_Wk_nativeVerdictToken(JNIEnv *env, jclass clazz) {
+    static const char H[] = "0123456789abcdef";
+    char out[17];
+    unsigned int a, b;
+    int i;
+    (void)clazz;
+    if (!m6_door_open()) return (*env)->NewStringUTF(env, "");
+    a = m6_rng_next();
+    b = m6_rng_next() ^ (g_ticks * 0x9E3779B9u);
+    for (i = 0; i < 8; i++) out[i]     = H[(a >> (4 * i)) & 0xF];
+    for (i = 0; i < 8; i++) out[8 + i] = H[(b >> (4 * i)) & 0xF];
+    out[16] = 0;
+    return (*env)->NewStringUTF(env, out);
+}
+
 JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void *reserved) {
     (void)vm;(void)reserved;
     return JNI_VERSION_1_6;
@@ -155,6 +210,7 @@ JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void *reserved) {
 int main(void) {
     char hex[65];
     unsigned char dg[32];
+    unsigned int v1, v2;
     m6_unlock_bench();
     m6_hex(g_bench, 32, hex);
     printf("bench = %s\n", hex);
@@ -162,6 +218,13 @@ int main(void) {
     m6_sha256((const unsigned char *)"abc", 3, dg);
     m6_hex(dg, 32, hex);
     printf("sha256(abc) = %s\n", hex);
+    /* ① 门开关：出厂关、改常量后开 */
+    printf("door_open(default) = %d (expect 0)\n", m6_door_open());
+    g_door = M6_DOOR_OPEN;
+    printf("door_open(patched) = %d (expect 1)\n", m6_door_open());
+    /* ③ 令牌：两次抽样应不同，且为 16 hex */
+    v1 = m6_rng_next(); v2 = m6_rng_next();
+    printf("vt a = %08x  vt b = %08x  (expect differ)\n", v1, v2);
     return 0;
 }
 

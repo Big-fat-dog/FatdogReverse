@@ -45,8 +45,13 @@ public class w52Activity extends Activity {
         super.onCreate(savedInstanceState);
         base = baseUrl();
 
-        /* ====== 三点互验记账：Application 记账（native 层计数） ====== */
+        /* ====== 三点互验记账：启动记账 → 递入当前包证书 → 核账 ====== */
         Wp.nativeAudit();
+        try {
+            Wp.nativeSeed(getCertDer());   // ② 当前包证书摘要纳入守卫矩阵
+        } catch (Throwable ignored) {
+            // 取不到也照常走——守卫矩阵会判负，派生自动落到诱饵标记
+        }
 
         LinearLayout box = new LinearLayout(this);
         box.setOrientation(LinearLayout.VERTICAL);
@@ -54,8 +59,10 @@ public class w52Activity extends Activity {
         box.setPadding(Ui.dp(16), Ui.dp(14), Ui.dp(16), Ui.dp(12));
 
         TextView tv = new TextView(this);
-        tv.setText("三点互验 + CRC 自校验 + 证书派生密钥 + AES 加密响应。\n"
-                + "四重防线同时在线，缺一即投毒。收官综合卷，集中所有招式。");
+        tv.setText("这一关的门被封死了——不拆开这个 App 就推不开。本关不欢迎动态注入，\n"
+                + "请用「解包 → 改 → 重打包 → 重签名 → 安装」的方式进来。\n"
+                + "进来之后还有第二重门：守卫矩阵（记账 / 核账 / 当前包证书摘要 / 基准数组 CRC）\n"
+                + "四路同时在线，缺一即派生到诱饵标记——服务端喂给你的全是脏数据。");
         tv.setGravity(Gravity.CENTER);
         box.addView(tv, Ui.wrap(4));
 
@@ -65,10 +72,8 @@ public class w52Activity extends Activity {
         status.setTextColor(ThemeKit.muted(ThemeKit.isDark(this)));
         box.addView(status, Ui.wrap(8));
 
-        /* ====== 三点互验记账：Activity 核账 + native 再核账 ====== */
-        if (!Wp.nativeGuard(GUARD_TICK, GUARD_RECHECK)) {
-            status.setText("守卫校验失败（CRC/guard 被篡改）");
-        }
+        /* ====== Activity 核账 + native 再核账（结论不弹提示，交给脏数据说话） ====== */
+        Wp.nativeGuard(GUARD_TICK, GUARD_RECHECK);
 
         GridLayout grid = new GridLayout(this);
         grid.setColumnCount(5);
@@ -166,6 +171,8 @@ public class w52Activity extends Activity {
         subBtn.setText("提交答案");
         Ui.styleButton(subBtn);
         box.addView(subBtn, Ui.wrap(14));
+        // ① 第一层障碍（A）：推开门之前，提交按钮根本不出现
+        subBtn.setVisibility(phaseOne() ? View.VISIBLE : View.GONE);
 
         Button hint = new Button(this);
         hint.setText("提示");
@@ -174,12 +181,12 @@ public class w52Activity extends Activity {
             public void onClick(View v) {
                 new AlertDialog.Builder(w52Activity.this)
                         .setTitle("提示")
-                        .setMessage("四重防线同时在线——\n"
-                                + "① 三点互验记账（native 层有守卫计数）\n"
-                                + "② CRC 自校验基线（patch so 会被 CRC 抓）\n"
-                                + "③ certHash 参与 AES 密钥派生（换证书→密钥错）\n"
-                                + "④ 响应体 AES 加密（明文看不到数字）\n\n"
-                                + "注意两个标记中有一个是诱饵，仔细对比拼写差异。")
+                        .setMessage("本关是两层。第一层有两处门（都要解）：① libfelix.so 里一个纯开关常量——不拆包改它就取不到数；② 提交按钮在 smali 里被藏起来了。这一步只为逼你走一次「改包→重签→安装」，不是考点。\n"
+                                + "第二层才是考点：守卫矩阵四路——启动记账(nativeAudit) / 核账(nativeGuard) / **当前包证书摘要 == 内置基准**(nativeSeed) / **基准数组 CRC32**(MARK_X‖DMARK_X‖BENCH_X)。\n"
+                                + "四路全过 → key = SHA256(基准 ‖ \"Fatdog_seal\" ‖ vt)，服务端给真数据；\n"
+                                + "任一不过 → key 改用诱饵标记 \"Fatdog_steal\" 派生 → 服务端回【脏数据】——数字看着完全正常，但求和不对，自己去排查。\n"
+                                + "三条正解：① Frida spawn 抢跑伪造四路（含把 nativeSeed 的 DER 换成原包的）；② patch so 废 CRC 比较 + 派生标记比较；③ 重打包 + 完整复刻派生链（最硬核）。\n"
+                                + "响应体是 AES-ECB 加密的 {\"d\": hex}，解出来是 \"page=N|nums=...\"。")
                         .setPositiveButton("好的", null)
                         .show();
             }
@@ -212,11 +219,24 @@ public class w52Activity extends Activity {
         loadPage(1);
     }
 
+    // ① 第一层障碍 · A：提交按钮默认不出现。
+    //    解包后把这里改成返回 true（按钮随之出现），再加上 so 里那个纯开关常量，重打包重签才能取数+提交。
+    private boolean phaseOne() {
+        return false;
+    }
+
     private void loadPage(final int page) {
         if (loading) return;
+        // ③ 先向 libfelix.so 要一次性令牌：① 门未开 → 空串 → 根本发不出请求
+        final String vt = Wp.verdictToken();
+        if (vt.isEmpty()) {
+            loading = false;
+            status.setText("取数被拒绝：本关的门被封死了，得先动手改这个 App 才能推开。");
+            return;
+        }
         loading = true;
         status.setText("正在请求第 " + page + " 页…");
-        Zd.fetchPage(base, page, new Zd.Cb() {
+        Zd.fetchPage(base, page, vt, new Zd.Cb() {
             @Override
             public void onPage(final int got, final int[] nums) {
                 runOnUiThread(new Runnable() {
@@ -284,6 +304,23 @@ public class w52Activity extends Activity {
             });
             pageBar.addView(chip, new LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+        }
+    }
+
+    private byte[] getCertDer() throws Exception {
+        android.content.pm.PackageInfo pi;
+        if (android.os.Build.VERSION.SDK_INT >= 28) {
+            pi = getPackageManager().getPackageInfo(getPackageName(),
+                    android.content.pm.PackageManager.GET_SIGNING_CERTIFICATES);
+            android.content.pm.SigningInfo info = pi.signingInfo;
+            return (info.hasMultipleSigners()
+                    ? info.getApkContentsSigners()
+                    : info.getSigningCertificateHistory())[0].toByteArray();
+        } else {
+            @SuppressWarnings("deprecation")
+            android.content.pm.PackageInfo old = getPackageManager().getPackageInfo(
+                    getPackageName(), android.content.pm.PackageManager.GET_SIGNATURES);
+            return old.signatures[0].toByteArray();
         }
     }
 

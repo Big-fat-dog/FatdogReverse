@@ -1,4 +1,4 @@
-/* libm7.so ——「移形换影」（签名校验对抗 · L45）
+/* libcoral.so ——「移形换影」（签名校验对抗 · L45）
  * 与 L44 的本质区别：不再经过 PackageManager——native 直接打开自己的安装文件
  * （sourceDir），手工解析 zip 中央目录定位 META-INF 下的 *.RSA（PKCS#7），
  * 手写 ASN.1 剥出 X.509 证书 DER，SHA-256 后与基准比对。
@@ -12,10 +12,17 @@
  * 留存的原始包副本；② IDA 定位 memcmp 比较点偏移 Hook；③ 改解出的基准数组。
  *
  * 基准哈希以 ^0x66 异或存放且非 static 全局（强制真实落盘，防常量折叠）。
+ *
+ * 2026-10-02 双层链路改造（与 L44 同构，但 ① 层在 Java 侧）：
+ *   ① 「关不掉的弹窗」＋ gateOpen() 恒假（u45Activity）——改 smali 才能开始取数；
+ *   ② assertGuard 非 0 时客户端改用诱饵钥签名 → 服务端回脏数据；
+ *   ③ nativeVerdictToken() 产出一次性随机令牌 vt，Java 侧随请求上报，
+ *      服务端按 key = SHA256(标记 ‖ vt) 派生当次验签密钥。
  */
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <time.h>
 
 #ifndef M7_HOST_TEST
 #include <jni.h>
@@ -170,6 +177,22 @@ int main(void) {
 
 #ifndef M7_HOST_TEST
 
+/* ---------- ③ 一次性令牌（vt）：xorshift32 ---------- */
+static unsigned int g_rng_state = 0;
+
+static unsigned int m7_rng_next(void) {
+    unsigned int x;
+    if (g_rng_state == 0) {
+        g_rng_state = (((unsigned int)time(NULL)) ^ 0x9E3779B9u) | 1u;
+    }
+    x = g_rng_state;
+    x ^= x << 13;
+    x ^= x >> 17;
+    x ^= x << 5;
+    g_rng_state = x;
+    return x;
+}
+
 /* ---------- 文件与 zip 解析 ---------- */
 
 static unsigned short m7_u16(const unsigned char *p) {
@@ -315,6 +338,24 @@ Java_com_fatdog_reverse_Wn_assertGuard(JNIEnv *env, jclass clazz, jint minTicks)
     if (g_ticks < minTicks) return -2;
     if (!g_verdict) return -3;
     return 0;
+}
+
+/* ③ 取数令牌：返回 16 位 hex 一次性令牌（Java 侧随请求上报，
+ * 服务端按 key = SHA256(标记 ‖ vt) 派生当次验签密钥）。
+ * 它让"照标记写死的离线脚本"失效——签名不再是标记的纯函数。 */
+JNIEXPORT jstring JNICALL
+Java_com_fatdog_reverse_Wn_nativeVerdictToken(JNIEnv *env, jclass clazz) {
+    static const char H[] = "0123456789abcdef";
+    char out[17];
+    unsigned int a, b;
+    int i;
+    (void)clazz;
+    a = m7_rng_next();
+    b = m7_rng_next() ^ (g_ticks * 0x9E3779B9u);
+    for (i = 0; i < 8; i++) out[i]     = H[(a >> (4 * i)) & 0xF];
+    for (i = 0; i < 8; i++) out[8 + i] = H[(b >> (4 * i)) & 0xF];
+    out[16] = 0;
+    return (*env)->NewStringUTF(env, out);
 }
 
 JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void *reserved) {

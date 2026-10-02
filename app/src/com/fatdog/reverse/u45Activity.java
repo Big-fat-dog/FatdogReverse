@@ -47,7 +47,9 @@ public class u45Activity extends Activity {
         box.setPadding(Ui.dp(16), Ui.dp(14), Ui.dp(16), Ui.dp(12));
 
         TextView tv = new TextView(this);
-        tv.setText("这一关连 PackageManager 都不问了：libcoral.so 自己打开 base.apk，\n"
+        tv.setText("这一关的门是从里面拴着的——一个关不掉的弹窗挡在取数之前，不拆开这个 App 就推不开。\n"
+                + "本关不欢迎动态注入，请用「解包 → 改 → 重打包 → 重签名 → 安装」的方式进来。\n"
+                + "进来之后还有第二重门：它连 PackageManager 都不问了——libcoral.so 自己打开 base.apk，\n"
                 + "翻 zip 目录找到签名块、手剥 ASN.1 取出证书再比对。Hook 系统查询？没用的。");
         tv.setGravity(Gravity.CENTER);
         box.addView(tv, Ui.wrap(4));
@@ -165,10 +167,13 @@ public class u45Activity extends Activity {
             public void onClick(View v) {
                 new AlertDialog.Builder(u45Activity.this)
                         .setTitle("提示")
-                        .setMessage("服务端 HTTPS:8443 的 GET /api/l45：sign=HMAC-SHA256(Fatdog_lurk,\"page=N&ts=T\")，密钥两半异或分藏在 Wn/Yb。\n"
-                                + "门禁原理：libcoral.so 拿到 sourceDir 后自己 open 文件→扫 EOCD→遍历中央目录找 META-INF/*.RSA→zlib 解压→ASN.1 剥证书→SHA-256 比对。PackageManager 的 Hook 一概无效。\n"
-                                + "三条路：①IO 重定向——hook libc open 把 base.apk 指向原始包副本；②IDA 定位 memcmp 比较点偏移 Hook；③Memory 改解出的基准数组。\n"
-                                + "注意整体替换 passApkPath 会 ticks 踏步（-2）；Xv.FAKE_KEY=Fatdog_lark 一字之差陷阱（命中即 403）。")
+                        .setMessage("服务端 HTTPS:8443 的 GET /api/l45：sign=HMAC-SHA256(SHA256(标记|vt),\"page=N&ts=T\")，标记两半异或分藏在 Wn/Yb，vt 是每次请求的一次性令牌。\n"
+                                + "本关是两层。第一层只是门口那个关不掉的弹窗（Java 侧）——拆掉它/改成可取消，才能真正开始取数；这一步只为逼你走一次「改包→重签→安装」，不是考点。\n"
+                                + "第二层才是考点：libcoral.so 拿到 sourceDir 后自己 open 文件→扫 EOCD→遍历中央目录找 META-INF/*.RSA→zlib 解压→ASN.1 剥证书→SHA-256 比对。PackageManager 的 Hook 一概无效。\n"
+                                + "绕过第二层的三条路：①IO 重定向——hook libc open 把 base.apk 指向原始包副本；②IDA 定位 memcmp 比较点偏移 Hook；③Memory 改解出的基准数组。\n"
+                                + "整体替换 passApkPath 会让 ticks 踏步（-2），同样走不通。\n"
+                                + "注意：校验没通过时服务端返回的是【脏数据】——数字看着完全正常，但求和不对，自己去排查哪里出了问题。\n"
+                                + "Xv.FAKE_KEY=Fatdog_lark 一字之差陷阱。")
                                 .setPositiveButton("好的", null)
                         .show();
             }
@@ -177,7 +182,12 @@ public class u45Activity extends Activity {
 
         box.addView(Ui.banner(this, R.drawable.level_45, 150));
 
-        // 移形换影：递入安装文件路径，native 自读 APK 完成一切\n        try {\n            Wn.passApkPath(getApplicationInfo().sourceDir);\n        } catch (Throwable ignored) {\n            // 读不到也照常走——assertGuard 会拦住后续所有请求\n        }
+        // 移形换影：递入安装文件路径，native 自读 APK 完成一切
+        try {
+            Wn.passApkPath(getApplicationInfo().sourceDir);
+        } catch (Throwable ignored) {
+            // 读不到也照常走——assertGuard 会拦住后续所有请求
+        }
 
         setContentView(Ui.wrapScroll(box));
         ThemeKit.apply(this);
@@ -187,8 +197,8 @@ public class u45Activity extends Activity {
             public void onClick(View v) {
                 String ans = ansIn.getText().toString().trim();
                 if (sha256Hex(ans).equals(SUM_HASH)) {
-                    Celebration.show(u45Activity.this, "FLAG_18_L48{mirror_tells_true}");
-                    PassLog.mark(u45Activity.this, "L48");
+                    Celebration.show(u45Activity.this, "FLAG_18_L45{self_read_beats_pm}");
+                    PassLog.mark(u45Activity.this, "L45");
                 } else {
                     Toast.makeText(u45Activity.this,
                             "加和不对，再取数算一遍。", Toast.LENGTH_SHORT).show();
@@ -196,21 +206,53 @@ public class u45Activity extends Activity {
             }
         });
 
+        showGate();   // ① 第一层障碍：关不掉的弹窗（gateOpen 恒假 → 取数一律不发起）
         loadPage(1);
     }
 
+    // ① 第一层障碍：门是从里面拴着的——一个关不掉的弹窗 + 恒假的取数闸门。
+    //    解包后把 gateOpen() 改成返回 true（那个弹窗随之不再出现），重打包重签才能进得去。
+    private boolean gateOpen() {
+        return false;
+    }
+
+    private AlertDialog gate;
+
+    private void showGate() {
+        if (gateOpen() || gate != null) return;
+        gate = new AlertDialog.Builder(this)
+                .setTitle("门还拴着")
+                .setMessage("这道门是从里面拴着的：不拆开这个 App 就推不开。\n"
+                        + "本关不欢迎动态注入，请用「解包 → 改 → 重打包 → 重签名 → 安装」的方式进来。")
+                .setPositiveButton("推门", null)
+                .setCancelable(false)          // 返回键也关不掉
+                .create();
+        gate.setOnShowListener(new android.content.DialogInterface.OnShowListener() {
+            @Override
+            public void onShow(android.content.DialogInterface d) {
+                // 按钮点了也不关——这道门只能靠改包推开
+                ((AlertDialog) d).getButton(android.content.DialogInterface.BUTTON_POSITIVE)
+                        .setOnClickListener(new View.OnClickListener() {
+                            @Override
+                            public void onClick(View v) {
+                            }
+                        });
+            }
+        });
+        gate.show();
+    }
+
     private void loadPage(final int page) {
-        try {
-            Wn.guard(1);   // 发包前核账：verdict/ticks 任一异常都拦下
-        } catch (Throwable t) {
-            loading = false;
-            status.setText("完整性校验失败（" + t.getMessage() + "），请求被拦截");
+        if (loading) return;
+        if (!gateOpen()) {   // ① 门还拴着：弹窗挡着，取数一律不发起
+            status.setText("取数被拒绝：本关的门是从里面拴着的，得先动手改这个 App 才能推开。");
             return;
         }
-        if (loading) return;
+        // ③ 向 libcoral.so 要一次性令牌（服务端按 key = SHA256(标记‖vt) 派生当次验签密钥）
+        final String vt = Wn.verdictToken();
         loading = true;
         status.setText("正在请求第 " + page + " 页…");
-        Yb.fetchPage(base, page, new Yb.Cb() {
+        Yb.fetchPage(base, page, vt, new Yb.Cb() {
             @Override
             public void onPage(final int got, final int[] nums) {
                 runOnUiThread(new Runnable() {

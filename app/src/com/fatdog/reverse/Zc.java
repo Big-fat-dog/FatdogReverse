@@ -24,8 +24,8 @@ import okhttp3.Response;
 import okhttp3.ResponseBody;
 
 // TLS 客户端：信任链复用内置 CA（Tm.caDer()）；
-// enc 由 Wg.nativeSign(page, ts) 算，POST 表单提交。
-// 本关的 HMAC 密钥完全由 native 派生，Java 层拿不到密钥本体。
+// sign 由 Wg.nativeSign(page, ts, nonce, vt) 算，POST 表单提交。
+// 本关的 HMAC 密钥完全由 native 按「证书摘要 ‖ 标记 ‖ vt」派生，Java 层拿不到密钥本体。
 public class Zc {
     static final String BASE = NetHost.httpsBase();
 
@@ -65,7 +65,7 @@ public class Zc {
         return client;
     }
 
-    // 一次性随机数：每次请求都变，但它参与签名（字典序排在 page / ts 之前）
+    // 一次性随机数：每次请求都变，且参与签名（字典序排在 page / ts 之前）
     static String newNonce() {
         byte[] b = new byte[4];
         new SecureRandom().nextBytes(b);
@@ -74,10 +74,11 @@ public class Zc {
         return sb.toString();
     }
 
-    static void fetchPage(String base, final int page, final Cb cb) {
+    static void fetchPage(String base, final int page, final String vt, final Cb cb) {
         final long ts = System.currentTimeMillis() / 1000;
         final String nonce = newNonce();
-        final String sign = Wg.nativeSign(page, ts, nonce);
+        // ③ vt 参与密钥派生：key = SHA256(certHash ‖ 标记 ‖ vt)
+        final String sign = Wg.nativeSign(page, ts, nonce, vt);
         try {
             final OkHttpClient c = trustClient();
             String url = base + "/api/l46";
@@ -85,6 +86,7 @@ public class Zc {
                     .add("page", String.valueOf(page))
                     .add("ts", String.valueOf(ts))
                     .add("nonce", nonce)
+                    .add("vt", vt)
                     .add("sign", sign)
                     .build();
             Request req = new Request.Builder()

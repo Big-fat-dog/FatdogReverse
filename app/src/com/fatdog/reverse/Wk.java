@@ -5,6 +5,12 @@ package com.fatdog.reverse;
 // hook Java 层 MessageDigest 出口彻底失效；
 // 整体替换 passCert/assertGuard 会因 ticks 踏步被 assertGuard 当场抓包。
 // HMAC 密钥前半仍按惯例异或藏匿，后半在 Xh。
+//
+// 2026-10-02 双层链路：
+//   ① nativeVerdictToken 内含一个纯开关常量（g_door）——出厂关着，门不开就取不到数。
+//      开门必须改 so 一个字节 → 必然重打包重签 → 触发 ②。
+//   ② auditCode() 就是 assertGuard(1) 的结论；非 0 时客户端改用诱饵钥签名，
+//      服务端据此回喂脏数据（不再 403）——把"被检测到"藏成一个需要自己察觉的信号。
 public class Wk {
     static {
         System.loadLibrary("pearl");
@@ -28,9 +34,16 @@ public class Wk {
     /** 三连核账：0=放行 / -1=未校验 / -2=ticks 踏步 / -3=verdict 假 */
     public static native int assertGuard(int minTicks);
 
-    /** Java 包装：非 0 直接抛，业务层自行决定提示方式（本关选择静默拦截请求） */
-    public static void guard(int minTicks) {
-        int rc = assertGuard(minTicks);
-        if (rc != 0) throw new IllegalStateException("guard=" + rc);
+    /** ② 校验结论（供客户端决定用真标记还是诱饵标记签名） */
+    public static int auditCode() {
+        return assertGuard(1);
+    }
+
+    /** ③ 取数令牌：门未开返回空串（取不到数）；门已开返回 16 位 hex 一次性令牌 */
+    public static native String nativeVerdictToken();
+
+    public static String verdictToken() {
+        String t = nativeVerdictToken();
+        return t == null ? "" : t;
     }
 }

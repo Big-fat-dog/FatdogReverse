@@ -48,8 +48,10 @@ public class v46Activity extends Activity {
         box.setPadding(Ui.dp(16), Ui.dp(14), Ui.dp(16), Ui.dp(12));
 
         TextView tv = new TextView(this);
-        tv.setText("证书 DER 派生密钥：key = SHA256(certHash ‖ Fatdog_bind)。\n"
-                + "没有 if 判断——重打包者证书不同→派生 key 不同→全 403 零提示。");
+        tv.setText("这一关的门被封死了——不拆开这个 App 就推不开。本关不欢迎动态注入，\n"
+                + "请用「解包 → 改 → 重打包 → 重签名 → 安装」的方式进来。\n"
+                + "进来之后还有第二重门：证书摘要派生密钥 key = SHA256(certHash ‖ 标记 ‖ vt)。\n"
+                + "没有 if 判断——重打包者证书不同→派生 key 不同→服务端喂给你的全是脏数据。");
         tv.setGravity(Gravity.CENTER);
         box.addView(tv, Ui.wrap(4));
 
@@ -166,9 +168,11 @@ public class v46Activity extends Activity {
             public void onClick(View v) {
                 new AlertDialog.Builder(v46Activity.this)
                         .setTitle("提示")
-                        .setMessage("本关没有 if 判断签名对错——key 由证书 DER 派生：key = SHA256(certHash ‖ b\"Fatdog_bind\")，直接 HMAC-SHA256 整个表单。\n"
-                                + "重打包者的证书不同→派生 key 不同→全部 403 零提示。\n"
-                                + "三条正解：① Frida hook Wg.nativeSign() 抓派生密钥后 Python 复刻；② unidbg 调 JNI 派生函数拿 32 字节 key；③ IDA 还原 m8.c 的 BENCH_X → XOR 0x66 还原 SHA-256 → Python 算派生 key → HMAC 取数。加和 51008。")
+                        .setMessage("本关是两层。第一层只是 libamber.so 里一个纯开关常量（g_door）——不拆包改它就取不到数；这一步只为逼你走一次「改包→重签→安装」，不是考点。\n"
+                                + "第二层才是考点，且本关没有 if 判断签名对错：key = SHA256(certHash ‖ 标记 ‖ vt)，标记由「当前包证书摘要是否等于内置基准」决定。\n"
+                                + "重打包后派生落到诱饵标记 → 服务端回【脏数据】——数字看着完全正常，但求和不对，自己去排查哪里出了问题。\n"
+                                + "三条正解：① Frida hook Wg.nativeKeySeed 把 DER 换成原包的（或整体替换派生结果）；② unidbg 调 JNI 派生函数拿 32 字节 key；③ IDA 还原 amber 的 BENCH_X → XOR 0x66 还原 SHA-256 → Python 复刻派生链。\n"
+                                + "服务端 POST /api/l46 表单字段：page / ts / nonce / vt / sign（被签串 nonce=<n>&page=<p>&ts=<t>，字典序）。")
                         .setPositiveButton("好的", null)
                         .show();
             }
@@ -176,6 +180,14 @@ public class v46Activity extends Activity {
         box.addView(hint, Ui.wrap(10));
 
         box.addView(Ui.banner(this, R.drawable.level_51, 150));
+
+        // ② 递入当前包的证书 DER：native 内摘要 + 与内置基准比对，
+        //    结论决定派生密钥走真标记（Fatdog_bind）还是诱饵标记（Fatdog_band）
+        try {
+            Wg.nativeKeySeed(getCertDer());
+        } catch (Throwable ignored) {
+            // 取不到也照常走——派生会落到诱饵分支，只能取到脏数据
+        }
 
         setContentView(Ui.wrapScroll(box));
         ThemeKit.apply(this);
@@ -199,9 +211,16 @@ public class v46Activity extends Activity {
 
     private void loadPage(final int page) {
         if (loading) return;
+        // ③ 先向 libamber.so 要一次性令牌：① 门未开 → 空串 → 根本发不出请求
+        final String vt = Wg.verdictToken();
+        if (vt.isEmpty()) {
+            loading = false;
+            status.setText("取数被拒绝：本关的门被封死了，得先动手改这个 App 才能推开。");
+            return;
+        }
         loading = true;
         status.setText("正在请求第 " + page + " 页…");
-        Zc.fetchPage(base, page, new Zc.Cb() {
+        Zc.fetchPage(base, page, vt, new Zc.Cb() {
             @Override
             public void onPage(final int got, final int[] nums) {
                 runOnUiThread(new Runnable() {
@@ -269,6 +288,23 @@ public class v46Activity extends Activity {
             });
             pageBar.addView(chip, new LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+        }
+    }
+
+    private byte[] getCertDer() throws Exception {
+        android.content.pm.PackageInfo pi;
+        if (android.os.Build.VERSION.SDK_INT >= 28) {
+            pi = getPackageManager().getPackageInfo(getPackageName(),
+                    android.content.pm.PackageManager.GET_SIGNING_CERTIFICATES);
+            android.content.pm.SigningInfo info = pi.signingInfo;
+            return (info.hasMultipleSigners()
+                    ? info.getApkContentsSigners()
+                    : info.getSigningCertificateHistory())[0].toByteArray();
+        } else {
+            @SuppressWarnings("deprecation")
+            android.content.pm.PackageInfo old = getPackageManager().getPackageInfo(
+                    getPackageName(), android.content.pm.PackageManager.GET_SIGNATURES);
+            return old.signatures[0].toByteArray();
         }
     }
 

@@ -21,8 +21,9 @@ import org.json.JSONObject;
 import java.io.InputStream;
 import java.security.MessageDigest;
 
-// 天地秘境·流沙河（KL6）：libember.so 手写 AES-128——S 盒标准、Rcon 三处换血。
-// 标准 AES 库解不开密文；认出骨架后，被动手脚的是轮常量。
+// 关卡 43 照妖之镜（签名校验对抗）：双层门。
+//   ① 提交按钮默认隐藏 —— 必须先改本类的 phaseOne()（或对应 smali 常量）才会出现，逼出重打包重签。
+//   ② 重签后证书指纹变化 → Wi.audit 不过 → 取数改用诱饵钥 → 服务端回【脏数据】（200，求和必错）。
 public class s43Activity extends Activity {
     static final String SUM_HASH = "c2c87a1e63a54e3a17db9ca805f48e014d9a4dadd723eff144d16422b0257ea0";
     static final int PAGES = 100;
@@ -47,8 +48,8 @@ public class s43Activity extends Activity {
         box.setPadding(Ui.dp(16), Ui.dp(14), Ui.dp(16), Ui.dp(12));
 
         TextView tv = new TextView(this);
-        tv.setText("重打包换钥匙后，证书指纹必然改变——App 自己会照这面镜子。\n"
-                + "镜子说你不认识，提交框可不会亮。静态复刻党照旧不受影响。");
+        tv.setText("这面镜子只认原来那把钥匙：改过包、换过签名，它就不认你了。\n"
+                + "先把门推开——再想清楚，镜子为什么说你不认识。");
         tv.setGravity(Gravity.CENTER);
         box.addView(tv, Ui.wrap(4));
 
@@ -156,7 +157,10 @@ public class s43Activity extends Activity {
         Button subBtn = new Button(this);
         subBtn.setText("提交答案");
         Ui.styleButton(subBtn);
-        subBtn.setEnabled(Wi.passed());   // 镜子说不认识，框就不亮（静默，无提示）
+        // ① 第一层门（入场券）：默认关闭 → 提交框根本不显示。改 SM 里的返回常量才出来。
+        subBtn.setVisibility(phaseOne() ? View.VISIBLE : View.GONE);
+        // ② 第二层门：证书指纹校验。不过则灰着（静默，无提示）
+        subBtn.setEnabled(Wi.passed());
         subBtn.setAlpha(Wi.passed() ? 1f : 0.45f);
         box.addView(subBtn, Ui.wrap(14));
 
@@ -167,10 +171,14 @@ public class s43Activity extends Activity {
             public void onClick(View v) {
                 new AlertDialog.Builder(s43Activity.this)
                         .setTitle("提示")
-                        .setMessage("本关考的是『重签指纹必变』：App 启动时会用 SigningInfo 取自身证书 DER 做 SHA-256，与内置基准比对。\n"
-                                + "基准拆两半异或分藏两类（jadx 顺藤摸瓜即可还原，前缀 Fatdog_ 就是 HMAC 标记 Fatdog_scan）。\n"
-                                + "三条路：① jadx 还原基准后 patch 判定；② Frida hook getPackageInfo 把 Signature 换成原签名字节；③ MT 类杀校验工具。静态复刻党不受门禁影响——还原 HMAC 直连取数即可。\n"
-                                + "注意 Tg.FAKE_KEY=Fatdog_span 一字之差陷阱（命中即 403）。")
+                        .setMessage("两层门，得一层层推开：\n"
+                                + "① 提交框默认不显示——先去 smali 里把 phaseOne() 那处返回常量改掉（或改判定），重打包重装。\n"
+                                + "② 重装后签名变了：App 用 SigningInfo 取自身证书 DER 做 SHA-256，与内置基准比对就不认了。\n"
+                                + "   没通过时，App 会换一把『一字之差的假钥』去签名——服务端不报错，而是回你【脏数据】：\n"
+                                + "   数字看着完全正常，但求和一定不对。你算的总和永远提交不过，根子就在这。\n"
+                                + "③ 把 ② 也绕过去（jadx 改判定 / hook getPackageInfo 喂原证书 / MT 类去校验），拿到的才是真数据。\n"
+                                + "另：请求里带了一个每次都会变的一次性令牌，服务端按它派生当次签名密钥——\n"
+                                + "   所以光拿到标记、在本地离线硬算签名这条路走不通，得让 App 真的把校验跑过。")
                                 .setPositiveButton("好的", null)
                         .show();
             }
@@ -179,7 +187,8 @@ public class s43Activity extends Activity {
 
         box.addView(Ui.banner(this, R.drawable.level_43, 150));
 
-        // 照妖镜：启动即记账（结果不弹窗，消费点在提交按钮）\n        Wi.audit(this);
+        // 照妖镜：启动即记账（结果不弹窗，消费点在提交按钮）
+        Wi.audit(this);
 
         setContentView(Ui.wrapScroll(box));
         ThemeKit.apply(this);
@@ -189,8 +198,8 @@ public class s43Activity extends Activity {
             public void onClick(View v) {
                 String ans = ansIn.getText().toString().trim();
                 if (sha256Hex(ans).equals(SUM_HASH)) {
-                    Celebration.show(s43Activity.this, "FLAG_18_L48{mirror_tells_true}");
-                    PassLog.mark(s43Activity.this, "L48");
+                    Celebration.show(s43Activity.this, "FLAG_18_L43{mirror_tells_true}");
+                    PassLog.mark(s43Activity.this, "L43");
                 } else {
                     Toast.makeText(s43Activity.this,
                             "加和不对，再取数算一遍。", Toast.LENGTH_SHORT).show();
@@ -274,6 +283,14 @@ public class s43Activity extends Activity {
             pageBar.addView(chip, new LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
         }
+    }
+
+    // ============================================================
+    // 第一层门（入场券）：默认关闭，提交框不显示。
+    // 想拿到提交框，先让这里返回 true —— 静态改 smali 里对应的返回常量即可。
+    // ============================================================
+    static boolean phaseOne() {
+        return false;
     }
 
     private String readAssets(String name) throws Exception {

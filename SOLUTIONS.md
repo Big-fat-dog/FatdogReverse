@@ -2686,39 +2686,46 @@ XposedHelpers.findAndHookMethod("com.fatdog.reverse.Kl42Gate",
 
 ### 关卡 43：照妖之镜（签名校验对抗 · 开卷）
 
-**考点**：教程 29 的落地第一关。App 启动时 `Wi.audit()` 经 SigningInfo（API28+）/GET_SIGNATURES（旧 API 分支保留）取自身 APK 的 X.509 证书 DER，SHA-256 后与内置基准比对——**通过才解锁提交框**，失败静默无任何提示。基准与 HMAC 标记各拆两半异或分藏两类：信任基准 = `Wi.PA(^0x3C) + Vk.PB(^0x5A)`，HMAC 标记 = `Wi.KA(^0x3C) + Vk.KB(^0x5A)` = `Fatdog_scan`。
+> **2026-10-02 改造：本关改为「双层强制链路」**（原先"静态直连取数即可通关"的路子已封）。
 
-**原理**：重打包必换钥匙 → 证书指纹必然改变（原包 3bb2134c…、重签后 efcaccc9…，教程 29 §3 实测），应用只要记住自己人的指纹即可识破。
+**考点**：双层门，缺一不可——
 
-**协议**：GET https://…:8443/api/l43?page=N&ts=T&sign=HMAC-SHA256("Fatdog_scan", "page=N&ts=T")。
+- **① 入场券（必须改包）**：提交按钮默认 `GONE`（`s43Activity.phaseOne()` 恒 false）→ **根本不显示**。
+  必须先静态改 smali（改那处返回常量或改判定）+ **重打包重签名重装**，按钮才会出现。
+- **② 真考点（签名校验）**：App 启动时 `Wi.audit()` 经 SigningInfo（API28+）/GET_SIGNATURES（旧 API 分支保留）
+  取自身 APK 的 X.509 证书 DER，SHA-256 后与内置基准比对。
+  而 **① 的改包行为必然换掉证书指纹 → ② 必然不过**。基准与真标记各拆两半异或分藏两类：
+  信任基准 = `Wi.PA(^0x3C) + Vk.PB(^0x5A)`，真标记 = `Wi.KA(^0x3C) + Vk.KB(^0x5A)` = `Fatdog_scan`。
 
-**静态路线（Python 全复刻，先 python server.py）**
+**② 不过会怎样（本关最关键的一环）**：App **不报错、不退出、无任何提示**——
+`Vk.signFor()` 在 `Wi.passed()` 为假时改用**诱饵钥** `Tg.FAKE_KEY = "Fatdog_span"` 签名，
+服务端认出诱饵钥后返回 **HTTP 200 + 脏数据**：数字看着完全正常，但**求和一定不对**。
+于是玩家算出来的总和永远提交不过，却完全看不到"被检测到了"的迹象（静默投毒风格）。
 
-```python
-import hashlib, hmac, time, requests
+**协议**：GET `https://…:8443/api/l43?page=N&ts=T&vt=<16hex>&sign=…`
+　`key = SHA256(标记 ‖ vt)`（hex 摘要作 HMAC 密钥），`sign = HMAC-SHA256(key, "page=N&ts=T")`；
+　`vt` 由 App 每次请求随机生成（16 位 hex）。
 
-KEY = b"Fatdog_scan"
-total = 0
-for page in range(1, 101):
-    ts   = int(time.time())
-    sign = hmac.new(KEY, f"page={page}&ts={ts}".encode(), hashlib.sha256).hexdigest()
-    r = requests.get("https://127.0.0.1:8443/api/l43",
-                     params={"page": page, "ts": ts, "sign": sign},
-                     verify="certs/ca.crt", timeout=5).json()
-    assert len(r["nums"]) == 10, r
-    total += sum(r["nums"])
-print(total)   # 52236
-```
+**为什么"纯离线直连"没用了**
+- 旧玩法（只拿标记算 `HMAC(Fatdog_scan, payload)`）服务端已不接受 → 403；
+- 请求必须带 `vt`，且 `key` 由 `vt` 参与派生 —— 照抄标记写死的离线脚本直接失效；
+- **更根本**：通关判定在 App 内（提交按钮 → `PassLog.mark`），而按钮被 ① 隐藏、被 ② 置灰。
+  所以不管总和是离线算的还是 App 里取的，**最后都必须把 ① 和 ② 都处理掉**才提交得进去。
 
-签名校验门禁只影响 App 内提交框，静态复刻党直连取数不受影响。
+**玩家路线（两层都要走）**
+1. **推开门（①）**：jadx 找 `s43Activity.phaseOne()` → 改 smali 那处返回常量（`const/4 v0, 0x0` → `0x1`），
+   或直接把 `setVisibility` 的判定改掉 → 重打包 + 重签名 + 安装。
+2. **照妖镜（②）**：此时按钮出来了但**灰着**，且取到的数字求和不对（脏数据）。三条路：
+   - ① jadx 找到 `Wi.audit()` 把 verdict 改恒真（或 patch `equals`）；
+   - ② Frida hook `getPackageInfo`，把 Signature 字节换成**原包签名字节**；
+   - ③ MT/NP 管理器「去签名校验」一键杀。
+   注意：直接 hook `MessageDigest` 出口返回基准哈希在本关仍然有效——这是后续 L44/L47 记账守卫要堵的洞。
+3. `Wi.passed()` 转真 → 签名改用真标记 → 取到真数据 → 求和 → 提交。
 
-**动态路线**：重打包后进关会发现提交框灰着（镜子照出了新指纹）。三条路：
-① jadx 找到 Wi.audit 把 verdict 改恒真（或 patch equals）；
-② Frida hook `getPackageInfo` 把 Signature 字节换成原签名字节；
-③ MT/NP 管理器『去签名校验』一键杀。
-注意直接 hook MessageDigest 出口返回基准哈希在本关也有效——这是 L49 记账守卫要堵的洞。
-
-**坑位提醒**：`Tg.FAKE_KEY = Fatdog_span` 与真标记一字之差（命中即 403）；基准是 hex 字符串不是原始字节，别拿 DER 摘要的 raw bytes 去比字符串。答案：加和 `52236`；flag `FLAG_18_L43{mirror_tells_true}`
+**坑位提醒**：`Tg.FAKE_KEY = Fatdog_span` 与真标记 `Fatdog_scan` 一字之差——它是**诱饵钥**，
+用它签名的请求服务端会回**脏数据**（不是 403，别指望报错提示）。基准是 hex 字符串不是原始字节，
+别拿 DER 摘要的 raw bytes 去比字符串。
+**验收对拍**：真加和 `52236`；脏序列加和 `51293`（用于确认脏数据确实不同）；flag `FLAG_18_L43{mirror_tells_true}`
 
 
 ---
@@ -2726,42 +2733,43 @@ print(total)   # 52236
 
 ### 关卡 44：偷天换日（签名校验对抗 · 摘要下沉 native + 记账守卫）
 
-**考点**：把 L43 的校验链整体搬进 libpearl.so——Java 只负责 `Wk.passCert(certDer)`；so 内完成 SHA-256、与基准（^0x66 数组首次使用时还原）比对、verdict/ticks 记账。发包前 `Wk.guard(1)` 核账，任一异常拦截请求并提示 `完整性校验失败`。
+**考点**：把 L43 的校验链整体搬进 libpearl.so——Java 只负责 `Wk.passCert(certDer)`；so 内完成 SHA-256、与基准（^0x66 数组首次使用时还原）比对、verdict/ticks 记账。**Hook Java 摘要出口在这里是无效的**：计算根本不走 `MessageDigest`。
 
-**为什么 L43 的绕法大面积失效**：
-① hook Java 摘要出口无效——计算根本不走 `MessageDigest`；
-② 整体替换 passCert/assertGuard → g_ticks 不再增长 → assertGuard 返回 -2（踏步现形）；
-③ 重打包 verdict 天然为假 → -3。
-HMAC 取数本身仍是标准姿势：sign = HMAC-SHA256("Fatdog_forge", "page=N&ts=T")，密钥两半异或分藏 Wk.KA(^0x3C)/Xh.KB(^0x5A)。
+**本关是两层（2026-10-02 改造：① 逼你改包，② 才是考点）**
 
-**协议**：GET https://…:8443/api/l44?page=N&ts=T&sign=HMAC-SHA256("Fatdog_forge", "page=N&ts=T")。
-
-**静态路线（Python 全复刻，先 python server.py）**
-
-```python
-import hashlib, hmac, time, requests
-
-KEY = b"Fatdog_forge"
-total = 0
-for page in range(1, 101):
-    ts   = int(time.time())
-    sign = hmac.new(KEY, f"page={page}&ts={ts}".encode(), hashlib.sha256).hexdigest()
-    r = requests.get("https://127.0.0.1:8443/api/l44",
-                     params={"page": page, "ts": ts, "sign": sign},
-                     verify="certs/ca.crt", timeout=5).json()
-    assert len(r["nums"]) == 10, r
-    total += sum(r["nums"])
-print(total)   # 49328
+```text
+① 推门（入场券，不是考点）：libpearl.so 里一个纯开关常量 g_door
+     出厂 0x2E → nativeVerdictToken() 返回空串 → App 根本发不出请求（取不到数）
+     改成 0x9B（或 patch 那条比较）→ 必须重打包重签 → 自动触发 ②
+② 签名校验（★真考点）：重签 ⇒ 证书指纹必变 ⇒ assertGuard 非 0
+     ⇒ 客户端改用【诱饵钥】签名 ⇒ 服务端回【脏数据】（HTTP 200，看着正常，求和必错）
+③ 一次性令牌 vt：绕过 ② 后 native 才吐真 vt；key = SHA256(标记 ‖ vt)
 ```
 
-静态复刻党对 native 守卫天然免疫——守卫只拦 App 内的动态玩家。
+**协议**：GET https://…:8443/api/l44?page=N&ts=T&vt=<16hex>&sign=HMAC-SHA256(SHA256("Fatdog_forge"\|vt), "page=N&ts=T")
+标记两半异或分藏 `Wk.KA`(^0x3C) / `Xh.KB`(^0x5A)。
 
-**动态路线（三选一）**
-① **内存换票**（推荐）：spawn 后 hook t44Activity.getCertDer 的返回（或 SigningInfo 出口），把 DER 字节替换成原包证书的字节——passCert 吃到真证书，verdict=1、ticks 正常，全链无痕；
-② IDA 在 .data 找 ^0x66 解密循环 → 定位 nativеVerify 的 memcmp 比较点 → 偏移 Hook 恒等；
-③ 运行时 Memory.scanSync 找解出的基准 32 字节（特征：3b ba 13 …），改成当前重签包的指纹——比较自然成立。
+**玩家路线（两层都要走）**
 
-**坑位提醒**：整体替换 passCert 是新手必踩的坑（-2 踏步）；`Yk.FAKE_KEY = Fatdog_forgo` 一字之差陷阱（命中即 403）。答案：加和 `49328`；flag `FLAG_18_L44{forged_no_more}`
+1. **推门（①）**：IDA 打开 libpearl.so —— `.data` 里 `g_door` 初值 `0x2E`（或直接搜比较指令里的立即数 `0x9B`）。
+   把它改成 `0x9B`，然后 **解包 → 替换 so → 重打包 → 重签名 → 安装**。
+   这一步只为逼你走一次改包，本身不含任何对抗技巧。
+2. **偷天换日（②）**：此时数据取得到，但**求和永远不对**（脏数据，App 不告诉你）。
+   绕过 ② 三条路：
+   - ① **内存换票**（推荐）：spawn 后 hook `t44Activity.getCertDer` 的返回（或 SigningInfo 出口），
+     把 DER 字节换成**原包证书**的字节 → passCert 吃到真证书 → verdict=1、ticks 正常，全链无痕；
+   - ② IDA 在 `.data` 找 ^0x66 解密循环 → 定位基准 memcmp 比较点 → 偏移 Hook 恒等；
+   - ③ 运行时 `Memory.scanSync` 找解出的基准 32 字节（特征 `3b ba 13 …`），改成当前重签包的指纹。
+   把 `passCert` 整体替换/摘除 → ticks 不再增长（-2）→ 同样只能吃脏数据。
+   **注意**：Frida 在这一层是被允许的——本关只是不欢迎你用它跳过「推门」那一步。
+3. 校验转真 → `Wk.auditCode()` 返回 0 → 签名改用真标记 → 真数据 → 求和 → 提交。
+
+**坑位提醒**：`Yk.FAKE_KEY = Fatdog_forgo` 与真标记 `Fatdog_forge` 一字之差——它是**诱饵钥**，
+用它签名服务端回**脏数据**（不是 403，别指望报错提示；UI / logcat 一律不透露校验状态，
+只有关卡页的「提示」按钮会说明"未通过时返回的是脏数据"）。
+判据在 `Wk.auditCode()`（= `assertGuard(1)`）：0 用真标记，非 0（-1 未校验 / -2 踏步 / -3 verdict 假）一律走诱饵。
+
+**验收对拍**：真加和 `49328`；脏序列加和 `51610`；flag `FLAG_18_L44{forged_no_more}`
 
 
 ---
@@ -2774,7 +2782,7 @@ print(total)   # 49328
 ```text
 open(base.apk) -> 整文件读入
 -> 从尾部扫 EOCD（PK\x05\x06）
--> 遍历中央目录条目（PK\x01\x02），按名字命中 META-INF/*.RSA|.DSA
+-> 遍历中央目录条目（PK\x01\x02），按名字命中 META-INF/*.RSA|*.DSA
 -> 回跳 Local File Header 取数据起点（PK\x03\x04 + 名长/附加长）
 -> STORED 直拷 / DEFLATED 走 zlib uncompress
 -> PKCS#7 DER 里扫描 A0 82 LL LL 容器，其内容第一个 30 82 CC CC 即 X.509 证书
@@ -2783,87 +2791,90 @@ open(base.apk) -> 整文件读入
 
 因此对 `getPackageInfo / SigningInfo / Signature` 的**任何 Hook 全部失明**——应用根本不问系统。
 
-HMAC 取数不变：sign = HMAC-SHA256("Fatdog_lurk", "page=N&ts=T")，密钥两半异或分藏 Wn.KA(^0x3C)/Yb.KB(^0x5A)。
+**本关是两层（2026-10-02 改造：① 逼你改包，② 才是考点）**
 
-**协议**：GET https://…:8443/api/l45?page=N&ts=T&sign=HMAC-SHA256("Fatdog_lurk", "page=N&ts=T")。
-
-**静态路线（Python 全复刻，先 python server.py）**
-
-```python
-import hashlib, hmac, time, requests
-
-KEY = b"Fatdog_lurk"
-total = 0
-for page in range(1, 101):
-    ts   = int(time.time())
-    sign = hmac.new(KEY, f"page={page}&ts={ts}".encode(), hashlib.sha256).hexdigest()
-    r = requests.get("https://127.0.0.1:8443/api/l45",
-                     params={"page": page, "ts": ts, "sign": sign},
-                     verify="certs/ca.crt", timeout=5).json()
-    assert len(r["nums"]) == 10, r
-    total += sum(r["nums"])
-print(total)   # 49906
+```text
+① 推门（入场券，不是考点）：u45Activity 里一个关不掉的弹窗 + gateOpen() 恒假
+     弹窗 setCancelable(false) 且按钮点了也不关 → 取数一律不发起
+     把 gateOpen() 改成返回 true（弹窗随之不再出现）→ 重打包重签 → 自动触发 ②
+② 签名校验（★真考点）：重签 ⇒ 证书指纹必变 ⇒ assertGuard 非 0
+     ⇒ 客户端改用【诱饵钥】签名 ⇒ 服务端回【脏数据】（HTTP 200，看着正常，求和必错）
+③ 一次性令牌 vt：native 产出真 vt；key = SHA256(标记 ‖ vt)
 ```
 
-守卫只拦 App 内动态玩家，静态复刻直连免疫。
+**协议**：GET https://…:8443/api/l45?page=N&ts=T&vt=<16hex>&sign=HMAC-SHA256(SHA256("Fatdog_lurk"\|vt), "page=N&ts=T")
+标记两半异或分藏 `Wn.KA`(^0x3C) / `Yb.KB`(^0x5A)。
 
-**动态路线（三选一）**
-① **IO 重定向**（本关官方主解）：Frida hook libc `open`/`fopen`，当路径含 base.apk 时改指向攻击者预先留存的原始未改包副本——so 读到的仍是原证书，verdict=1 全链无痕；
-② IDA 定位 m7 流程中 memcmp 比较点 → 偏移 Hook 恒等；
-③ Memory 找解出的基准 32 字节改成当前指纹。
-注意整体替换 passApkPath 会 ticks 踏步返回 -2（同 L44）。
+**玩家路线（两层都要走）**
 
-**坑位提醒**：`Xv.FAKE_KEY = Fatdog_lark` 与 lurk 一字之差（命中即 403）；so 里找不到明文指纹——基准是 ^0x66 异或存放的非 static 数组。答案：加和 `49906`；flag `FLAG_18_L45{self_read_beats_pm}`
+1. **推门（①）**：jadx 找 `u45Activity.gateOpen()` → 改 smali 那处返回常量（`const/4 v0, 0x0` → `0x1`），
+   或直接把 `showGate()` 拆掉 → **重打包 + 重签名 + 安装**。这一步只为逼你走一次改包，本身不含对抗技巧。
+2. **移形换影（②）**：此时数据取得到，但**求和永远不对**（脏数据，App 不告诉你）。绕过 ② 三条路：
+   - ① **IO 重定向**（本关官方主解）：Frida hook libc `open`/`fopen`，当路径含 `base.apk` 时改指向
+     攻击者预先留存的**原始未改包副本**——so 读到的仍是原证书，verdict=1 全链无痕；
+   - ② IDA 定位 m7 流程中 memcmp 比较点 → 偏移 Hook 恒等；
+   - ③ Memory 找解出的基准 32 字节（`3b ba 13 …`）改成当前重签包的指纹。
+   把 `passApkPath` 整体替换/摘除 → ticks 不再增长（-2）→ 同样只能吃脏数据。
+   **注意**：Frida 在这一层是被允许的——本关只是不欢迎你用它跳过「推门」那一步。
+3. 校验转真 → `Wn.auditCode()` 返回 0 → 签名改用真标记 → 真数据 → 求和 → 提交。
+
+**坑位提醒**：`Xv.FAKE_KEY = Fatdog_lark` 与真标记 `Fatdog_lurk` 一字之差——它是**诱饵钥**，
+用它签名服务端回**脏数据**（不是 403，别指望报错提示；UI / logcat 一律不透露校验状态）。
+判据在 `Wn.auditCode()`（= `assertGuard(1)`）：0 用真标记，非 0（-1 未校验 / -2 踏步 / -3 verdict 假）一律走诱饵。
+so 里找不到明文指纹——基准是 ^0x66 异或存放的非 static 数组。
+
+**验收对拍**：真加和 `49906`；脏序列加和 `52393`；flag `FLAG_18_L45{self_read_beats_pm}`
 
 ---
 
 
 ### 关卡 46：以签为钥（签名校验对抗 · L4 派生型主打）
 
-**考点**：签名校验对抗的终极大招——没有 if 判断。密钥由证书 DER 派生：
+**考点**：签名校验对抗的终极大招——没有 if 判断。密钥由「**当前包的证书摘要**」派生：
 
 ```text
-certHash = SHA-256(从 APK 签名中提取的 X.509 证书 DER)
-derivedKey = SHA-256(certHash ‖ b"Fatdog_bind")
-payload  = "nonce=<n>&page=<p>&ts=<t>"          # 字段名字典序；nonce 每次请求都变
-sign     = HMAC-SHA256(derivedKey, payload)
+certHash   = SHA-256(从 APK 签名中提取的 X.509 证书 DER)
+derivedKey = SHA-256(certHash ‖ 标记 ‖ vt)     # 标记 = Fatdog_bind（原包）/ Fatdog_band（诱饵）
+payload    = "nonce=<n>&page=<p>&ts=<t>"       # 字段名字典序；nonce 每次请求都变
+sign       = HMAC-SHA256(derivedKey, payload)
 ```
 
-重打包者的证书不同→certHash 不同→derivedKey 不同→HMAC 全部 403——零提示，零 if 判断。服务端用同样的逻辑独立派生相同 key 验签。
+**本关是两层（2026-10-02 改造：① 逼你改包，② 才是考点）**
 
-**协议**：POST `https://…:8443/api/l46`，表单字段 **page、ts、nonce、sign**（`nonce` 为 8 位随机 hex，每次请求都变，且与其他字段一起参与签名）。
-
-**静态路线（Python 全复刻，先 python server.py）**
-
-```python
-import hashlib, hmac, time, requests
-
-cert_hash = bytes.fromhex("3bb2134ca3b10bacd43965d0838efa90eef3765eed8832929168ca0e221237fe")
-derived_key = hashlib.sha256(cert_hash + b"Fatdog_bind").digest()
-import secrets
-total = 0
-for page in range(1, 101):
-    ts    = int(time.time())
-    nonce = secrets.token_hex(4)                       # ★ 每次请求都变
-    payload = f"nonce={nonce}&page={page}&ts={ts}"      # ★ 字段名字典序
-    sign  = hmac.new(derived_key, payload.encode(), hashlib.sha256).hexdigest()
-    r = requests.post("https://127.0.0.1:8443/api/l46",
-                      data={"page": page, "ts": ts, "nonce": nonce, "sign": sign},
-                      verify="certs/ca.crt", timeout=5).json()
-    assert len(r["nums"]) == 10, r
-    total += sum(r["nums"])
-print(total)   # 51008
+```text
+① 推门（入场券，不是考点）：libamber.so 里一个纯开关常量 g_door
+     出厂 0x2E → nativeVerdictToken()/nativeSign() 返回空串 → App 发不出请求（取不到数）
+     改成 0x9B（或 patch 那条比较）→ 必须重打包重签 → 自动触发 ②
+② 以签为钥（★真考点）：nativeKeySeed(der) 拿**当前包**的证书 DER 做 SHA-256，与内置基准比对
+     通过 → 派生用真标记 Fatdog_bind  → 服务端给真数据
+     不过 → 派生落到诱饵标记 Fatdog_band → 服务端回【脏数据】（200，求和必错，零报错）
+③ 一次性令牌 vt：门开后 native 才吐 vt，参与密钥派生
 ```
 
-**动态路线（三选一）**
+重打包者的证书不同→certHash 不同→derivedKey 不同→验签必然对不上。
+服务端用**内置原包 certHash** 独立派生相同 key 验签。
 
-1. **Frida hook Wg.nativeSign()**：拦截 JNI 派生函数的返回值，拿到 32 字节 derivedKey 后 Python 复刻——这是官方主解。
-2. **unidbg 调 JNI**：直接调 Wg.nativeKeySeed()/nativeSign() 拿派生密钥。
-3. **IDA 静态还原**：读 m8.c 里 `BENCH_X[32]` 数组（证书 SHA-256 的 ^0x66 异或存放），XOR 0x66 还原原始 certHash → SHA-256(certHash + "Fatdog_bind") → derivedKey → HMAC 取数。
+**协议**：POST `https://…:8443/api/l46`，表单字段 **page、ts、nonce、vt、sign**
+（`nonce` 为 8 位随机 hex，每次请求都变，且与其他字段一起按字典序参与签名）。
 
-**坑位提醒**：m8.c 里 `DECOY_KEY = "Fatdog_band"`（bind→band 一字之差）是陷阱；服务端用同样的 certHash 派生验签，但用假 key 派生的请求会被静默拒绝（返回空 nums）。
+**玩家路线（两层都要走）**
 
-答案：加和 `51008`；flag `FLAG_18_L46{key_derived_from_cert}`
+1. **推门（①）**：IDA 打开 libamber.so —— `.data` 里 `g_door` 初值 `0x2E`（或直接搜比较指令里的立即数 `0x9B`）。
+   改成 `0x9B` → 解包 / 替换 so / 重打包 / **重签名** / 安装。这一步只为逼你走一次改包。
+2. **以签为钥（②）**：此时数据取得到，但**求和永远不对**（脏数据，App 不告诉你）。绕过 ② 三条路：
+   - ① **Frida 喂原证书**（官方主解）：hook `Wg.nativeKeySeed()` 的入参把 DER 换成**原包证书**字节，
+     或直接 hook 其返回值 / `v46Activity.getCertDer`，让比对走真标记分支；
+   - ② **unidbg 调 JNI**：直接调 `Wg.nativeKeySeed()/nativeSign()` 观察派生密钥；
+   - ③ **IDA 静态还原**：读 amber 里 `BENCH_X[32]`（证书 SHA-256 的 ^0x66 异或存放）→ XOR 0x66 还原 certHash
+     → 用真标记 + 一个自己选的 vt 复刻派生链 → HMAC 取数（vt 仍需门开后才拿得到）。
+   **注意**：Frida 在这一层是被允许的——本关只是不欢迎你用它跳过「推门」那一步。
+3. 校验转真 → 派生走真标记 → 真数据 → 求和 → 提交。
+
+**坑位提醒**：诱饵标记 `Fatdog_band`（bind→band 一字之差）在 so 里以 ^0x3C 数组存放；命中它服务端回
+**脏数据**（不是 403，UI / logcat 一律不透露校验状态，只有「提示」按钮会说明）。
+`nativeKeySeed` 返回的 32 字节是**不含 vt 的预览值**，别直接拿去离线取数。
+
+答案：加和 `51008`；脏加和 `50557`；flag `FLAG_18_L46{key_derived_from_cert}`
 
 ---
 
@@ -2872,83 +2883,62 @@ print(total)   # 51008
 
 **考点**：签名校验对抗的终极大考——四重防线同时叠加，任何单一手段都不够：
 
-1. **三点互验记账**（ticks 三路交叉核账）：三个独立计数器互相同步检查，篡改任一计数器会导致三路不一致→拒绝服务
-2. **CRC 自校验**（可执行段完整性）：libfelix.so 对自身可执行段做 CRC32 校验，基线在 JNI_OnLoad 建立；任何 inline hook 都会改变 CRC→被检测
-3. **certHash 密钥派生**：密钥由证书 DER 派生，重打包者证书不同→派生 key 不同→全部 403
-4. **AES 加密响应**：响应不再是明文 nums，而是 AES 加密的密文，需要额外解密步骤
+1. **守卫矩阵（四点互验）**：启动记账 `audit` / Activity 核账 `tick=0xABCD` / **当前包证书摘要 == 内置基准** `cert_ok` / **基准数组 CRC32** —— 四路全过才算"已封缄"
+2. **CRC 自校验**：`CRC32(MARK_X ‖ DMARK_X ‖ BENCH_X)` 与**烘焙常量** `0xCDDA9987` 比对。
+   把基准数组改成自己证书的摘要（最常见的攻击）会被当场抓到
+3. **certHash 参与密钥派生**：密钥由证书摘要派生，重打包者证书不同 → 派生 key 不同
+4. **AES 加密响应**：响应不是明文 nums，而是 AES-ECB 密文，需要额外解密步骤
 
 ```text
 密钥派生：
-  certDER   = 从 APK 签名中提取的 X.509 证书 DER
-  certHash  = SHA-256(certDER)
-  hmac_key  = SHA-256(certHash ‖ b"Fatdog_seal")       # 完整 32 字节
-  aes_key   = hmac_key[:16]                              # 前 16 字节
+  certHash = SHA-256(从 APK 签名提取的 X.509 证书 DER)
+  marker   = "Fatdog_seal"（守卫全过）/ "Fatdog_steal"（任一不过，诱饵）
+  key      = SHA-256(certHash ‖ marker ‖ vt)       # hmac 与 aes 同一把 32 字节
 
-请求签名：
-  enc  = hex(AES-ECB(aes_key, "page=N&ts=T" 零填充))
-  sign = HMAC-SHA256(hmac_key, enc)
-
-响应解密：
-  response = AES-ECB-Decrypt(aes_key, bytes.fromhex(d))
-  # 解密后格式: "page=N|nums=1,2,3,..."
+请求：enc  = hex(AES-ECB(key, "page=N"))           # PKCS7 填充
+      sign = HMAC-SHA256(key, "page=N&ts=T")
+响应：{"d": hex(AES-ECB(key, "page=N|nums=..."))}
 ```
 
-**协议**：POST `https://…:8443/api/l47`，表单字段 page、ts、sign、enc。响应 `{"d": hex(AES(nums))}`。
+**本关是两层（2026-10-02 改造）**
 
-**静态路线（Python 全复刻，先 python server.py）**
-
-```python
-import hashlib, hmac, time, requests
-from Crypto.Cipher import AES
-
-cert_hash = bytes.fromhex("3bb2134ca3b10bacd43965d0838efa90eef3765eed8832929168ca0e221237fe")
-hmac_key  = hashlib.sha256(cert_hash + b"Fatdog_seal").digest()
-aes_key   = hmac_key[:16]
-
-def pkcs7_pad(data, block_size=16):
-    pad_len = block_size - (len(data) % block_size)
-    return data + bytes([pad_len] * pad_len)
-
-def aes_ecb_encrypt(key, plaintext):
-    cipher = AES.new(key, AES.MODE_ECB)
-    return cipher.encrypt(pkcs7_pad(plaintext))
-
-def aes_ecb_decrypt(key, ciphertext):
-    cipher = AES.new(key, AES.MODE_ECB)
-    plaintext = cipher.decrypt(ciphertext)
-    pad_len = plaintext[-1]
-    return plaintext[:-pad_len]
-
-total = 0
-for page in range(1, 101):
-    ts   = int(time.time())
-    enc  = aes_ecb_encrypt(aes_key, f"page={page}&ts={ts}".encode()).hex()
-    sign = hmac.new(hmac_key, enc.encode(), hashlib.sha256).hexdigest()
-    r = requests.post("https://127.0.0.1:8443/api/l47",
-                      data={"page": page, "ts": ts, "sign": sign, "enc": enc},
-                      verify="certs/ca.crt", timeout=5).json()
-    nums_hex = r["d"]
-    plaintext = aes_ecb_decrypt(aes_key, bytes.fromhex(nums_hex))
-    nums = list(map(int, plaintext.decode().split("nums=")[1].split(",")))
-    assert len(nums) == 10, r
-    total += sum(nums)
-print(total)   # 52437
+```text
+① 推门（入场券，不是考点）：两处门都要解
+      A · w52Activity.phaseOne() 恒 false → 提交按钮根本不出现（改 smali）
+      C · libfelix.so 的 g_door（出厂 0x2E，改成 0x9B 才开）→ 门不开取不到数（改 so 一字节）
+      两处都改必然重打包重签 → 自动触发 ②
+② 守卫矩阵（★真考点）：重签 ⇒ 证书摘要 ≠ 内置基准 ⇒ cert_ok=0
+      ⇒ 派生落到诱饵标记 Fatdog_steal ⇒ 服务端回【脏数据】（HTTP 200，求和必错，零报错）
+③ 一次性令牌 vt：门开后 native 才吐 vt，参与密钥派生
 ```
 
-**动态路线（三选一）**
+**协议**：POST `https://…:8443/api/l47`，表单字段 **page、ts、sign、enc、vt**。响应 `{"d": hex(AES(key, "page=N|nums=..."))}`。
 
-1. **Frida（官方主解）**：spawn 抢跑——在 JNI_OnLoad 之前注入钩子，拦截三点互验记账 + 摘要出口，伪造三路 ticks 一致；Hook CRC 校验器恒返回基线值；拦截 AES 加密出口拿明文 nums。这是本关的标准 Frida 路线。
-2. **patch so**：定位 CRC 校验器（k47_crc_check）改字节废掉；定位比较点（memcmp）偏移 Hook 恒等；但注意三点互验需要同时处理三个计数器，否则仍会被检测。
-3. **重打包完整复刻**：还原四重防线的所有参数后，用 Python 完整复刻请求+响应解密，完全绕过 App——静态路线免疫所有运行时防线。
+**玩家路线（两层都要走）**
+
+1. **推门（①）**：① 改 smali `phaseOne()` 返回真（按钮才出现）；② IDA 打开 libfelix.so，
+   `.data` 里 `g_door` 初值 `0x2E`（或搜比较指令里的立即数 `0x9B`）改成 `0x9B`
+   → 解包 / 替换 so / 重打包 / **重签名** / 安装。
+2. **幽冥合卷（②）**：此时数据取得回也能解开（响应是 AES 密文，但用的是**诱饵 key**），
+   只是**求和永远不对**。绕过 ② 三条路：
+   - ① **Frida 抢跑伪四点**：spawn 注入，让 `Wp.nativeSeed()` 吃到**原包证书**（hook 入参或 hook
+     `w52Activity.getCertDer`），或直接伪造守卫矩阵结论；CRC 比较点也可恒等；
+   - ② **patch so**：废掉 `M9_CRC_BASELINE` 那条比较 + 派生标记的比较点（注意改基准数组本身会被 CRC 抓）；
+   - ③ **重打包 + 完整复刻派生链**（最硬核）：拿到真 certHash 与 vt 后 Python 完整复刻请求 + 响应解密。
+   **注意**：Frida 在这一层是被允许的——本关只是不欢迎你用它跳过「推门」那一步。
+3. 守卫全过 → 派生走真标记 → 真数据 → 求和 → 提交。
 
 **坑位提醒**：
-- `Fatdog_steal`（steal）与真标记 `Fatdog_seal`（seal）一字之差，命中即 403 静默拒绝
-- CRC 校验器里的假基线值是诱饵——用它建立的基线永远不匹配运行时 CRC
-- 记账 ticks 的虚假计数值：三个计数器中有一个会被故意设成错误值，篡改它会导致三路不一致
-- AES 加密响应的解密是必须步骤——拿到 `{"d": hex}` 后不解密直接解析会得到乱码
-- SEED52=20280426（用于服务端种子验证）
+- 诱饵标记 `Fatdog_steal` 与真标记 `Fatdog_seal` 一字之差，以 ^0x3C 数组存放；命中它服务端回
+  **脏数据**（不是 403，UI / logcat 一律不透露校验状态，只有「提示」按钮会说明）
+- **CRC 覆盖的是三个基准数组而不是代码段**：所以"改 `BENCH_X` 成自己证书摘要"这条捷径会被抓，
+  但 patch `m9_crc_verify` 的比较点是可以绕的（这正是解法②）
+- `hmac_key` 与 `aes_key` 是**同一把 32 字节**（不是 `[:16]`），别截断
+- `enc` 加密的是 `"page=N"`（**不含 ts**），`sign` 才签 `"page=N&ts=T"`
+- `nativeDecrypt(hex, vt)` 必须带该次请求的 vt 才能复算出 key
+- SEED47=20280426（服务端数字序列种子）
 
-答案：加和 `52437`；flag `FLAG_18_L47{guard_matrix_crc_aes}`
+答案：加和 `52437`；脏序列加和 `51142`；flag `FLAG_18_L47{guard_matrix_crc_aes}`
 
 
 ---
@@ -6212,7 +6202,7 @@ Java.perform(function () {
 | KL55 | `FLAG_18_KL55{array_broken_through}` |
 
 
-> 备注：L43-L45 现版源码庆祝串均为 `FLAG_18_L48{mirror_tells_true}`（L48 为历史编号残留、三关复制未改），上表按关卡语义区分；L47 以当前 App 庆祝串 `FLAG_18_L47{guard_matrix_crc_aes}` 为准。关卡 9 有两个变体串（`single_gate_not_enough` 是只过一重门时的诱饵/半程提示）。
+> 备注：**L43/L44/L45 的庆祝串与 `PassLog` key 已于 2026-10-02 修正为各自的关卡号**（原先三关复制未改，庆祝串全是 `FLAG_18_L48{mirror_tells_true}`、进度 key 全是 `"L48"`，属历史编号残留；后者还会导致进度错位——过其中任一关会点亮 L48，且这三关永远显示未通关）。上表与代码现已一致。L47 以当前 App 庆祝串 `FLAG_18_L47{guard_matrix_crc_aes}` 为准。关卡 9 有两个变体串（`single_gate_not_enough` 是只过一重门时的诱饵/半程提示）。
 
 ---
 

@@ -4,6 +4,7 @@ import org.json.JSONObject;
 
 import java.io.ByteArrayInputStream;
 import java.security.KeyStore;
+import java.security.MessageDigest;
 import java.security.SecureRandom;
 import java.security.cert.CertificateFactory;
 import java.security.cert.X509Certificate;
@@ -57,6 +58,26 @@ static String decode(int[] arr, int k) {
         }
     }
 
+    static String sha256Of(String s) {
+        try {
+            MessageDigest md = MessageDigest.getInstance("SHA-256");
+            StringBuilder sb = new StringBuilder();
+            for (byte b : md.digest(s.getBytes("UTF-8"))) sb.append(String.format("%02x", b & 0xff));
+            return sb.toString();
+        } catch (Exception e) {
+            return "";
+        }
+    }
+
+    /**
+     * 取数签名：key = SHA256(标记 ‖ vt)，sign = HMAC-SHA256(key, "page=N&ts=T")。
+     * ② 校验通过（auditCode==0）→ 真标记；否则 → 诱饵标记（服务端据此回脏数据）。
+     */
+    static String signFor(int page, long ts, String vt) {
+        String marker = (Wn.auditCode() == 0) ? Wn.hmacKey() : Xv.FAKE_KEY;
+        return hmacHex(sha256Of(marker + "|" + vt), "page=" + page + "&ts=" + ts);
+    }
+
     public interface Cb {
         void onPage(int page, int[] nums);
 
@@ -93,13 +114,13 @@ static String decode(int[] arr, int k) {
         return client;
     }
 
-    static void fetchPage(String base, final int page, final Cb cb) {
+    static void fetchPage(String base, final int page, final String vt, final Cb cb) {
         final long ts = System.currentTimeMillis() / 1000;
-        final String sign = hmacHex(Wn.hmacKey(), "page=" + page + "&ts=" + ts);
+        final String sign = signFor(page, ts, vt);
         try {
             final OkHttpClient c = trustClient();
             String url = base + "/api/l45?page=" + page + "&ts=" + ts
-                    + "&sign=" + sign;
+                    + "&vt=" + vt + "&sign=" + sign;
             Request req = new Request.Builder()
                     .url(url)
                     .header("User-Agent", "Fatdog/1.0 (Android)")

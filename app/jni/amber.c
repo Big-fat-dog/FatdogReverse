@@ -1,14 +1,20 @@
-/* libm8.so ——「以签为钥」（签名校验对抗 · L46，主打关卡）
- * L4 派生型：密钥 = SHA256(certDER ‖ "Fatdog_bind")，直接作 HMAC-SHA256 签名。
- * 没有任何 if 判断签名对错——重打包者的证书派生出的 key 必然不同，服务端全部 403 零提示。
- * 基准 certHash（原包 DER 的 SHA-256）以 ^0x66 异或存放，首次使用时才还原。
- * Java 只调 nativeKeySeed(der) 拿派生密钥字节 + nativeSign(page, ts) 拿 hex 签名。
- * 正解唯一：spawn 后 hook MessageDigest 出口（或 m8 导出三联单）拿 App 运行时算出的
- * 真实 certHash，带真哈希离线复刻整条链取数。
+/* libamber.so ——「以签为钥」（签名校验对抗 · L46，主打关卡）
+ * L4 派生型：密钥 = SHA256(certHash ‖ 标记 ‖ vt)，直接作 HMAC-SHA256 签名。
+ * 没有任何 if 判断签名对错——重打包者的证书摘要不同→派生 key 不同→服务端必然对不上。
+ * 基准 certHash（原包 DER 的 SHA-256）以 ^0x66 异或存放，仅用于"判定当前包是否原包"。
+ *
+ * 2026-10-02 双层链路改造（同样的病因修一处：原先 nativeKeySeed 把传入的 DER
+ * 直接 (void) 丢掉、改用内置基准派生，等于任何包派生的 key 都相同 → ② 形同虚设）：
+ *   ① g_door 纯开关常量：出厂 0x2E，改成 0x9B 才允许取数（逼出一次重打包重签）；
+ *   ② nativeKeySeed(der) 对**当前包的证书 DER** 做 SHA-256 并与基准比对：
+ *        通过 → key = SHA256(运行时 certHash ‖ "Fatdog_bind" ‖ vt)   ← 服务端认，给真数据
+ *        不过 → key = SHA256(内置基准    ‖ "Fatdog_band" ‖ vt)       ← 服务端认作诱饵，回脏数据
+ *   ③ nativeVerdictToken() 产出一次性随机令牌 vt（门未开则返回空串 → 取不到数）。
  */
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <time.h>
 
 #ifndef M8_HOST_TEST
 #include <jni.h>
@@ -25,11 +31,33 @@ unsigned char BENCH_X[32] = {
 static unsigned char g_bench[32];
 static int g_bench_ready = 0;
 
+/* 当前包证书 DER 的 SHA-256（nativeKeySeed 填入）+ 记账 */
+static unsigned char g_cert[32];
+static int g_checked = 0;
+static int g_verdict = 0;
+static int g_ticks = 0;
+
+/* ---------- ① 第一层障碍：纯开关常量（非判定逻辑，刻意做轻） ----------
+ * 出厂值 0x2E；门不开则 nativeVerdictToken / nativeSign 一律返回空串 → App 取不到数。
+ * 把这一字节改成 0x9B（或把下面那条比较改掉）即可开门。 */
+volatile unsigned int g_door = 0x2E;
+#define M8_DOOR_OPEN 0x9B
+
+static int m8_door_open(void) {
+    return (g_door == (unsigned int)M8_DOOR_OPEN) ? 1 : 0;
+}
+
 /* "Fatdog_bind" ^0x3C ——运行时解码，静态无明文 */
 static const unsigned char MARK_X[] = {
     122,93,72,88,83,91,99,94,85,82,88
 };
 #define MARK_LEN 11
+
+/* "Fatdog_band" ^0x3C ——诱饵标记（与真标记一字之差；校验不过时用它派生 → 服务端回脏数据） */
+static const unsigned char DMARK_X[] = {
+    122,93,72,88,83,91,99,94,93,82,88
+};
+#define DMARK_LEN 11
 
 static void m8_unlock_bench(void) {
     int i;
@@ -139,62 +167,112 @@ static void m8_hmac_sha256(const unsigned char *key, unsigned int klen,
     m8_sha256(outer, 64 + 32, out);
 }
 
-/* ---------- 派生密钥: SHA256(certHash ‖ marker) ---------- */
+/* ---------- ③ 一次性令牌 + 派生密钥 ---------- */
 
-static unsigned char g_key[32];   /* 派生密钥（完整 32 字节） */
-static int g_key_ready = 0;
+static unsigned int g_rng_state = 0;
 
-static void m8_derive_key(void) {
-    /* key = SHA256(certHash(32 字节) ‖ "Fatdog_bind")，与 server.py 一致。
-     * certHash 即内置 g_bench（原包证书 DER 的 SHA-256，^0x66 藏匿）。 */
-    unsigned char *buf = (unsigned char *)malloc(32 + MARK_LEN);
-    int i;
-    if (!buf) return;
+static unsigned int m8_rng_next(void) {
+    unsigned int x;
+    if (g_rng_state == 0) {
+        g_rng_state = (((unsigned int)time(NULL)) ^ 0x9E3779B9u) | 1u;
+    }
+    x = g_rng_state;
+    x ^= x << 13;
+    x ^= x >> 17;
+    x ^= x << 5;
+    g_rng_state = x;
+    return x;
+}
+
+/* key = SHA256(certHash(32) ‖ marker(11) ‖ vt(ascii ≤16))
+ *   校验通过 → certHash 用当前包 DER 的摘要、marker = "Fatdog_bind"（与 server.py 一致）
+ *   校验不过 / 尚未校验 → certHash 用内置基准、marker = "Fatdog_band"
+ *                       → 服务端识别为诱饵，回【脏数据】而不是报错 */
+static void m8_make_key(const char *vt, unsigned char out[32]) {
+    unsigned char buf[32 + MARK_LEN + 16];
+    const unsigned char *m;
+    int i, n = 0;
     if (!g_bench_ready) m8_unlock_bench();
-    memcpy(buf, g_bench, 32);
+    if (g_checked && g_verdict) {
+        m = MARK_X;
+        memcpy(buf, g_cert, 32);
+    } else {
+        m = DMARK_X;
+        memcpy(buf, g_bench, 32);
+    }
+    n = 32;
     for (i = 0; i < MARK_LEN; i++)
-        buf[32 + i] = (unsigned char)(MARK_X[i] ^ 0x3C);  /* 解码 marker */
-    m8_sha256(buf, 32 + MARK_LEN, g_key);
-    free(buf);
-    g_key_ready = 1;
+        buf[n++] = (unsigned char)(m[i] ^ 0x3C);   /* 解码标记 */
+    if (vt) {
+        for (i = 0; vt[i] && i < 16; i++) buf[n++] = (unsigned char)vt[i];
+    }
+    m8_sha256(buf, (unsigned int)n, out);
 }
 
 #ifndef M8_HOST_TEST
 
-/* nativeKeySeed: 用内置 certHash 派生密钥 → 返回 32 字节派生密钥 */
+/* 递入当前包的证书 DER：native 内记账(ticks++)、摘要、与内置基准比对，
+ * 并返回一份派生密钥（无 vt 的预览值；实际请求用的 key 由 nativeSign 内部按 vt 现算）。 */
 JNIEXPORT jbyteArray JNICALL
 Java_com_fatdog_reverse_Wg_nativeKeySeed(JNIEnv *env, jclass clazz, jbyteArray der) {
     jbyteArray result;
-    (void)clazz;
-    (void)der;
-    if (!g_key_ready) m8_derive_key();
+    unsigned char key[32];
 
+    (void)clazz;
+    g_ticks++;
+    if (!g_bench_ready) m8_unlock_bench();
+    g_checked = 1;
+
+    if (!der) {
+        g_verdict = 0;
+        memset(g_cert, 0, 32);
+    } else {
+        jsize len = (*env)->GetArrayLength(env, der);
+        jbyte *p = (*env)->GetByteArrayElements(env, der, NULL);
+        if (!p) {
+            g_verdict = 0;
+            memset(g_cert, 0, 32);
+        } else {
+            m8_sha256((const unsigned char *)p, (unsigned int)len, g_cert);
+            (*env)->ReleaseByteArrayElements(env, der, p, JNI_ABORT);
+            g_verdict = (memcmp(g_cert, g_bench, 32) == 0) ? 1 : 0;
+        }
+    }
+
+    m8_make_key("", key);
     result = (*env)->NewByteArray(env, 32);
     if (result)
-        (*env)->SetByteArrayRegion(env, result, 0, 32, (jbyte *)g_key);
+        (*env)->SetByteArrayRegion(env, result, 0, 32, (jbyte *)key);
     return result;
 }
 
-/* nativeSign: HMAC-SHA256(g_key, "nonce=<n>&page=<p>&ts=<t>") → hex string
- * 被签串按字段名字典序拼接（nonce < page < ts）；nonce 每次请求都变。 */
+/* nativeSign: HMAC-SHA256(key, "nonce=<n>&page=<p>&ts=<t>") → hex string
+ * key    = SHA256(certHash ‖ marker ‖ vt)（marker 由 ② 的结论选定）
+ * 被签串按字段名字典序拼接（nonce < page < ts）；nonce 每次请求都变。
+ * ① 门未开 → 返回空串（Java 侧据此不发包）。 */
 JNIEXPORT jstring JNICALL
 Java_com_fatdog_reverse_Wg_nativeSign(JNIEnv *env, jclass clazz,
-                                       jint page, jlong ts, jstring nonce) {
+                                       jint page, jlong ts, jstring nonce, jstring vt) {
     const char *n = NULL;
-    char msg[128];
+    const char *v = NULL;
+    char msg[160];
     int mlen;
+    unsigned char key[32];
     unsigned char dg[32];
     char hex[65];
     static const char *H = "0123456789abcdef";
     int i;
 
     (void)clazz;
+    if (!m8_door_open()) return (*env)->NewStringUTF(env, "");
+
     if (nonce) n = (*env)->GetStringUTFChars(env, nonce, NULL);
+    if (vt) v = (*env)->GetStringUTFChars(env, vt, NULL);
     mlen = snprintf(msg, sizeof(msg), "nonce=%s&page=%d&ts=%lld",
                     n ? n : "", page, (long long)ts);
 
-    if (!g_key_ready) m8_derive_key();
-    m8_hmac_sha256(g_key, 32, (const unsigned char *)msg, (unsigned int)mlen, dg);
+    m8_make_key(v, key);
+    m8_hmac_sha256(key, 32, (const unsigned char *)msg, (unsigned int)mlen, dg);
 
     for (i = 0; i < 32; i++) {
         hex[2*i]   = H[dg[i] >> 4];
@@ -202,8 +280,26 @@ Java_com_fatdog_reverse_Wg_nativeSign(JNIEnv *env, jclass clazz,
     }
     hex[64] = 0;
     if (n) (*env)->ReleaseStringUTFChars(env, nonce, n);
+    if (v) (*env)->ReleaseStringUTFChars(env, vt, v);
 
     return (*env)->NewStringUTF(env, hex);
+}
+
+/* ③ 取数令牌：门未开 → 空串（Java 侧据此不发包，即"取不到数"）；门已开 → 16 位 hex */
+JNIEXPORT jstring JNICALL
+Java_com_fatdog_reverse_Wg_nativeVerdictToken(JNIEnv *env, jclass clazz) {
+    static const char H[] = "0123456789abcdef";
+    char out[17];
+    unsigned int a, b;
+    int i;
+    (void)clazz;
+    if (!m8_door_open()) return (*env)->NewStringUTF(env, "");
+    a = m8_rng_next();
+    b = m8_rng_next() ^ (g_ticks * 0x9E3779B9u);
+    for (i = 0; i < 8; i++) out[i]     = H[(a >> (4 * i)) & 0xF];
+    for (i = 0; i < 8; i++) out[8 + i] = H[(b >> (4 * i)) & 0xF];
+    out[16] = 0;
+    return (*env)->NewStringUTF(env, out);
 }
 
 JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void *reserved) {
@@ -217,27 +313,48 @@ int main(void) {
     char hex[65];
     static const char *H = "0123456789abcdef";
     int i;
+    unsigned char dg[32], key[32];
 
     printf("=== L46 以签为钥 · 本地自测 ===\n");
 
-    /* 用内置 certHash 派生 */
-    m8_derive_key();
-    for (i = 0; i < 32; i++) {
-        hex[2*i]   = H[g_key[i] >> 4];
-        hex[2*i+1] = H[g_key[i] & 0xF];
-    }
+    /* SHA-256 标准向量 */
+    m8_sha256((const unsigned char *)"abc", 3, dg);
+    for (i = 0; i < 32; i++) { hex[2*i] = H[dg[i] >> 4]; hex[2*i+1] = H[dg[i] & 0xF]; }
     hex[64] = 0;
-    printf("derived_key = %s\n", hex);
+    printf("sha256(abc) = %s\n", hex);
 
-    /* 测试 HMAC */
-    unsigned char dg[32];
-    m8_hmac_sha256(g_key, 32, (const unsigned char *)"page=1&ts=1700000000", 20, dg);
-    for (i = 0; i < 32; i++) {
-        hex[2*i]   = H[dg[i] >> 4];
-        hex[2*i+1] = H[dg[i] & 0xF];
-    }
+    /* 基准（^0x66 还原） */
+    m8_unlock_bench();
+    for (i = 0; i < 32; i++) { hex[2*i] = H[g_bench[i] >> 4]; hex[2*i+1] = H[g_bench[i] & 0xF]; }
     hex[64] = 0;
-    printf("hmac(page=1&ts=1700000000) = %s\n", hex);
+    printf("bench       = %s\n", hex);
+
+    /* ① 门开关：出厂关、改常量后开 */
+    printf("door_open(default) = %d (expect 0)\n", m8_door_open());
+    g_door = M8_DOOR_OPEN;
+    printf("door_open(patched) = %d (expect 1)\n", m8_door_open());
+
+    /* ② 未校验 → 走诱饵；模拟校验通过 → 走真标记 */
+    m8_make_key("0123456789abcdef", key);
+    for (i = 0; i < 32; i++) { hex[2*i] = H[key[i] >> 4]; hex[2*i+1] = H[key[i] & 0xF]; }
+    hex[64] = 0;
+    printf("decoy key   = %s\n", hex);
+
+    memcpy(g_cert, g_bench, 32);
+    g_checked = 1; g_verdict = 1;
+    m8_make_key("0123456789abcdef", key);
+    for (i = 0; i < 32; i++) { hex[2*i] = H[key[i] >> 4]; hex[2*i+1] = H[key[i] & 0xF]; }
+    hex[64] = 0;
+    printf("real  key   = %s\n", hex);
+
+    /* HMAC 与令牌自测 */
+    m8_hmac_sha256(key, 32, (const unsigned char *)"nonce=aa&page=1&ts=1700000000", 28, dg);
+    for (i = 0; i < 32; i++) { hex[2*i] = H[dg[i] >> 4]; hex[2*i+1] = H[dg[i] & 0xF]; }
+    hex[64] = 0;
+    printf("hmac sample = %s\n", hex);
+
+    g_ticks = 1;
+    printf("vt a = %08x  vt b = %08x  (expect differ)\n", m8_rng_next(), m8_rng_next());
 
     return 0;
 }
