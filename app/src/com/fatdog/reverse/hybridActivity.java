@@ -28,7 +28,7 @@ import org.json.JSONObject;
 // 第二层：native 用藏在 so 里的钥再取一道摘要签。两层钥不同、算法不同，缺一层都不放数。
 // native 还立着反调试哨兵——被调则改用诱饵钥，签了也白签。取数链路仍是网络求和。
 public class hybridActivity extends Activity {
-    static final String SUM_HASH = "79250609b7a7b136ab36e78dc5da0b4d19538abb2fb02e7f8f15b931639ddd06";
+    static final String SUM_HASH = "79250609b7a7a351ab36e78dc5da0b4d19538abb2fb02e7f8f15b931639ddd06";
     static final int PAGES = 100;
     static final int PER_PAGE = 10;
 

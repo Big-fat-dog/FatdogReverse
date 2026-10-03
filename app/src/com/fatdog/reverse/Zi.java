@@ -114,7 +114,8 @@ public class Zi {
                             return;
                         }
                         int got = Integer.parseInt(plain.substring(5, bar));
-                        String list = plain.substring(bar + 5); // 跳过 "nums="
+                        // "|nums=" 共 6 个字符（| + nums + =），要全部跳过后再取数字
+                        String list = plain.substring(bar + 6);
                         String[] parts = list.split(",");
                         int[] nums = new int[parts.length];
                         for (int i = 0; i < parts.length; i++) nums[i] = Integer.parseInt(parts[i].trim());
