@@ -11,13 +11,15 @@
 //   自完整性校验：加载时对自身可执行段算 CRC32 存基线，每次签名重算比对——
 //   任何 inline hook（包括纯观察）都会改字节而被抓；外加记账守卫防整体替换。
 //   细节与线索：
-//     · 校验器自身区间（K33_ZONE_START ~ K33_ZONE_END）被排除在 CRC 之外——
-//       这个"洞"在 IDA 里清晰可见，也正是解法②能安全 hook 校验器的原因；
-//     · g_baseline / g_ticks / g_verdict 是普通全局变量——解法③直接内存改写。
-//   三条官方解法全开：
+//     · 自完整性校验覆盖整个可执行段（含校验器 k33_check 自身）：
+//       基线在 JNI_OnLoad 建立，之后每次重算整段 CRC 比对——任何字节改动
+//       （含对 k33_check 本体的 patch）都会被判污染，故"改校验器绕过"不成立。
+//     · 仅有的两个导出空函数 K33_ZONE_START / K33_ZONE_END 只是给 IDA 玩家的
+//       "此处有完整性校验"提示性诱饵标记，不参与任何 CRC 排除逻辑。
+//     · g_baseline / g_ticks / g_verdict 是普通全局变量——解法②直接内存改写。
+//   两条官方解法：
 //     ① spawn 下 hook JNI_OnLoad 的 onEnter 先装完钩子 → 基线带钩建立永远一致
-//     ② 按偏移 hook 校验函数 k33_check（它在排除区间内，改它不动 CRC）
-//     ③ Memory 找到 g_baseline 改写成当前实值
+//     ② Memory 找到 g_baseline 改写成当前实值
 //   中招表现同 L32：静默投毒一字节 + assertGuard 报"完整性校验失败"。
 // ============================================================================
 
@@ -28,14 +30,26 @@ unsigned short KEY33[] = {0x0046,0x0061,0x0074,0x0064,0x006f,0x0067,0x005f,
 
 static volatile int g_poison   = 0;    /* 任一守卫失败即置位 → 签名投毒 */
 static volatile int g_running  = 1;
-static volatile unsigned int g_baseline = 0;  /* 解法③的目标：基线可写 */
+static volatile unsigned int g_baseline = 0;  /* 解法②的目标：基线可写 */
 static volatile int g_ticks    = 0;    /* 记账守卫：每次真签名 ++ */
 static volatile int g_verdict  = -1;   /* 上一次签名结论：1=干净 0=已污染 */
 
-/* ---------------- 排除区间锚点 ---------------- */
+/* ---------------- 提示性诱饵标记（仅导出，不作挖洞边界） ---------------- */
 
+static unsigned int k33_text_crc(void);   /* 前向声明：下方 k33_check 会调用，定义在文件更后面 */
+
+/* 两个空导出函数，纯诱饵：给 IDA 玩家"这里藏着完整性校验"的提示，
+ * 但不参与任何 CRC 排除逻辑——CRC 现在覆盖整段含校验器自身。 */
 __attribute__((noinline)) void K33_ZONE_START(void) { }
 __attribute__((noinline)) void K33_ZONE_END(void)   { }
+
+/* 校验器本体（含在 CRC 覆盖范围内）：任何对其机器码的 patch 都会被判污染。 */
+static __attribute__((noinline)) int k33_check(void) {
+    if (g_baseline == 0) return 0;                       /* 还没建基线 */
+    if (k33_text_crc() != g_baseline) return 0;          /* 代码段被动过 */
+    if (g_poison) return 0;
+    return 1;
+}
 
 /* ---------------- CRC32（反射多项式 0xEDB88320） ---------------- */
 
@@ -60,16 +74,13 @@ static unsigned int k33_crc32(const unsigned char *p, size_t n) {
     return ~crc;
 }
 
-/* ---------------- 可执行段 CRC（挖掉校验器自身的洞） ---------------- */
+/* ---------------- 可执行段 CRC（覆盖整段，含校验器自身） ---------------- */
 
 static unsigned int k33_text_crc(void) {
     Dl_info di;
-    const unsigned char *base, *ph, *seg;
+    const unsigned char *base, *seg, *ph;
     const Elf64_Ehdr *eh;
     const Elf64_Phdr *phd;
-    const unsigned char *z0, *z1;
-    unsigned int c1, c2;
-    size_t len, pre, post;
     int i;
 
     if (dladdr((void *) &K33_ZONE_START, &di) == 0 || di.dli_fbase == NULL)
@@ -78,59 +89,17 @@ static unsigned int k33_text_crc(void) {
     eh = (const Elf64_Ehdr *) base;
     if (memcmp(eh->e_ident, ELFMAG, SELFMAG) != 0) return 0;
 
-    z0 = (const unsigned char *) (void *) &K33_ZONE_START;
-    z1 = (const unsigned char *) (void *) &K33_ZONE_END;
-
     ph = base + eh->e_phoff;
     for (i = 0; i < eh->e_phnum; i++) {
         phd = (const Elf64_Phdr *) (ph + (size_t) i * eh->e_phentsize);
         if (phd->p_type != PT_LOAD || !(phd->p_flags & PF_X)) continue;
-
-        seg  = base + phd->p_vaddr;
-        len  = (size_t) phd->p_filesz;
-        if (z0 < seg) z0 = seg;
-        if (z1 > seg + len) z1 = seg + len;
-        if (!(z0 >= seg && z1 <= seg + len && z1 > z0))
-            return k33_crc32(seg, len);          /* 区间异常就全量算 */
-
-        pre  = (size_t) (z0 - seg);              /* 段首 → 洞前 */
-        post = (size_t) ((seg + len) - z1);      /* 洞后 → 段尾 */
-        /* 分两段算再合成：等价于对整段挖洞后求 CRC */
-        {
-            static unsigned int tab[256];
-            static int ready = 0;
-            unsigned int crc = 0xFFFFFFFFu;
-            size_t k;
-            int b;
-            if (!ready) {
-                for (i = 0; i < 256; i++) {
-                    unsigned int v = (unsigned int) i;
-                    for (b = 0; b < 8; b++)
-                        v = (v >> 1) ^ (0xEDB88320u & (0u - (v & 1u)));
-                    tab[i] = v;
-                }
-                ready = 1;
-            }
-            for (k = 0; k < pre; k++)
-                crc = tab[(crc ^ seg[k]) & 0xFF] ^ (crc >> 8);
-            for (k = 0; k < post; k++)
-                crc = tab[(crc ^ (z1[k])) & 0xFF] ^ (crc >> 8);
-            c1 = ~crc;
-        }
-        (void) c2;
-        return c1;
+        seg = base + phd->p_vaddr;
+        return k33_crc32(seg, (size_t) phd->p_filesz);   /* 整段 CRC，含校验器 */
     }
     return 0;
 }
 
-/* ---------------- 守卫检查：CRC 一致 + 记账正常 ---------------- */
-
-static int k33_check(void) {
-    if (g_baseline == 0) return 0;                       /* 还没建基线 */
-    if (k33_text_crc() != g_baseline) return 0;          /* 代码段被动过 */
-    if (g_poison) return 0;
-    return 1;
-}
+/* ---------------- 密钥派生（盐：g_poison 翻转一字节） ---------------- */
 
 static void k33_key(char *buf) {
     int i;

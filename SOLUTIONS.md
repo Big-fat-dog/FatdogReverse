@@ -2139,9 +2139,9 @@ Java.perform(function () {
 
 **考点**：libsable.so 在 `JNI_OnLoad` 里用 dladdr 定位自身基址、解析 ELF 程序头找到可执行段（PT_LOAD/PF_X），对整段算 **CRC32 存入全局基线 g_baseline**；此后每次 `nativeSign` 都重算比对，不一致即静默投毒（密钥第 8 字节异或 0x01）——**连只观察的 inline hook 都会改字节而被抓**。另有 `assertGuard(minTicks)` 记账守卫：ticks 不递增（说明有人整体替换了 nativeSign）同样判负。
 
-**关键线索（IDA 可见）**：导出表里有一对空函数 `K33_ZONE_START / K33_ZONE_END`——CRC 计算把这段区间**挖掉了**（校验器 k33_check 就住在里面）。这个洞既是提示，也是解法②的安全保证。
+**关键线索（IDA 可见）**：导出表里有一对空函数 `K33_ZONE_START / K33_ZONE_END`——它们只是**诱饵标记**，提示“此处有完整性校验”，但**不参与任何 CRC 排除逻辑**。CRC 现在覆盖整个可执行段（含校验器 `k33_check` 自身），因此对 `k33_check` 本体的 patch 同样会触发完整性判负，**“改校验器绕过”不再成立**。
 
-**三条官方解法（全开，任选其一）**
+**两条官方解法（任选其一）**
 
 ```javascript
 // 解法①（推荐）：spawn 注入，抢在体检之前完成伪装
@@ -2159,12 +2159,7 @@ Java.perform(function () {
     });
 });
 
-// 解法②：偏移 hook 校验器 k33_check（它在挖洞区间内，改它不动 CRC）
-// var mod = Process.findModuleByName('libsable.so');
-// Interceptor.attach(mod.base.add(k33_check_offset), {
-//     onLeave: function (retval) { retval.replace(1); } });
-
-// 解法③：找到 g_baseline 全局变量（IDA 里看谁写了 k33_text_crc 的返回值），
+// 解法②：找到 g_baseline 全局变量（IDA 里看谁写了 k33_text_crc 的返回值），
 // Memory 写入当前实值：
 // Memory.protect(addr, 4, 'rw-'); addr.writeU32(mod.base.add(...).readU32());
 ```
@@ -2195,40 +2190,7 @@ print("总和:", total)                    # 49502
 
 **进阶 Frida 训练——`Memory.patchCode` 指令级热补丁**：
 
-本关的解法②提到"偏移 hook 校验器 k33_check"，但没有展开具体的 patch 写法。`Memory.patchCode` 可以直接修改 SO 的机器指令，比 `Interceptor.replace` 更精细：
-
-```javascript
-// hook_l33_patch.js — Memory.patchCode 训练
-Java.perform(function () {
-    var mod = Process.findModuleByName('libsable.so');
-
-    // 假设 IDA 里找到 k33_check 函数（CRC 校验器）的偏移
-    // 函数原型：int k33_check(void) → 返回 1 通过，0 失败
-    // 目标：把函数体替换为 "mov w0, #1; ret"（ARM64 恒返回 1）
-
-    var checkAddr = mod.base.add(0x5678);  // k33_check 偏移
-
-    // ARM64 指令编码：
-    // mov w0, #1  → 0x52800020
-    // ret         → 0xD65F03C0
-    Memory.patchCode(checkAddr, 8, function (code) {
-        var writer = new Arm64Writer(code, { pc: checkAddr });
-        writer.putInstruction('mov w0, #1');
-        writer.putInstruction('ret');
-        writer.flush();
-    });
-
-    console.log('[k33_check] patched → always return 1');
-
-    // 对比三种替换方式：
-    // 1. Interceptor.attach   → 挂钩，原函数仍执行（会被 CRC 抓到）
-    // 2. Interceptor.replace  → 整体替换，但原指令仍在（CRC 可能仍能扫到）
-    // 3. Memory.patchCode     → 直接改指令字节，CRC 重算时看到的是新指令
-    // 本关因为 CRC 校验整个 .text 段，patchCode 改完后 CRC 基线就匹配了
-});
-```
-
-> **训练点**：`Memory.patchCode(addr, size, callback)` 在 callback 里直接写入新指令。ARM64 用 `Arm64Writer`，ARM 用 `ArmWriter`。与 `Interceptor.replace` 的区别：replace 是 Frida 框架接管调用（原指令仍在但不执行），patchCode 是直接改掉指令字节（CPU 执行的就是新指令）。本关的 CRC 校验会重算整个 .text 段，所以必须用 patchCode 才能让 CRC 匹配。
+本关的 CRC 覆盖整个可执行段（含校验器 `k33_check` 自身），因此直接 patch `k33_check` 的机器码会让 CRC 不匹配、反而被判污染——`patchCode` 在本关并不能"绕过"。这正好是一个反面教材：`Memory.patchCode` 适合改那些**不在完整性校验覆盖范围内**的目标；一旦目标字节被 CRC 盯上，热补丁只会自曝。要练 `Memory.patchCode`，可放到 KL13/KL15 这类"校验器自身比对、patch 窗口外代码安全"的关卡去体会。
 
 ---
 
@@ -2244,7 +2206,7 @@ key     = "Fatdog_grumpy"                        # UTF-16 存放，strings -el �
 sub_i   = SHA256(key + str(i))[:4]               # i = 0..7
 F_i(x)  = SHA256(sub_i || x)[:4]
 enc     = hex( Feistel8( payload ) )             # payload 零填充至 8 的倍数
-        # 每块 (L,R)：for i in 0..7: (L,R) = (R, L ^ F_i(L))
+        # 每块 (L,R)：for i in 0..7: (L,R) = (R, L ^ F_i(R))   # 标准 Feistel，F 作用于右半
 sign    = hex( HMAC-SHA256(key, enc) )
 rsp_key = SHA256(key + "|rsp")[:16]              # 响应密钥靠派生
 响应体   d = hex( RC4(rsp_key, "page=N|nums=a,b,…") )
@@ -2272,7 +2234,7 @@ def feistel_enc(data: bytes) -> bytes:
     for off in range(0, len(data), 8):
         L, R = data[off:off+4], data[off+4:off+8]
         for i in range(8):
-            L, R = R, bytes(a ^ b for a, b in zip(L, F(i, L)))
+            L, R = R, bytes(a ^ b for a, b in zip(L, F(i, R)))
         out += L + R
     return bytes(out)
 

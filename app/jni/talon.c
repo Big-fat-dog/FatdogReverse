@@ -359,24 +359,21 @@ static void k34_feist_init(void) {
     sha256_ctx c;
     unsigned char seed[16], digest[32];
     int i;
-    /* sub_i = SHA256(KEY34 || str(i))[:4] */
-    memcpy(seed, KEY34, KEY34_LEN);
+    /* sub_i = SHA256("Fatdog_grumpy" || str(i))[:4] （与服务端 KEY34_HMAC 一致，纯 ASCII） */
+    memcpy(seed, "Fatdog_grumpy", 13);
     for (i = 0; i < 8; i++) {
-        seed[KEY34_LEN]     = (unsigned char) ('0' + i);
-        seed[KEY34_LEN + 1] = 0;
-        sha256_init(&c); sha256_update(&c, seed, (size_t)(KEY34_LEN + 1));
+        seed[13] = (unsigned char) ('0' + i);
+        sha256_init(&c); sha256_update(&c, seed, (size_t) 14);
         sha256_final(&c, digest);
         memcpy(k34_subs[i], digest, 4);
     }
-    /* rsp_key = SHA256("Fatdog_grumpy|rsp")[:16]
-     * 种子在运行时拼装（UTF-16 低位字节即 ASCII），避免明文进 .rodata */
+    /* rsp_key = SHA256("Fatdog_grumpy|rsp")[:16] （与服务端 RSP34_KEY 一致，纯 ASCII） */
     {
-        unsigned char rs[24];
-        static const char tail[] = {'|', 'r', 's', 'p'};
-        memcpy(rs, KEY34, KEY34_LEN);
-        memcpy(rs + KEY34_LEN, tail, 4);
+        unsigned char rs[32];
+        memcpy(rs, "Fatdog_grumpy", 13);
+        memcpy(rs + 13, "|rsp", 4);
         sha256_init(&c);
-        sha256_update(&c, rs, (size_t)(KEY34_LEN + 4));
+        sha256_update(&c, rs, (size_t) 17);
         sha256_final(&c, digest);
         memcpy(k34_rsp, digest, 16);
     }
@@ -393,14 +390,15 @@ static void k34_F(int i, const unsigned char *x, unsigned char *out4) {
     memcpy(out4, dg, 4);
 }
 
-/* 加密一步 E_i(L,R)=(R, L^F_i(L))；整块按大端四字节处理 */
+/* 加密一步 E_i(L,R)=(R, L^F_i(R))；标准 Feistel（F 作用于右半 R），
+ * 与服务端 reversed 解密严格对称。整块按大端四字节处理。 */
 static void k34_feist_enc(unsigned char *blk) {
     unsigned char L[4], R[4], t[4];
     int i, j;
     memcpy(L, blk, 4);
     memcpy(R, blk + 4, 4);
     for (i = 0; i < 8; i++) {
-        k34_F(i, L, t);
+        k34_F(i, R, t);
         for (j = 0; j < 4; j++) t[j] = (unsigned char) (L[j] ^ t[j]);
         memcpy(L, R, 4);
         memcpy(R, t, 4);

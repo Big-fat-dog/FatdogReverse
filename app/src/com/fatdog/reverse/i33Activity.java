@@ -22,7 +22,7 @@ import java.io.InputStream;
 import java.security.MessageDigest;
 
 // 网络关卡 33（native 第三季第 6 关）：so 对自身代码段做 CRC 自校验 + 记账守卫，
-// 任何 inline hook（包括纯观察）都会被抓——三条官方解法见提示。100 页取数求和通关。
+// 任何 inline hook（包括纯观察）都会被抓——两条官方解法见提示。100 页取数求和通关。
 public class i33Activity extends Activity {
     static final String SUM_HASH = "120c4e5d6d80407eee9b0c515b1666cbab677fc02b3e406e19b01cc95c5990b5";
     static final int PAGES = 100;
@@ -167,10 +167,9 @@ public class i33Activity extends Activity {
                 new AlertDialog.Builder(i33Activity.this)
                         .setTitle("提示")
                         .setMessage("服务端 HTTPS:8443 的 GET /api/l33，签名 Fatdog_jealous 由 Fh.nativeSign 算；另有 assertGuard 记账守卫防整体替换。"
-                                + "自校验原理：JNI_OnLoad 对可执行段算 CRC32 存基线，每次签名重算比对——任何 inline hook 都会改字节而被抓；校验器自身区间被排除在外，这个洞就是 IDA 里的线索。\n"
+                                + "自校验原理：JNI_OnLoad 对可执行段算 CRC32 存基线，每次签名重算比对——任何 inline hook 都会改字节而被抓；K33_ZONE_START/END 两个空导出函数只是诱饵标记，提示此处有完整性校验但不参与排除逻辑，CRC 覆盖整段含校验器自身。\n"
                                 + "解法①（最优雅）：spawn 下 hook JNI_OnLoad，在 onEnter 里装完所有钩子再放行——基线带着钩子一起建立，永远一致；\n"
-                                + "解法②：按偏移 hook 校验函数 k33_check（它在排除区间内，改它不触发 CRC）；\n"
-                                + "解法③：Memory 找到全局基线 g_baseline 改写成当前实值。注意整体替换 nativeSign 会被记账抓包；静态复刻党照旧免疫，加和 49502。")
+                                + "解法②：Memory 找到全局基线 g_baseline 改写成当前实值。注意整体替换 nativeSign 会被记账抓包；静态复刻党照旧免疫，加和 49502。")
                         .setPositiveButton("好的", null)
                         .show();
             }
