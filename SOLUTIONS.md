@@ -6464,9 +6464,9 @@ jint nativeIsTampered(jint bm);   // 评分阈值判定：popcount(bm) >= 3 ? 1 
 
 > 第十二分区「迷阵」—— OLLVM 混淆 + 控制流平坦化深度对抗。与太玄之初 KL18（单一平坦化入门）的区别：本专题五关递进覆盖 OLLVM **四种**变换（平坦化 / 虚假控制流 / 字符串加密 / 指令替换）的独立分析 + 综合对抗。
 
-### KL51 迷雾初开（控制流平坦化基础）
+### KL51 迷雾初开（控制流平坦化基础 · C++ OOP 版）
 
-**考点**：OLLVM 的「控制流平坦化」(Control Flow Flattening)。核心签名函数被改写成 switch-case 主分发器（16 case，10 真 6 假），密钥以 Base64 串藏 `.rodata`。
+**考点**：OLLVM 的「控制流平坦化」(Control Flow Flattening) **+ C++ 面向对象藏算法**。核心签名函数被改写成 switch-case 主分发器（16 case，10 真 6 假），密钥以 Base64 串藏 `.rodata`；加密算法本身则藏进**虚函数类层次**。
 
 **算法**（迷阵五关里唯一用 HMAC 的一关）：
 - `aes_key = SHA256("Fatdog_haze|aes")[:16]`，`mac_key = SHA256("Fatdog_haze|mac")[:32]`
@@ -6474,11 +6474,13 @@ jint nativeIsTampered(jint bm);   // 评分阈值判定：popcount(bm) >= 3 ? 1 
 - `sign = HMAC-SHA256(mac_key, enc)`
 - 密钥 Base64 串：`Ta3Cl3qmIAKoSuT/fOLZdeh9zWfdc4OdmyGpOCfWrNAQmtDZqKD+4peWYPutolUL`（48 字节 = aes+mac，b64decode 即得）
 
-**核心 so**：`libfog.so`（`app/jni/fog.c`）。`flat_derive_and_sign()` 被平坦化：
-- 16 个 case：0-5 是真实签名链（拼消息→拼明文→AES→hex→HMAC→hex）、6-8 是无用运算冗余块、9 是出口；
-- 6 个虚假 case：10 提前 return、11 死循环、12 无意义运算、13 复制 case0 但跳死循环、14 空跳、15 返回全 0。
+**核心 so**：`libfog.so`（`app/jni/fog.cpp`，C++17，运行时依赖 `libc++_shared.so`）。**三层混淆叠加**：
 
-**三条解法**：
+1. **主分发器平坦化**（`flat_derive_and_sign`）：16 个 case —— 0-5 是真实签名链（拼消息→拼明文→AES→hex→HMAC→hex）、6-8 是无用运算冗余块、9 是出口；虚假 case 10 提前 return、11 死循环、12 无意义运算、13 复制 case0 但跳死循环、14 空跳、15 返回全 0。
+2. **虚函数藏算法**：`Vault`（抽象基类）→ `HazeVault`（真身 AES-128-ECB）/ `VeilVault`（字节右旋+XOR）/ `DuskVault`（LCG 流）；`Seal`（抽象基类）→ `HazeSeal`（真身 HMAC-SHA256）/ `VeilSeal`（`SHA256(mac‖m)` 伪 MAC）。真身由工厂 `make_vault()` / `make_seal()` 的 `kind` 常量选中。密钥只在**构造函数**里装填，析构函数 `secure_zero`。
+3. **AES 轮函数平坦化**（`enc_block_flat`）：10 轮 AES 的 addkey/sub/shift/mix 被拆进 `switch(state)` 状态机，与主分发器同构。
+
+**四条解法**：
 
 1. **D810 一键去平坦化**（最快）：IDA 加载 `libfog.so`，`Edit→Plugins→D810`，选 `default_unflattening_ollvm.json`，switch dispatcher 被还原为顺序逻辑，`flat_derive_and_sign` 直接可读。
 
@@ -6487,9 +6489,14 @@ jint nativeIsTampered(jint bm);   // 评分阈值判定：popcount(bm) >= 3 ? 1 
    - 画状态流转图：每个真实块末尾 `MOV W8,#imm` 写入下一个状态值，据此连边；
    - 标真假 case：虚假 case 的特征是「提前 return / 死循环 / 无意义运算 / 空跳 / 改坏状态」；
    - 还原真实链：0→1→2→3→4→5→9，即「拼 page&ts → AES → hex → HMAC(enc_hex) → hex」。
-   - 认算法：AES 靠 S 盒魔数 `63 7c 77 7b…`，HMAC/SHA256 靠 K 表 `428a2f98…` 与初始 IV `6a09e667…`。
+   - 认算法：AES 靠 S 盒魔数 `63 7c 77 7b…`，SHA256/HMAC 靠 K 表 `428a2f98…` 与初始 IV `6a09e667…`（轮函数被拆进状态机后，这些常量的**取用顺序**被打乱，需按状态流转图重排）。
 
-3. **Frida hook**：hook `nativeFlatSign` 入口/出口，或 hook `derive_keys` 拿解密后的 aes_key/mac_key，直接复刻。注意 `nativeFlatSign` 和 `nativeEnc` 是同一次平坦化计算的两个输出，hook 任一即可拿到 enc+sign。
+3. **恢复 vtable 定位真派生类**（C++ 版新增考点）：
+   - 认虚调用指纹：`LDR X8,[X0]` → `LDR X9,[X8,#8*N]` → `BLR X9`（X0 = 对象基址，即 vptr；`8*N` 是槽位偏移）；
+   - 在 `.rodata` 找 `_ZTV*`（vtable）与 `_ZTI*`（RTTI）——**类名保留了线索**：`HazeVault` / `HazeSeal` 是真身，`Veil*` / `Dusk*` 是诱饵；
+   - 跟工厂 `make_vault()` / `make_seal()` 的 `kind` 常量，确认运行时 new 的是 `Haze*`；再进 `HazeVault::seal`（S 盒 → AES）、`HazeSeal::stamp`（K 表 → SHA256）。
+
+4. **Frida hook**：hook `nativeFlatSign` 入口/出口；或 hook 类构造函数（密钥只在构造里装填，静态看不见），或 hook 析构函数看被 `secure_zero` 掉的 16/32 字节（顺带反推密钥长度）。`nativeFlatSign` 和 `nativeEnc` 是同一次平坦化计算的两个输出，hook 任一即可拿到 enc+sign。
 
 **Python 复刻**（取数后求和）：
 ```python
@@ -6522,12 +6529,15 @@ def sign(page, ts):
 - `sign` 是对 **enc 的 hex 字符串**做 HMAC（不是对明文），顺序别搞反。
 - 标记 `Fatdog_haze` 是 UTF-16 码元藏匿，`strings` 默认看不到；诱饵 `Fatdog_hazey` 一字之差，命中即 403。
 - 虚假 case 里的「死循环」（case 11）是陷阱——手工还原时如果误把它当真实块连进去，会陷入死循环逻辑。
+- **诱饵类不是死代码**：`VeilVault` / `DuskVault` / `VeilSeal` 都有完整实现、都会生成 vtable 与 RTTI，只是因为工厂 `kind` 没选中而不执行——别当成「假块」直接丢弃，要通过 `kind` 常量判定。
+- **vtable 槽位顺序**：本关刻意保留 `sigil()` 占槽 1、`seal()` / `stamp()` 占槽 2（作为识别点）；不同 NDK 版本槽序可能有微调，跟 `_ZTV` 表项比跟偏移更稳。
+- **开发者坑（.c→.cpp）**：`.cpp` 里 `JNI_OnLoad` 与 `Java_*` 必须写 `extern "C" JNIEXPORT ... JNICALL`，否则 C++ 名字修饰会让加载器 `dlsym("JNI_OnLoad")` 找不到 → 函数静默不执行（不报错但功能全废）。
 
 ---
 
-### KL52 虚实相生（虚假控制流）
+### KL52 虚实相生（虚假控制流 · C++ OOP 版）
 
-**考点**：OLLVM 的「虚假控制流」(Bogus Control Flow, BCF)。核心签名函数在真实逻辑之间插入「不透明谓词」+「不可达虚假块」，让 IDA 反编译时看到真假交织的两条路。
+**考点**：OLLVM 的「虚假控制流」(Bogus Control Flow, BCF) **+ C++ 面向对象藏算法**。真实逻辑块之间插入「不透明谓词」+「克隆形变块」，且加密算法同样藏进虚函数类层次。
 
 **算法**（迷阵第二关，纯 SHA256 摘要签名，不用 HMAC）：
 - `sm4_key = SHA256("Fatdog_phantom|sm4")[:16]`
@@ -6535,21 +6545,27 @@ def sign(page, ts):
 - `sign = SHA256("Fatdog_phantom|" + page + "|" + ts)`（**纯 SHA256，非 HMAC**）
 - 密钥 Base64 串：`jntndxfS8B2AwhYp1MhbMw==`（16 字节 SM4 钥）
 
-**核心 so**：`libphantom.so`（`app/jni/phantom.c`）。`phantom_sign()` 被 BCF 混淆：
-- 3 个「不透明谓词」`if (g_opaque_a * (g_opaque_a+1) % 2 == 0 && g_opaque_a < 10)`，`g_opaque_a/b/c` 是 `.bss` 段全局变量（初始 0）——恒真，但 IDA 静态分析不知道值；
-- 恒假分支指向「克隆形变块」`fake_encrypt_never_run`（SM4 换成直接 XOR 密钥）、`fake_hex_never_run`（用打乱字符表）——结构相似、结果错误、永不执行；
+**核心 so**：`libphantom.so`（`app/jni/phantom.cpp`，C++17）。`phantom_sign()` 被 BCF 混淆：
+- **5 个不透明谓词** `g_opaque_x * (g_opaque_x+1) % 2 == 0 && g_opaque_x < 10`；`g_opaque_a/b/c/d/e` 是 `.bss` 全局变量（初始 0）——前 4 个恒真，第 5 个 `g_opaque_e` 恒假，保护一条**提前 `return` 的多返回边**；
+- 恒假分支指向两类「克隆形变块」：
+  - 函数版 `altered_clone_msg`（填充偏移/上界改错）、`altered_clone_hex`（用打乱字符表）；
+  - **虚派发版** `EchoVault`（SM4 的形变副本：同结构，CK 常量被异或 `0x5A5A5A5A` 改坏）、`EchoDigest`（恒哈希诱饵标记）——结构相似、结果错误、永不执行；
 - 真实路径：拼消息 → SM4 加密 → hex → 拼 sign 消息 → SHA256 → hex。
+- **虚函数藏算法**：`Vault` → `PhantomVault`（真身 SM4-ECB）/ `EchoVault` / `MirageVault`（LCG 流）；`Digest` → `PhantomDigest`（真身 SHA256）/ `EchoDigest`。
+- **SM4 轮函数平坦化**（`sm4_block_flat`）：32 轮被拆进 `switch(state)` 状态机。
 
-**三条解法**：
+**四条解法**：
 
 1. **`.bss` 段设只读 + patch 初值**（教学主线，对应 OLLVM BCF 的经典反混淆）：
    - IDA 里双击 `g_opaque_a` 跳进 `.bss` 段，`Edit→Segments→Edit segment` 取消 Write 勾选（设只读）；
    - `.bss` 变量初始为 0，IDA 一旦知道「只读 + 值为 0」，触发常量传播 + 死代码消除（DCE），自动剪掉恒假分支的虚假块；
-   - 反编译结果里 `fake_*` 块消失，`phantom_sign` 恢复清晰顺序逻辑。
+   - 反编译结果里 `altered_clone_*` / `Echo*` 块消失，`phantom_sign` 恢复清晰顺序逻辑。
 
-2. **D810 去虚假跳转**：`Edit→Plugins→D810`，选 `default_unflattening_switch_case.json`（或 `default.json`），自动识别不透明谓词并剪枝。
+2. **D810 去虚假跳转**：`Edit→Plugins→D810`，选 `default_unflattening_switch_case.json`（或 `default.json`），自动识别不透明谓词并剪枝（SM4 轮状态机同理会一并还原）。
 
 3. **手工识别恒真/恒假条件**：`x*(x+1)%2==0` 对任意整数 x 恒真（相邻两数之积必为偶数）、`x<10`（x=0 恒真）；把恒假分支的代码当死代码排除，只分析真实路径。
+
+4. **恢复 vtable 定位真派生类**（C++ 版新增考点）：同 KL51——认虚调用指纹 `LDR X8,[X0]; LDR X9,[X8,#8*N]; BLR X9`，在 `.rodata` 找 `_ZTV*` / `_ZTI*`；`PhantomVault` / `PhantomDigest` 是真身，`Echo*` / `Mirage*` 是诱饵。
 
 **Python 复刻**（取数后求和）：
 ```python
@@ -6575,27 +6591,35 @@ def sign(page, ts):
 **坑位**：
 - `sign` 是**纯 SHA256 摘要**（`SHA256("Fatdog_phantom|page|ts")`），**不是 HMAC**——很多玩家惯性照搬 KL51 的 HMAC，这里没有密钥参与，直接哈希即可。
 - `enc` 零填充到 32 字节（2 个 SM4 块），同 KL51。
-- 不透明谓词的全局变量 `g_opaque_a/b/c` 都在 `.bss`（未初始化段），初始值为 0——这是「恒真」的根源，`.bss` 设只读后 IDA 才能折叠。
-- 虚假块 `fake_encrypt_never_run` 把 SM4 换成了「直接 XOR 密钥」——结构相似但算法完全不同，别被它带偏。
-- 标记 `Fatdog_phantom` UTF-16 藏匿；诱饵 `Fatdog_illusion` 命中即 403。
+- 不透明谓词的全局变量 `g_opaque_a/b/c/d`（恒真）与 `g_opaque_e`（恒假）都在 `.bss`（未初始化段），初始值为 0——这是「恒真/恒假」的根源，`.bss` 设只读后 IDA 才能折叠。
+- 虚假块有两套：函数版 `altered_clone_msg` / `altered_clone_hex`，以及**虚派发版** `EchoVault`（SM4 的形变副本，CK 被异或改坏）——结构相似但常量/偏移不同，别被带偏；判定依据是「工厂 `kind` 是否选中它」。
+- **多返回边**：块 6 那条恒假谓词保护的提前 `return` 是干扰项，不要把它当成真实出口。
+- 标记 `Fatdog_phantom` UTF-16 藏匿；诱饵 `Fatdog_illusion` 命中即 403（注意 `EchoDigest` 内部就用了这串诱饵标记，别误判成真标记）。
 
 ---
 
-### KL53 移形换位（字符串加密）
+### KL53 移形换位（字符串加密 · C++ OOP 版）
 
-**考点**：OLLVM 的「字符串加密」(String Encryption)。标记、密钥的 Base64 串都不落盘明文，而是以 XOR 字节块存放，运行时（constructor / init_array / JNI_OnLoad）才解密写回内存。`strings` 看不到 `Fatdog_shift` 也看不到明文密钥。
+**考点**：OLLVM 的「字符串加密」(String Encryption) + C++ 面向对象藏算法。标记、密钥的 Base64 串都不落盘明文，而是以 XOR 字节块存放，运行时（constructor / init_array / JNI_OnLoad）才解密写回内存。`strings` 看不到 `Fatdog_shift` 也看不到明文密钥。
 
 **算法**（迷阵第三关，MD5 签名）：
 - `aes_key = SHA256("Fatdog_shift|aes")[:16]`，`iv = SHA256("Fatdog_shift|iv")[:16]`
 - `enc = hex(AES-128-CBC(aes_key, iv, "page=N&ts=T" PKCS5))`
 - `sign = MD5("Fatdog_shift|" + page + "|" + ts)`
 
-**核心 so**：`libshift.so`（`app/jni/shift.c`）。字符串加密三变体：
+**核心 so**：`libshift.so`（`app/jni/shift.cpp`）。字符串加密三变体（**每个解密例程内部都是 `switch(state)` 状态机**，不再是"一眼看穿的 for 循环 XOR"）：
 - **变体一（古典 datadiv_decode）**：标记 `Fatdog_shift` 以 XOR 0x5A 字节块存放，`datadiv_decode1234567890()` 特征函数在 `__attribute__((constructor))` 里解密（进 `.init_array` 段）；
 - **变体二（隐藏名）**：AES 钥的 Base64 串以 XOR 0x3C 存放，解密函数名刻意混淆成 `std__string___4921590060622252445`（C++ mangling 风格），仍在 `.init_array` 执行；
 - **变体三（运行时）**：IV 的 Base64 串以 XOR 0x69 存放，解密推迟到 `JNI_OnLoad`。
 
-**三条解法**：
+**C++ 形态（本版升级）**：
+- **加密算法藏进虚函数类层次**：`Cipher`（抽象基类）→ `ShiftCipher`（真身 AES-128-CBC）/ `SwapCipher`（诱饵：ECB，忽略 IV）/ `DriftCipher`（诱饵：CBC 但 IV 恒 0）；`Digest`（抽象基类）→ `ShiftDigest`（真身 MD5）/ `SwapDigest`（诱饵：输入错位后再 MD5）。调用点只持基类指针，汇编是 `LDR X8,[X0]; LDR X9,[X8,#N]; BLR X9`（隐式虚派发，比函数指针表更难）；
+- **密钥只在构造函数里展开**（`ShiftCipher::load` → `expand()` 生成 176 字节轮密钥），析构 `secure_zero` —— hook 析构可反推密钥长度（16 字节）；
+- **AES 轮函数「轻度平坦化」**：`aes_block_flat` 把 addkey/sub/shift/mix 拆进 `switch(state)`（每轮一步一个 case），与主分发器同构；
+- **JNI_OnLoad 整体套 switch 分发器 + 不透明谓词**（后三关要求）：三个解密变体 + 标记留存全拆进 case，静态看不出执行顺序。
+- RTTI 保留类名作线索（`.rodata` 的 `_ZTI*`）。
+
+**四条解法**：
 
 1. **hook 解密函数拿明文**（对应"特征搜索"）：
    - strings/导出表找 `datadiv_decode` 特征 → Frida hook 它，解密后 dump `g_mark`（标记）、`g_aes_b64`（密钥）；
@@ -6604,7 +6628,11 @@ def sign(page, ts):
 2. **unicorn/AndroidNativeEmu 模拟执行 `.init_array`**（对应"init_array 模拟"）：
    - 加载 `libshift.so`，模拟执行 `.init_array` 段的 constructor，把解密后的 `.data` 写回 patch 到 so，静态分析就能看到明文。
 
-3. **Frida 在 JNI_OnLoad 后 dump 内存**（对应"运行时 hook"）：
+3. **恢复 vtable 定位真派生类**（C++ 版新增）：
+   - RTTI 保留类名（`.rodata` 的 `_ZTI*`），从 `_ZTV*` 找到 `ShiftCipher`/`ShiftDigest` 的 vtable；
+   - 排掉 `SwapCipher`/`DriftCipher`/`SwapDigest` 三个诱饵（结构相似、结果错），只跟真身——注意三者都叫 `encrypt`/`compute`，别只看函数名。
+
+4. **Frida 在 JNI_OnLoad 后 dump 内存**（对应"运行时 hook"）：
    - IV 的解密在 `JNI_OnLoad`，等 so 加载完成后，`Memory.scanSync` 或直接读 `g_iv` 拿解密后的 IV。
 
 **Python 复刻**（取数后求和）：
@@ -6634,13 +6662,14 @@ def sign(page, ts):
 - `enc` 是 **AES-128-CBC**（有 IV、有 PKCS5 填充），不是前两关的 ECB/零填充——别拿 ECB 的思路套。
 - 标记 `Fatdog_shift` 是 **XOR 0x5A 加密**的，`strings` 看不到明文；密钥 Base64 串也分别 XOR 0x3C / 0x69 加密。
 - 三变体的解密时机不同（constructor / init_array / JNI_OnLoad），破字符串加密要认准"哪个字在哪个环节醒"。
+- **边界提醒**：`enc` 的 hex 是**固定 32 字节**输出；若 `page/ts` 拼出的消息 ≤16 字节（如 `ts` 极短），AES-CBC 只算 16 字节、后 16 字节是缓冲区残留 → 服务端解不出。真机 `ts` 恒为 10 位秒级时间戳（消息 18~22 字节），不会触发。
 - 诱饵 `Fatdog_swap` 命中即 403。
 
 ---
 
-### KL54 困兽犹斗（间接跳转 + 魔改 SM4 + 魔改 Base64）
+### KL54 困兽犹斗（魔改平坦化 + 间接跳转 + 魔改 SM4 + 魔改 Base64 · C++ OOP 版）
 
-**考点**：①间接跳转（函数指针表派发，4 个同形副本只有一个是真签名）②魔改 SM4（S 盒 4 处换值）③魔改 Base64（自定义码表）④指令替换（认知负担）。
+**考点**：①**魔改 FLA**（真实块之间插无意义中间块 + 状态变量异或编码，专治 D810/JEB 通用去平坦化脚本）②**间接跳转**（函数指针表 XOR 加密，4 个同形副本只有一个是真签名）③**指令替换（真实现）**④魔改 SM4（S 盒 4 处换值）⑤魔改 Base64（自定义码表）⑥C++ 虚函数藏加密算法 + JNI_OnLoad 分发器。
 
 **算法**（迷阵第四关，SHA256 摘要签名）：
 - `sm4_key = SHA256("Fatdog_beast|sm4")[:16]`
@@ -6652,22 +6681,36 @@ def sign(page, ts):
 - **魔改 SM4 S 盒**：标准 S 盒 `SBOX[0x3A]↔SBOX[0x7F]`、`SBOX[0xB2]↔SBOX[0xE8]` 互换（4 处换值）。认 `FK = a3b1bac6…` 常量定位 SM4，看 S 盒与标准表 `d6 90 e9 fe…` 的差异。
 - **魔改 Base64 码表**：标准码表 `A-Za-z0-9+/` 循环右移 7 位，变成 `56789+/A…Z a…z 0…4`。标准 `base64.b64decode` 解不出，需先从 `.rodata` 提出自定义码表还原。
 
-**核心 so**：`libbeast.so`（`app/jni/beast.c`）。`beast_sign()` 里：
-- 4 个同形签名副本 `real_sign`/`fake_sign_1`/`fake_sign_2`/`fake_sign_3`，经函数指针表 `g_dispatch[4]` 间接派发（`g_dispatch[0]` 是真签名，其余标记写错/算法错/拼接颠倒）；
-- `add_replaced` 用位运算实现加法（指令替换示例）。
+**核心 so**：`libbeast.so`（`app/jni/beast.cpp`）。`beast_sign()` 里：
 
-**三条解法**：
+**C++ 形态（本版升级）**：
+- **魔改 FLA（中间块链 + 状态异或编码）**：真实块 R0..R4 之间插入无意义中间块 M0..M2，分发用 `switch(st ^ g_xor_key)`（`g_xor_key` 是 `volatile` 运行时不变量）。真实块末尾**不再是直白的 `state = #imm`** → 破坏"真实块前驱都是真实块""每个 case 末尾 MOV 状态立即数"的强特征，**D810 `default_unflattening_ollvm.json` 形态匹配当场失效**；
+- **加密跳转表（真实现）**：`g_dispatch_enc[4]` 存的是 `(uintptr_t)fn ^ g_tbl_seed`——**静态看全是乱码地址**；`seal_dispatch_table()` 在 JNI_OnLoad/首次签名时封装，派发时 XOR 解密；真入口索引由运行时不变量派生（静态不可判）；
+- **指令替换（真实现）**：`add_replaced(a,b)` = `(a^b)+((a&b)<<1)` 真正参与 hex 索引计算（`o = add_replaced(i,i) = 2i`）；
+- **4 个同形假副本升级**：`fake_guard_sign`（标记错 `Fatdog_cage`）/ `fake_order_sign`（`ts|page` 顺序错）/ `fake_prefix_sign`（缺 `Fatdog_beast|` 前缀）都是**完整的 SHA256 算法**，不再是一眼假的占位；
+- **虚函数藏加密算法**：`Transform`（抽象基类）→ `BeastTransform`（真身魔改 SM4）/ `CageTransform`（诱饵：CK 异或改坏）/ `CoinTransform`（诱饵：LCG 流），经 `make_transform(kind)` 工厂实例化，三个 vtable 都留在 `.rodata`；轮密钥只在构造函数里展开，析构 `secure_zero`；
+- **SM4 轮函数平坦化**：`sm4_block_flat` 把 32 轮拆进 `switch(st)`；
+- **JNI_OnLoad 分发器**：S 盒换值**拆成两个 case**（`init_sbox_pair(0)`/`init_sbox_pair(1)`，静态看不出总共换了几处）+ 密钥派生 + 跳转表封装 + 标记留存，全在状态机里；
+- RTTI 保留类名作线索（`.rodata` 的 `_ZTI*`）。
 
-1. **IDA 找间接跳转 + 逐个分析副本**：
-   - 找 `BLR Xn` 间接调用，跟到函数指针表 `g_dispatch`；
-   - 表里 4 个函数指针指向 4 个同形副本，逐个看——只有 `real_sign` 里标记是 `Fatdog_beast`，其余是 `Fatdog_cage` 或顺序颠倒。
+**四条解法**：
 
-2. **还原魔改 Base64 码表**：
+1. **IDA 找间接跳转 + 解密跳转表 + 逐个分析副本**：
+   - 找 `BLR Xn` 间接调用 → 跟到 `g_dispatch_enc`；
+   - 表项是 **XOR 加密**的（异或 `g_tbl_seed`），先解出 4 个函数地址，再逐个看——只有 `real_sign` 里标记是 `Fatdog_beast`，其余是 `Fatdog_cage` / 顺序颠倒 / 缺前缀；
+   - 真入口索引是运行期派生的，别硬编码 `[0]`。
+
+2. **手工还原中间块链**：
+   - 状态分发是 `switch(st ^ g_xor_key)`（异或编码），先读出 `g_xor_key`（`.data` 里的运行时不变量）；
+   - 画出块间跳转图，把只做无意义运算的**中间块**（M0..M2，末尾只改状态）标出来剔除，串起真实块 R0→R5。
+
+3. **还原魔改 Base64 码表**：
    - `.rodata` 里找 `56789+/ABCDEFGHIJKLMNOPQRSTUVWXYZ…` 这串自定义码表，对比标准 `A-Za-z0-9+/` 发现是循环右移 7 位；
    - 用自定义码表解码 `SYbLYjdSiX6t+pVClIr1/5==` 得 SM4 钥。
 
-3. **还原魔改 SM4 S 盒**：
-   - 认 `FK` 常量 `a3b1bac6` 定位 SM4，对比标准 S 盒 `d6 90 e9 fe…`，发现 `0x3A`/`0x7F`/`0xB2`/`0xE8` 四处换值。
+4. **还原魔改 SM4 S 盒 + 恢复 vtable**：
+   - 认 `FK` 常量 `a3b1bac6` 定位 SM4，对比标准 S 盒 `d6 90 e9 fe…`，发现 `0x3A`/`0x7F`/`0xB2`/`0xE8` 四处换值（换值动作拆在 JNI_OnLoad 的两个 case 里）；
+   - 恢复 `Transform` 的 vtable，排掉 `CageTransform`/`CoinTransform` 诱饵。
 
 **Python 复刻**（取数后求和）：
 ```python
@@ -6697,41 +6740,45 @@ def sign(page, ts):
 **坑位**：
 - `sign` 是 SHA256 摘要（同 KL52），但 `enc` 是**魔改 SM4**（S 盒换值），不是标准 SM4——用标准 SM4 复刻会算出错密文。
 - 密钥是**魔改 Base64**（自定义码表），标准 `base64.b64decode` 解不出，必须先还原码表。
-- 4 个同形副本里只有 `g_dispatch[0]`（`real_sign`）是真签名，其余 3 个是陷阱——别 hook 到假副本。
-- 指令替换 `add_replaced` 只是认知负担，IDA 微码能折叠，不必死磕。
+- **跳转表不是明文指针数组**（老版本的 `g_tbl_seed` 是个"声明了却从没被读"的空壳，本轮已做实）；静态看到的表项要 XOR `g_tbl_seed` 才是真地址。
+- **状态分发是 `st ^ g_xor_key` 异或编码**（不是标准 FLA 的 `switch(state)`）；直接按"`state = #imm`"找下一个块会扑空，先在 JNI_OnLoad 之后 dump `g_xor_key`。
+- 4 个同形副本里只有 `real_sign`（真入口）是真签名，其余 3 个是**完整算法的假副本**——别 hook 到假副本。
+- 指令替换 `add_replaced` 是**真接入**的（hex 索引计算），但 IDA 微码能折叠，认知负担为主。
 - 诱饵 `Fatdog_cage` 命中即 403。
 
 ---
 
-## KL55 破阵而出（OLLVM 综合收官卷 + 魔改 AES + 魔改 Base64 响应）
+### KL55 破阵而出（C++ OOP + 手写 OLLVM 综合收官卷 · 魔改 AES + 魔改 Base64 响应）
 
-**定位**：迷阵第五关·收官。把前四关的平坦化、虚假控制流、字符串加密、间接跳转全部汇总，叠加魔改 AES + 魔改 Base64 响应。
+**定位**：迷阵第五关·收官。C++ 化后难度最顶：把前四关的平坦化、虚假控制流、字符串加密、间接跳转全部汇总，再叠**三级状态机 + 支配节点 key + 异常边 + 虚函数藏算法**，最后加魔改 AES + 魔改 Base64 响应。
 
-**协议**：`POST /api/kl55`（`page=N&ts=T&enc=…&sign=…` 表单），响应体 = `魔改Base64(魔改AES-128-CBC(resp_key, resp_iv, JSON))`。
+**协议**：`POST /api/kl55`（`page=N&ts=T&enc=…&sign=…` 表单），响应体 = `魔改Base64(魔改AES-128-CBC(resp_key, resp_iv, JSON))`，需先 `nativeDecrypt` 解出 JSON。
 
-**算法**：
-- `aes_key = SHA256("Fatdog_gate|aes")[:16]`
-- `enc = hex(魔改AES-128-ECB(aes_key, "page=N&ts=T" 零填充到 32))`
-- `sign = SHA256("Fatdog_gate|"+page+"|"+ts)`
-- 响应体密钥 `resp_key = SHA256("Fatdog_gate|resp")[:16]`、IV `resp_iv = SHA256("Fatdog_gate|riv")[:16]`
-- **魔改 AES**：S 盒换值 4 处——`SBOX[0x3A]↔SBOX[0x7F]`、`SBOX[0xB2]↔SBOX[0xE8]`（标准 `SBOX[0x3A]=0x80→0xd2`、`SBOX[0x7F]=0xd2→0x80`、`SBOX[0xB2]=0x37→0x9b`、`SBOX[0xE8]=0x9b→0x37`）
+**算法**（标记参与签名 —— 本关特有）：
+- 真标记 `mark = "Fatdog_gate"`（XOR 0x5A 密文，`JNI_OnLoad` 运行时解密）；诱饵 `Fatdog_fence`
+- `aes_key  = SHA256(mark|aes)[:16]`、`resp_key = SHA256(mark|resp)[:16]`、`resp_iv = SHA256(mark|riv)[:16]`
+- `enc  = hex(魔改AES-128-ECB(aes_key, "page=N&ts=T" 零填充到 32))`
+- `sign = SHA256(mark + "|" + page + "|" + ts)` ← **标记参与**：反调试换诱饵标记 → sign 一并错
+- **魔改 AES**：S 盒换值 4 处——`SBOX[0x3A]↔SBOX[0x7F]`、`SBOX[0xB2]↔SBOX[0xE8]`
 - **魔改 Base64**：码表循环左移 9 位（`JKLMNOPQRSTUVWXYZ…` 开头）
 
-**六重 OLLVM 叠加**：
-1. 控制流平坦化：`flat_sign` 用 switch dispatcher（case 0-7 + 99）
-2. 虚假控制流：`g_opaque`（.bss 全局）构造恒真谓词
-3. 字符串加密：标记 `Fatdog_gate` XOR 0x5A，`JNI_OnLoad` 运行时解密
-4. 间接跳转：`g_dispatch[4]` 函数指针表派发（`real_sign` + 3 个假副本）
-5. 多层嵌套：`real_sign → flat_sign` 两层
-6. 反调试评分制：TracerPid + timing，`>=2` 换诱饵标记 `Fatdog_fence`
+**八重叠加（C++ 版）**：
+1. **三级状态机**：外层 `gate_sign`（调度）→ 内层 `stage_crypt`（拼消息→零填→虚派发加密→hex）/ `stage_digest`（拼签名消息→虚派发摘要→hex）；真实块之间插无意义中间块 `M0/M1`（破坏"真实块→预分发块"固定模式）
+2. **虚假控制流**：`.bss` 不透明谓词 `g_opaque`（`x*(x+1)%2==0 && x<10` 恒真）+ **异常边不透明谓词**（`try{ if(恒假) throw; }catch(...)`——真机永不抛，但 CFG 含 invoke/landingpad，angr 默认不走异常边）
+3. **字符串加密**：标记/诱饵 XOR 0x5A 密文，解密步骤本身拆进 `JNI_OnLoad` 的状态机
+4. **间接跳转**：`g_dispatch[4]`（`real_sign` + 3 个"完整但改坏"的假副本：标记错 `Fatdog_fence` / page-ts 颠倒 / 缺标记前缀）
+5. **虚函数藏算法**：`Cipher`（真身 `GateCipher`=魔改 AES-ECB；诱饵 `FenceCipher`=跳过 MixColumns、`RuneCipher`=LCG 流）、`Digest`（真身 `GateDigest`=SHA256；诱饵 `FenceDigest`=反转消息）、`Responder`（真身自定义码表；诱饵标准码表）—— 全经工厂 `make_*` 实例化，三个 vtable 都留在 `.rodata`
+6. **支配节点 key**：`g_dom_key` 由入口块**首次执行才派生**（`(uintptr_t)&g_dom_key >> 4 ^ 0x9E3779B9`），分发器状态一律 `st ^ g_xor_key ^ g_dom_key`
+7. **魔改 AES 轮平坦化**：加密/解密各 10 轮拆进 `switch(state)`（`aes_enc_block_flat` / `aes_dec_block_flat`）
+8. **反调试评分制**：TracerPid + timing，`>=2` 换诱饵标记
 
 **破解路线**：
-1. **还原魔改 AES S 盒**：`strings` 找 S 盒（256 字节表），对比标准 AES S 盒找 4 处换值；或用 `aes_key_expand` 里的 RCON `0x01 0x02 0x04…` 定位密钥扩展。
-2. **还原魔改 Base64 码表**：`.rodata` 里找 64 字符自定义码表，对比标准 `A-Za-z0-9+/` 找移位规律（这里是左移 9 位）。
-3. **破字符串加密**：hook `JNI_OnLoad` 或 unicorn 模拟，拿解密后的标记 `Fatdog_gate`。
-4. **去平坦化 + 剪枝**：D810 去平坦化、angr 剪掉虚假控制流。
-5. **鉴别间接跳转**：`g_dispatch` 里只有 `real_sign`（idx=0）是真签名。
-6. **Python 复刻**：魔改 AES-ECB 加密 + SHA256 签名 + 魔改 Base64 解码 + 魔改 AES-CBC 解密响应体。
+1. **逆 JNI_OnLoad 状态机**（case `0x400`-`0x404`）：拿到真标记 `Fatdog_gate` + 三个派生密钥（aes/resp/riv）
+2. **恢复 vtable 定位真派生类**（ARM64 指纹 `LDR X8,[X0]` → `LDR X9,[X8,#8*N]` → `BLR X9`）：`Cipher`/`Digest`/`Responder` 各选真身（RTTI 类名是线索：`GateCipher`/`GateDigest`/`GateResponder`）
+3. **手工还原三级状态机**：外层调度 + 两个内层阶段，剔除中间块
+4. **认魔改 AES**：认 RCON `01 02 04 08…` 定位密钥扩展，比对 S 盒与标准 `d6 90 e9 fe…` 找 4 处换值
+5. **认魔改 Base64 码表**：对比标准 `A-Za-z0-9+/` 找左移 9 位
+6. **Frida hook**：钩 `g_dispatch` 入口观察实际目标，或 dump 类虚表
 
 **Python 复刻脚本**（关键部分）：
 ```python
@@ -6742,22 +6789,24 @@ SBOX = [0x63,0x7c,0x77,0x7b, ...]  # 标准 AES S 盒，然后：
 SBOX[0x3A], SBOX[0x7F] = SBOX[0x7F], SBOX[0x3A]   # 0x80 <-> 0xd2
 SBOX[0xB2], SBOX[0xE8] = SBOX[0xE8], SBOX[0xB2]   # 0x37 <-> 0x9b
 
+MARK = b"Fatdog_gate"   # 真标记（运行时解密所得）
+
 # 魔改 AES-128-ECB（零填充到 32）
-aes_key = hashlib.sha256(b"Fatdog_gate|aes").digest()[:16]
+aes_key = hashlib.sha256(MARK + b"|aes").digest()[:16]
 def enc(page, ts):
     msg = f"page={page}&ts={ts}".encode()
     plain = msg + b"\x00" * (32 - len(msg))
     return modified_aes_ecb(plain, aes_key, SBOX).hex()  # 用换值 S 盒
 
 def sign(page, ts):
-    return hashlib.sha256(f"Fatdog_gate|{page}|{ts}".encode()).hexdigest()
+    return hashlib.sha256(MARK + f"|{page}|{ts}".encode()).hexdigest()
 
 # 魔改 Base64 码表（左移 9 位）
 STD = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
 CUSTOM = STD[9:] + STD[:9]
 # 响应体：先按 CUSTOM->STD 映射还原标准 base64，再 b64decode，再魔改 AES-CBC 解密
-resp_key = hashlib.sha256(b"Fatdog_gate|resp").digest()[:16]
-resp_iv  = hashlib.sha256(b"Fatdog_gate|riv").digest()[:16]
+resp_key = hashlib.sha256(MARK + b"|resp").digest()[:16]
+resp_iv  = hashlib.sha256(MARK + b"|riv").digest()[:16]
 
 # POST https://…:8443/api/kl55（page/ts/enc/sign 表单）
 # 累加 100 页×10 个数，总和 = 51186（SEED=20280910）
@@ -6766,9 +6815,10 @@ resp_iv  = hashlib.sha256(b"Fatdog_gate|riv").digest()[:16]
 **通关**：取满 100 页求和，输入 `51186` → `FLAG_18_KL55{array_broken_through}`。
 
 **坑位**：
-- `enc` 是**魔改 AES**（S 盒换值 4 处），标准 AES 复刻会算出错密文；`sign` 是 SHA256 摘要。
+- `sign` 用**运行时解密后的真标记** `Fatdog_gate`（不是硬编码串）——反调试命中换 `Fatdog_fence` 时 sign 一并错，hook 时注意。
+- `enc` 是**魔改 AES**（S 盒换值 4 处），标准 AES 复刻会算出错密文。
 - 响应体是 `魔改Base64(魔改AES-CBC)`，标准 `b64decode` + 标准 AES 解密都会失败——必须先还原码表 + 换值 S 盒。
-- 标记 `Fatdog_gate` 经字符串加密（XOR 0x5A），`strings` 看不到，需 hook `JNI_OnLoad` 或 unicorn 模拟。
-- 间接跳转 `g_dispatch` 里 3 个假副本是陷阱（标记写错/算法错/拼接颠倒），别 hook 错。
-- 反调试命中 `>=2` 会静默换诱饵标记 `Fatdog_fence`，此时签名链全错、取不到数——真机挂 Frida 时注意。
+- **支配节点 key**：`g_dom_key` 只在入口块运行时派生——用 angr/unicorn **单独抽一个块模拟执行**会因 `g_dom_key=0` 而状态解码全错（必须整函数从头跑）。
+- **异常边**：`gate_sign` 里有 `try/throw/catch` 不透明谓词，angr 默认不处理异常边，需手动建模。
+- 间接跳转 `g_dispatch` 里 3 个假副本是**完整算法**（不是一眼假的占位），只有 idx=0 是真。
 - 诱饵 `Fatdog_fence` 命中即 403。

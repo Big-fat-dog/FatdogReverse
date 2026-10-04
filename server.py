@@ -3654,7 +3654,7 @@ def _kl52_sm4_key(master):
 
 
 def _kl52_sm4_encrypt_zero_pad(key16, data):
-    """SM4-ECB 零填充到 32 字节（2 块），与 App 端 phantom.c 对齐。"""
+    """SM4-ECB 零填充到 32 字节（2 块），与 App 端 phantom.cpp 对齐。"""
     plain = data + b"\x00" * (32 - len(data))
     rk = _sm4_keys(key16)
     out = bytearray()
@@ -3767,7 +3767,7 @@ def _kl54_sbox():
 
 
 def _kl54_sm4_encrypt_zero_pad(key16, data):
-    """魔改 SM4-ECB 零填充到 32 字节（2 块），与 App 端 beast.c 对齐。"""
+    """魔改 SM4-ECB 零填充到 32 字节（2 块），与 App 端 beast.cpp 对齐。"""
     sbox = _kl54_sbox()
     plain = data + b"\x00" * (32 - len(data))
     # 手动实现魔改 SM4 加密（用换值 S 盒）
@@ -3949,7 +3949,7 @@ def _kl55_cbc_encrypt(key16, iv, data, sbox):
 
 
 def _kl55_encrypt_zero_pad(key16, data, sbox):
-    """魔改 AES-128-ECB 零填充到 32 字节（2 块），与 App 端 gate.c 对齐。"""
+    """魔改 AES-128-ECB 零填充到 32 字节（2 块），与 App 端 gate.cpp 对齐。"""
     plain = data + b"\x00" * (32 - len(data))
     rk = _kl55_key_expand(key16, sbox)
     out = _kl55_enc_block(rk, plain[:16], sbox) + _kl55_enc_block(rk, plain[16:32], sbox)

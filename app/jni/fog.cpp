@@ -1,12 +1,20 @@
 /*
- * 天地秘境·迷阵 KL51：迷雾初开——控制流平坦化基础。
+ * 天地秘境·迷阵 KL51：迷雾初开——控制流平坦化基础（C++ OOP 重构版）。
  *
- * 考点：OLLVM 的「控制流平坦化」(Control Flow Flattening)。
- * 核心签名函数被改写成 switch-case dispatcher（主分发器 + 状态变量），
- * 16 个 case 里 10 个真实、6 个虚假（提前 return 0 / 死循环 / 无意义运算）。
- * 玩家需：①找主分发器 ②画状态流转图 ③标真假 case ④还原真实计算链。
+ * 考点：OLLVM「控制流平坦化」(FLA) + C++ 面向对象藏算法。
+ *  ① 主签名函数是 switch-case 主分发器（16 case：10 真实 + 6 虚假），
+ *     状态变量 state 决定下一个真实块 —— 形态与 C 版一致，可用
+ *     D810 default_unflattening_ollvm.json 一键去平坦化（教学台阶）。
+ *  ② 加密算法藏进虚函数类层次：
+ *       Vault（抽象基类）→ HazeVault（真身 AES-128-ECB）/ VeilVault / DuskVault（诱饵）
+ *       Seal （抽象基类）→ HazeSeal （真身 HMAC-SHA256）/ VeilSeal（诱饵）
+ *     调用点只有基类指针 + 虚派发（LDR X8,[X0]; LDR X9,[X8,#N]; BLR X9），
+ *     需恢复 vtable 才能定位真派生类。RTTI 保留类名作线索（.rodata 的 _ZTI*）。
+ *  ③ AES 轮函数本身被「轻度平坦化」：sub/shift/mix/addkey 分散进 switch 状态机。
+ *  ④ 密钥不以明文数组出现：Base64 串藏 .rodata，类构造函数内解码装填，
+ *     析构函数 secure_zero —— hook 析构可反推密钥长度。
  *
- * 算法（迷阵五关里唯一用 HMAC 的一关）：
+ * 算法（迷阵五关里唯一用 HMAC 的一关；语义与 C 版逐字节一致）：
  *   enc  = hex(AES-128-ECB(aes_key, "page=N&ts=T" 零填充))
  *   sign = HMAC-SHA256(mac_key, enc)
  *   aes_key = SHA256("Fatdog_haze|aes")[:16]
@@ -14,18 +22,19 @@
  *   密钥以 Base64 串藏 .rodata（b64decode 即得，Base64 不是加密）。
  *
  * 破解路线：
- *   ① IDA 找 switch dispatcher（LDR R0,[Rn] + CMP + BHI）
+ *   ① IDA 找 switch dispatcher（LDR + CMP + BHI）
  *   ② D810 default_unflattening_ollvm.json 一键去平坦化
  *   ③ 或 angr 符号执行恢复块间跳转
- *   ④ 手工画状态流转图、标真假 case
+ *   ④ 恢复 HazeVault / HazeSeal 的 vtable，排掉 Veil / Dusk 诱饵
  *   ⑤ Python 复刻 AES+HMAC 取数
- *   ⑥ Frida hook dispatcher 观察状态流转
+ *   ⑥ Frida hook dispatcher 或析构观察状态流转
  *
  * 标记（真）：Fatdog_haze  — UTF-16 码元（static const，借 JNI_OnLoad 引用强制保留）。
  * 诱饵（假）：Fatdog_hazey — 一字之差陷阱（haze→hazey）。
  */
 #include <jni.h>
 #include <stdint.h>
+#include <stddef.h>
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -46,9 +55,8 @@ static volatile uint32_t g_marker_proof = 0;
 static const char KEY_B64[] =
     "Ta3Cl3qmIAKoSuT/fOLZdeh9zWfdc4OdmyGpOCfWrNAQmtDZqKD+4peWYPutolUL";
 
-static unsigned char g_aes_key[16];
-static unsigned char g_mac_key[32];
-static int g_keys_ready = 0;
+static unsigned char g_key_raw[48];
+static bool g_key_ready = false;
 
 static int b64_val(char c) {
     if (c >= 'A' && c <= 'Z') return c - 'A';
@@ -78,9 +86,8 @@ static void derive_keys(void) {
     unsigned char raw[48];
     int n = b64_decode(KEY_B64, (int)strlen(KEY_B64), raw);
     if (n >= 48) {
-        memcpy(g_aes_key, raw, 16);
-        memcpy(g_mac_key, raw + 16, 32);
-        g_keys_ready = 1;
+        memcpy(g_key_raw, raw, 48);
+        g_key_ready = true;
     }
 }
 
@@ -167,7 +174,7 @@ static void hmac_sha256(const unsigned char *key, unsigned int klen,
     sha256(outer, 64 + 32, out);
 }
 
-/* ==================== AES-128-ECB（加密，标准 S 盒） ==================== */
+/* ==================== AES-128 常量 ==================== */
 static const unsigned char SBOX[256] = {
     0x63,0x7c,0x77,0x7b,0xf2,0x6b,0x6f,0xc5,0x30,0x01,0x67,0x2b,0xfe,0xd7,0xab,0x76,
     0xca,0x82,0xc9,0x7d,0xfa,0x59,0x47,0xf0,0xad,0xd4,0xa2,0xaf,0x9c,0xa4,0x72,0xc0,
@@ -191,30 +198,7 @@ static const unsigned char RCON[10] = {
     0x01,0x02,0x04,0x08,0x10,0x20,0x40,0x80,0x1b,0x36
 };
 
-static unsigned char g_rk[176]; /* 11 rounds × 16 bytes */
-
-static void aes128_expand(const unsigned char key[16]) {
-    unsigned char temp[4];
-    int i, j;
-    for (i = 0; i < 4; i++)
-        for (j = 0; j < 4; j++) g_rk[i*4+j] = key[i*4+j];
-    for (i = 4; i < 44; i++) {
-        temp[0] = g_rk[(i-1)*4+0];
-        temp[1] = g_rk[(i-1)*4+1];
-        temp[2] = g_rk[(i-1)*4+2];
-        temp[3] = g_rk[(i-1)*4+3];
-        if (i % 4 == 0) {
-            unsigned char t = temp[0];
-            temp[0] = SBOX[temp[1]] ^ RCON[i/4-1];
-            temp[1] = SBOX[temp[2]];
-            temp[2] = SBOX[temp[3]];
-            temp[3] = SBOX[t];
-        }
-        for (j = 0; j < 4; j++)
-            g_rk[i*4+j] = g_rk[(i-4)*4+j] ^ temp[j];
-    }
-}
-
+/* ---- AES 轮函数原子操作（rk 通过参数传入，不再用全局） ---- */
 static void aes_sub(unsigned char s[16]) {
     int i; for (i = 0; i < 16; i++) s[i] = SBOX[s[i]];
 }
@@ -239,91 +223,254 @@ static void aes_mix(unsigned char s[16]) {
         s[i+3] ^= x ^ xtime(a3^a0);
     }
 }
-static void aes_addkey(unsigned char s[16], int round) {
-    int i; for (i = 0; i < 16; i++) s[i] ^= g_rk[round*16+i];
+static void aes_addkey(unsigned char s[16], const unsigned char *rk, int round) {
+    int i; for (i = 0; i < 16; i++) s[i] ^= rk[round*16+i];
 }
 
-static void aes128_enc_block(unsigned char out[16], const unsigned char in[16]) {
+/* ==================== AES 轮函数「轻度平坦化」 ==================== */
+/*
+ * enc_block_flat：原本顺序执行的 10 轮被改写成 switch(state) 状态机，
+ * 每个轮步骤（addkey/sub/shift/mix）自成一个 case —— 与主分发器同构。
+ * 语义与顺序版本逐字节一致：addkey(0); 9×(sub,shift,mix,addkey(r)); sub,shift,addkey(10)。
+ */
+static void enc_block_flat(unsigned char out[16], const unsigned char in[16],
+                           const unsigned char *rk) {
     unsigned char s[16];
-    int round;
+    int r = 0;
+    int st = 0;
     memcpy(s, in, 16);
-    aes_addkey(s, 0);
-    for (round = 1; round < 10; round++) {
-        aes_sub(s); aes_shift(s); aes_mix(s); aes_addkey(s, round);
+    for (;;) {
+        switch (st) {
+        case 0: aes_addkey(s, rk, 0); r = 1; st = 1; break;
+        case 1: aes_sub(s);   st = 2; break;
+        case 2: aes_shift(s); st = 3; break;
+        case 3: aes_mix(s);   st = 4; break;
+        case 4: aes_addkey(s, rk, r); r++; st = (r <= 9) ? 1 : 5; break;
+        case 5: aes_sub(s);   st = 6; break;
+        case 6: aes_shift(s); st = 7; break;
+        case 7: aes_addkey(s, rk, 10); st = 8; break;
+        case 8: memcpy(out, s, 16); st = 9; break;
+        case 9: return;
+        default: st = 0; break;
+        }
     }
-    aes_sub(s); aes_shift(s); aes_addkey(s, 10);
-    memcpy(out, s, 16);
 }
 
-static void aes128_ecb_enc(const unsigned char key[16],
-                           const unsigned char *plain, unsigned int len,
-                           unsigned char *cipher) {
-    unsigned int i;
-    aes128_expand(key);
-    for (i = 0; i < len; i += 16)
-        aes128_enc_block(cipher + i, plain + i);
+/* ==================== 面向对象：密钥容器 + 虚函数藏算法 ==================== */
+/*
+ * Vault：抽象密钥容器。构造时装填密钥，析构时 secure_zero ——
+ * hook 析构函数即可反推密钥长度（16 字节）。
+ */
+class Vault {
+public:
+    Vault() : armed_(false) { memset(key_, 0, sizeof(key_)); }
+    virtual ~Vault() { wipe(); }
+    virtual const char *sigil() const = 0;                                  /* vtable 槽 1 */
+    virtual void seal(const unsigned char *in, size_t n, unsigned char *out) const = 0; /* 槽 2 */
+    bool armed() const { return armed_; }
+protected:
+    void install(const unsigned char *k, size_t n) {
+        size_t m = (n < sizeof(key_)) ? n : sizeof(key_);
+        memcpy(key_, k, m);
+        armed_ = true;
+    }
+    void wipe() { size_t i; for (i = 0; i < sizeof(key_); i++) key_[i] = 0; }
+    unsigned char key_[16];
+    bool armed_;
+};
+
+/* 真身：AES-128-ECB。密钥只有在构造函数里才展开成轮密钥，静态看不见。 */
+class HazeVault : public Vault {
+public:
+    explicit HazeVault(const unsigned char *k) { install(k, 16); expand(); }
+    const char *sigil() const override { return "haze"; }
+    void seal(const unsigned char *in, size_t n, unsigned char *out) const override {
+        size_t off;
+        for (off = 0; off + 16 <= n; off += 16)
+            enc_block_flat(out + off, in + off, rk_);
+    }
+private:
+    void expand() {
+        unsigned char temp[4];
+        int i, j;
+        for (i = 0; i < 4; i++)
+            for (j = 0; j < 4; j++) rk_[i*4+j] = key_[i*4+j];
+        for (i = 4; i < 44; i++) {
+            temp[0] = rk_[(i-1)*4+0];
+            temp[1] = rk_[(i-1)*4+1];
+            temp[2] = rk_[(i-1)*4+2];
+            temp[3] = rk_[(i-1)*4+3];
+            if (i % 4 == 0) {
+                unsigned char t = temp[0];
+                temp[0] = SBOX[temp[1]] ^ RCON[i/4-1];
+                temp[1] = SBOX[temp[2]];
+                temp[2] = SBOX[temp[3]];
+                temp[3] = SBOX[t];
+            }
+            for (j = 0; j < 4; j++)
+                rk_[i*4+j] = rk_[(i-4)*4+j] ^ temp[j];
+        }
+    }
+    unsigned char rk_[176]; /* 11 轮 × 16 字节 */
+};
+
+/* 诱饵①：字节右旋 + 固定 XOR（看着像流密码，结果错） */
+class VeilVault : public Vault {
+public:
+    explicit VeilVault(const unsigned char *k) { install(k, 16); }
+    const char *sigil() const override { return "veil"; }
+    void seal(const unsigned char *in, size_t n, unsigned char *out) const override {
+        size_t i;
+        for (i = 0; i < n; i++) {
+            unsigned char v = in[i];
+            out[i] = (unsigned char)(((v >> 3) | (v << 5)) ^ key_[i & 15] ^ 0xA5);
+        }
+    }
+};
+
+/* 诱饵②：LCG 驱动的伪随机流（产出与真身不同） */
+class DuskVault : public Vault {
+public:
+    explicit DuskVault(const unsigned char *k) { install(k, 16); }
+    const char *sigil() const override { return "dusk"; }
+    void seal(const unsigned char *in, size_t n, unsigned char *out) const override {
+        uint32_t s = 0x12345678u;
+        size_t i;
+        for (i = 0; i < n; i++) {
+            s = s * 1103515245u + 12345u;
+            out[i] = (unsigned char)(in[i] ^ (unsigned char)(s >> 16) ^ key_[(s >> 8) & 15]);
+        }
+    }
+};
+
+/* Seal：抽象 MAC 容器（32 字节密钥） */
+class Seal {
+public:
+    Seal() : armed_(false) { memset(mac_, 0, sizeof(mac_)); }
+    virtual ~Seal() { wipe(); }
+    virtual const char *sigil() const = 0;
+    virtual void stamp(const unsigned char *m, size_t n, unsigned char out[32]) const = 0;
+    bool armed() const { return armed_; }
+protected:
+    void install(const unsigned char *k, size_t n) {
+        size_t m = (n < sizeof(mac_)) ? n : sizeof(mac_);
+        memcpy(mac_, k, m);
+        armed_ = true;
+    }
+    void wipe() { size_t i; for (i = 0; i < sizeof(mac_); i++) mac_[i] = 0; }
+    unsigned char mac_[32];
+    bool armed_;
+};
+
+/* 真身：HMAC-SHA256 */
+class HazeSeal : public Seal {
+public:
+    explicit HazeSeal(const unsigned char *k) { install(k, 32); }
+    const char *sigil() const override { return "haze"; }
+    void stamp(const unsigned char *m, size_t n, unsigned char out[32]) const override {
+        hmac_sha256(mac_, 32, m, (unsigned int)n, out);
+    }
+};
+
+/* 诱饵：SHA256(mac || m) —— 长度扩展式「伪 MAC」，不是 HMAC */
+class VeilSeal : public Seal {
+public:
+    explicit VeilSeal(const unsigned char *k) { install(k, 32); }
+    const char *sigil() const override { return "veil"; }
+    void stamp(const unsigned char *m, size_t n, unsigned char out[32]) const override {
+        unsigned char buf[256];
+        memcpy(buf, mac_, 32);
+        if (n > sizeof(buf) - 32) n = sizeof(buf) - 32;
+        memcpy(buf + 32, m, n);
+        sha256(buf, (unsigned int)(32 + n), out);
+    }
+};
+
+/* ==================== 工厂（kind 决定返回哪个派生类） ==================== */
+enum VaultKind { kHaze = 0, kVeil = 1, kDusk = 2 };
+
+static Vault *make_vault(int kind) {
+    switch (kind) {
+    case kVeil: return new VeilVault(g_key_raw);
+    case kDusk: return new DuskVault(g_key_raw);
+    case kHaze:
+    default:    return new HazeVault(g_key_raw);
+    }
+}
+
+static Seal *make_seal(int kind) {
+    if (kind == kVeil) return new VeilSeal(g_key_raw + 16);
+    return new HazeSeal(g_key_raw + 16);
 }
 
 /* ==================== 控制流平坦化核心 ==================== */
+struct Board {
+    char sign_hex[65];
+    char enc_hex[65];
+    char msg[64];
+    unsigned char plain[32];
+    unsigned char enc[32];
+    unsigned char dg[32];
+};
+static Board &board() { static Board b; return b; }
+
 /*
- * flat_derive_and_sign：被"平坦化"的签名函数。
+ * flat_derive_and_sign：被「平坦化」的签名函数。
  * 原本顺序执行的逻辑（拼消息 → AES 加密 → hex → HMAC 签名 → hex）
  * 被改写为 switch-case 主分发器：状态变量 state 决定下一个真实块。
  * 16 个 case：10 真实（0~9）+ 6 虚假（10~15）。
- * 虚假 case：10 提前 return、11 死循环、12 无意义运算、
- *           13 复制 case 0 但改坏状态、14 空跳、15 返回全 0。
  */
-static char g_sign_hex[65];
-static char g_enc_hex[65];
-static char g_msg[64];
-static unsigned char g_plain[32];
-static unsigned char g_enc[32];
-static unsigned char g_dg[32];
-
 static void flat_derive_and_sign(int page, long long ts) {
+    Board &B = board();
     int state = 0;
     int i;
 
-    if (!g_keys_ready) derive_keys();
+    if (!g_key_ready) derive_keys();
+
+    /* 懒建单例：构造函数内展开密钥；类层次里同时存在 2 个诱饵派生类 */
+    static Vault *vault = make_vault(kHaze);
+    static Seal  *seal  = make_seal(kHaze);
+    (void)vault->armed();
+    (void)seal->armed();
 
     for (;;) {
         switch (state) {
         /* ---- 真实块 ---- */
         case 0: /* 拼消息 */
-            snprintf(g_msg, sizeof(g_msg), "page=%d&ts=%lld", page, ts);
+            snprintf(B.msg, sizeof(B.msg), "page=%d&ts=%lld", page, ts);
             state = 1; break;
         case 1: /* 拼明文（零填充到 32 = 2 个 AES 块） */
-            memset(g_plain, 0, 32);
+            memset(B.plain, 0, 32);
             {
-                int ml = (int)strlen(g_msg);
+                int ml = (int)strlen(B.msg);
                 if (ml > 32) ml = 32;
-                memcpy(g_plain, g_msg, ml);
+                memcpy(B.plain, B.msg, ml);
             }
             state = 2; break;
-        case 2: /* AES-128-ECB 加密（2 块） */
-            aes128_ecb_enc(g_aes_key, g_plain, 32, g_enc);
+        case 2: /* 加密：虚派发到 HazeVault::seal（内部走平坦化的 AES 轮） */
+            vault->seal(B.plain, 32, B.enc);
             state = 3; break;
         case 3: /* enc → hex */
             {
                 static const char *H = "0123456789abcdef";
                 for (i = 0; i < 32; i++) {
-                    g_enc_hex[2*i]   = H[g_enc[i] >> 4];
-                    g_enc_hex[2*i+1] = H[g_enc[i] & 0xF];
+                    B.enc_hex[2*i]   = H[B.enc[i] >> 4];
+                    B.enc_hex[2*i+1] = H[B.enc[i] & 0xF];
                 }
-                g_enc_hex[64] = 0;
+                B.enc_hex[64] = 0;
             }
             state = 4; break;
-        case 4: /* HMAC-SHA256(mac_key, enc_hex) */
-            hmac_sha256(g_mac_key, 32, (const unsigned char *)g_enc_hex, 64, g_dg);
+        case 4: /* 签名：虚派发到 HazeSeal::stamp（HMAC-SHA256） */
+            seal->stamp((const unsigned char *)B.enc_hex, 64, B.dg);
             state = 5; break;
         case 5: /* sign → hex */
             {
                 static const char *H = "0123456789abcdef";
                 for (i = 0; i < 32; i++) {
-                    g_sign_hex[2*i]   = H[g_dg[i] >> 4];
-                    g_sign_hex[2*i+1] = H[g_dg[i] & 0xF];
+                    B.sign_hex[2*i]   = H[B.dg[i] >> 4];
+                    B.sign_hex[2*i+1] = H[B.dg[i] & 0xF];
                 }
-                g_sign_hex[64] = 0;
+                B.sign_hex[64] = 0;
             }
             state = 9; break;
         case 6: /* 冗余块：无用运算（凑真实块数量，让图更复杂） */
@@ -341,7 +488,7 @@ static void flat_derive_and_sign(int page, long long ts) {
 
         /* ---- 虚假块 ---- */
         case 10: /* 提前 return（截断） */
-            g_sign_hex[0] = 0;
+            B.sign_hex[0] = 0;
             return;
         case 11: /* 死循环 */
             for (;;) { /* hang */ }
@@ -352,13 +499,13 @@ static void flat_derive_and_sign(int page, long long ts) {
             }
             state = 0; break;
         case 13: /* 复制 case 0 但改坏状态（跳向死循环） */
-            snprintf(g_msg, sizeof(g_msg), "page=%d&ts=%lld", page, ts);
+            snprintf(B.msg, sizeof(B.msg), "page=%d&ts=%lld", page, ts);
             state = 11; break;
         case 14: /* 空跳 */
             state = 1; break;
         case 15: /* 返回全 0 */
-            memset(g_sign_hex, '0', 64);
-            g_sign_hex[64] = 0;
+            memset(B.sign_hex, '0', 64);
+            B.sign_hex[64] = 0;
             return;
         default:
             state = 0; break;
@@ -366,25 +513,25 @@ static void flat_derive_and_sign(int page, long long ts) {
     }
 }
 
-/* ==================== JNI 接口 ==================== */
-JNIEXPORT jstring JNICALL
+/* ==================== JNI 接口（.cpp 里必须 extern "C"） ==================== */
+extern "C" JNIEXPORT jstring JNICALL
 Java_com_fatdog_reverse_FogCore_nativeFlatSign(JNIEnv *env, jclass clazz,
-                                                jint page, jlong ts) {
+                                               jint page, jlong ts) {
     (void)clazz;
     flat_derive_and_sign(page, (long long)ts);
-    return (*env)->NewStringUTF(env, g_sign_hex);
+    return env->NewStringUTF(board().sign_hex);
 }
 
-JNIEXPORT jstring JNICALL
+extern "C" JNIEXPORT jstring JNICALL
 Java_com_fatdog_reverse_FogCore_nativeEnc(JNIEnv *env, jclass clazz,
-                                           jint page, jlong ts) {
+                                          jint page, jlong ts) {
     (void)clazz;
     flat_derive_and_sign(page, (long long)ts);
-    return (*env)->NewStringUTF(env, g_enc_hex);
+    return env->NewStringUTF(board().enc_hex);
 }
 
 /* 标记留存：JNI_OnLoad 内联引用，防 --gc-sections 删除真标记 */
-JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void *reserved) {
+extern "C" JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void *reserved) {
     (void)vm; (void)reserved;
     uint32_t mp = 0x5A5A5A5Au;
     int i;

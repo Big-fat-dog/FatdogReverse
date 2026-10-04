@@ -779,37 +779,37 @@ LOCAL_SRC_FILES := dew.c
 LOCAL_LDLIBS := -llog
 include $(BUILD_SHARED_LIBRARY)
 
-# KL51 迷阵 迷雾初开（OLLVM 控制流平坦化基础：switch dispatcher + AES + HMAC，Base64 藏钥）
+# KL51 迷阵 迷雾初开（C++ OOP + OLLVM 控制流平坦化：switch dispatcher + 虚派发 AES/HMAC，Base64 藏钥）
 include $(CLEAR_VARS)
 LOCAL_MODULE := fog
-LOCAL_SRC_FILES := fog.c
+LOCAL_SRC_FILES := fog.cpp
 LOCAL_LDLIBS := -llog
 include $(BUILD_SHARED_LIBRARY)
 
-# KL52 迷阵 虚实相生（OLLVM 虚假控制流：不透明谓词 + 不可达虚假块 + SM4 + SHA256，Base64 藏钥）
+# KL52 迷阵 虚实相生（C++ OOP + OLLVM 虚假控制流：不透明谓词 + 克隆形变块 + 虚派发 SM4/SHA256，Base64 藏钥）
 include $(CLEAR_VARS)
 LOCAL_MODULE := phantom
-LOCAL_SRC_FILES := phantom.c
+LOCAL_SRC_FILES := phantom.cpp
 LOCAL_LDLIBS := -llog
 include $(BUILD_SHARED_LIBRARY)
 
-# KL53 迷阵 移形换位（OLLVM 字符串加密：datadiv_decode/init_array/JNI_OnLoad 三变体 + AES-CBC + MD5）
+# KL53 迷阵 移形换位（C++ OOP + OLLVM 字符串加密：三变体解密平坦化 + 虚派发 AES-CBC/MD5 + JNI_OnLoad 分发器）
 include $(CLEAR_VARS)
 LOCAL_MODULE := shift
-LOCAL_SRC_FILES := shift.c
+LOCAL_SRC_FILES := shift.cpp
 LOCAL_LDLIBS := -llog
 include $(BUILD_SHARED_LIBRARY)
 
-# KL54 迷阵 困兽犹斗（间接跳转 + 函数指针派发 + 指令替换 + 魔改 SM4 + 魔改 Base64）
+# KL54 迷阵 困兽犹斗（C++ OOP + 魔改 FLA：中间块链 + 加密跳转表间接派发 + 真指令替换 + 虚派发魔改 SM4 + JNI_OnLoad 分发器）
 include $(CLEAR_VARS)
 LOCAL_MODULE := beast
-LOCAL_SRC_FILES := beast.c
+LOCAL_SRC_FILES := beast.cpp
 LOCAL_LDLIBS := -llog
 include $(BUILD_SHARED_LIBRARY)
 
-# KL55 迷阵 破阵而出（综合收官卷：六重叠加 + 魔改 AES + 魔改 Base64 响应）
+# KL55 迷阵 破阵而出（C++ OOP + 手写 OLLVM 综合收官：三级状态机 + 支配节点 key + 异常边 + 虚派发魔改 AES/魔改 Base64 响应 + JNI_OnLoad 分发器）
 include $(CLEAR_VARS)
 LOCAL_MODULE := gate
-LOCAL_SRC_FILES := gate.c
+LOCAL_SRC_FILES := gate.cpp
 LOCAL_LDLIBS := -llog
 include $(BUILD_SHARED_LIBRARY)
