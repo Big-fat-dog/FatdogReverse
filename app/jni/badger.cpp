@@ -1,5 +1,5 @@
 /**
- * native48.cpp — Native大陆 L48 落日平原（operator+ 重载）
+ * badger.cpp — Native大陆 L48 落日平原（operator+ 重载）
  *
  * 考点：C++ name mangling + std::string + operator+ 运算符重载
  * HMAC 密钥由两段 XOR 数组经 operator+ 拼接而成

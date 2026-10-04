@@ -2907,6 +2907,20 @@ sign       = HMAC-SHA256(derivedKey, payload)
 
 ## Native大陆（L48-L53）
 
+> **本章 so 的装载点（L48-L53 通用，先看这里）**：这 6 关的 JNI 桥类（`Bk48`~`Bk53`）**只有 `native` 声明，没有任何 `loadLibrary`**——所以别指望「进关卡 → 看桥类 → 直接拿到 so 名」。**每关 10 个 so（共 60 个），名字与关卡号完全无关**，而且全都被 `System.loadLibrary` 拉进进程；装载点**故意拆成三种**（本身就是考点）：
+>
+> | 方法 | 关卡 | so（每关 10 个，**加粗 = 真身/辅助**） | 装载点 |
+> |---|---|---|---|
+> | **A** | L48 / L49 | `beetle` `cobalt` `heron` `ledger` `magpie` `pelican` `tariff` `voucher` `walrus` **`badger`** ｜ `cargo` `dispatch` `escrow` `falcon` `gecko` `hornet` `lynx` `payroll` `quartz` **`otter`** | `AppInit.java` 的静态块（manifest 的 `<application android:name=".FatdogApp">` → `FatdogApp.onCreate()`） |
+> | **B** | L50 / L51 | `cricket` `granite` `ibex` `invoice` `koala` `manifest` `mink` `parcel` `vendor` **`crane`** ｜ `audit` `bond` `courier` `freight` `newt` `quota` `salmon` `weasel` **`turtle`** **`shark`** | `MainActivity.java` 类体里的 `static {}` 块 |
+> | **C** | L52 / L53 | `banking` `dingo` `eagle` `finch` `fund` `registry` `retail` `tender` **`cobra`** **`moose`** ｜ `customs` `lemur` `panda` `quail` `rebate` `robin` `seal` `zebra` **`viper`** **`tapir`** | `WarmUp.java` 的静态块（`MainActivity.onCreate()` → `WarmUp.load()`） |
+>
+> **每关多出来的 9 个是干扰 so**：它们的 `JNI_OnLoad` 各自往本关桥类上 `RegisterNatives` 注册一个**假 native 方法**（如 `Bk48.nativeAudit`、`Bk51.nativeBucket`），返回值是**看起来完全合法的 hex 摘要**。于是 jadx 里 `Bk4x` 会挂着十几个 native 方法，只有 2~3 个是真协议；`/proc/maps` 里一堆 so 每个都在注册——**光看名字或返回值谁也认不出真身**，只能逐个逆，或动态 hook `RegisterNatives` 把「哪个 so 注册了哪个方法」一对一录下来。
+>
+> **定位路径**：① 全局搜 `loadLibrary` 一把梭（三个装载点会同时命中，共 60 行）；② 或先看 `AndroidManifest.xml` 的 `android:name` → `FatdogApp` → `AppInit`（方法 A），再翻 `MainActivity`（B 在类体、C 在 `onCreate`）；③ 动态最省事：`unzip -l FatdogReverse.apk | grep 'lib/arm64-v8a'` 列全部 so，或 `cat /proc/<pid>/maps`——**App 一启动只见方法 A 的 20 个（L48/L49），进大厅后另外 40 个才出现**，这就是三种时机的差别。
+>
+> ⚠️ 方法 B/C 挂在大厅：绕过 MainActivity 用 root/Frida 强启 `x50`~`x53` 会 `UnsatisfiedLinkError`；正常从大厅点进去不受影响（所有关卡 Activity 都是 `exported="false"`，外部直启本就被系统拒）。
+
 
 ### 关卡 48：落日平原（C++ operator+ 派生密钥 · body 摘要参与签名）
 
@@ -3085,8 +3099,8 @@ Interceptor.attach(fn, {
 **考点**：L50 的升级版——三重签名算法（3DES 对称加密 + SM3 哈希 + HMAC-SHA256 签名）分布在三个独立 SO 中，通过 dlopen 依赖链加载。
 
 **静态解法**：
-1. 解包 APK 取 `libnative51.so`、`libnative51h.so`、`libnative51b.so`
-2. IDA 分析 `libnative51.so`：`nativeSign` 调用 `dlopen("libnative51h.so")` 获取 SM3 和 HMAC 函数指针
+1. 解包 APK 取 `libshark.so`、`libturtle.so`、`libquota.so`
+2. IDA 分析 `libshark.so`：`nativeSign` 调用 `dlopen("libturtle.so")` 获取 SM3 和 HMAC 函数指针
 3. 密钥派生：`key_3des = SHA256("Fatdog_peak|3des")[:24]`、`key_sm3 = SHA256("Fatdog_peak|sm3")`、`key_mac = SHA256("Fatdog_peak|mac")`
 4. `enc = hex(3DES_ECB(key_3des, "page=N&ts=T" 零填充))`、`hash = SM3(enc)`、`sign = HMAC-SHA256(key_mac, hash)`
 5. `GET /api/l51?page=N&ts=T&enc=…&hash=…&sign=…`
@@ -3111,9 +3125,9 @@ Interceptor.attach(Module.findExportByName(null, 'dlopen'), {
 ```
 
 **坑位提醒**：
-- 三个 SO 必须同时存在，缺任何一个 `dlopen` 失败导致崩溃
-- SM3 是国密哈希算法，标准库没有——必须从 `libnative51h.so` 的导出函数还原
-- `libnative51b.so` 是纯业务代码干扰（ThreadPool/EventBus/MetricsCollector/CircuitBreaker/RateLimiter），与加密无关
+- `shark` **不在 `JNI_OnLoad` 里**取 h 的函数指针，而是首次调用 `nativeEnc`/`nativeSign` 时经 `loadHashLib()` 惰性 `dlopen("libturtle.so")` 并 `dlsym` 取 SM3/HMAC 函数指针（`hHash` 缓存）；缺 h 会导致空指针调用崩溃。`libquota.so` 是**唯一**在 `JNI_OnLoad` 里被 `dlopen` 拉进进程的（纯诱饵，缺失不影响通关）
+- SM3 是国密哈希算法，标准库没有——必须从 `libturtle.so` 的导出函数还原
+- `libquota.so` 是纯业务代码干扰（ThreadPool/EventBus/MetricsCollector/CircuitBreaker/RateLimiter），与加密无关；它由 `shark` 的 `JNI_OnLoad` 用 `dlopen` 拉进进程，可在 `/proc/self/maps` 或 hook `dlopen` 时看到
 - `Fatdog_peak`（真标记）和 `Fatdog_pick`（诱饵 UTF-16）用 `strings -el` 对比
 
 答案：加和 `50247`；flag `FLAG_18_L51{thunder_peak}`
@@ -3124,9 +3138,9 @@ Interceptor.attach(Module.findExportByName(null, 'dlopen'), {
 **考点**：L51 的升级版——魔改 SM4（S 盒 4 处换值 + FK 异或 + CK 循环左移）+ 深层调用栈（5+ 层）+ 海量业务代码干扰（8 个类 ~1500 行）。
 
 **静态解法**：
-1. 解包 APK 取 `libnative52.so`、`libnative52k.so`、`libnative52b.so`
-2. IDA 分析 `libnative52.so`：识别魔改 SM4（S 盒魔数 0xd6,0x90,0xe9…可认出骨架），找到 4 处换值（0x3A/0x7F/0xB2/0xE8）
-3. 密钥：`libnative52k.so` 导出 `getSm4Key()`/`getHmacKey()`，XOR 数组 ^0x3C 还原
+1. 解包 APK 取 `libmoose.so`、`libcobra.so`、`libregistry.so`
+2. IDA 分析 `libmoose.so`：识别魔改 SM4（S 盒魔数 0xd6,0x90,0xe9…可认出骨架），找到 4 处换值（0x3A/0x7F/0xB2/0xE8）
+3. 密钥：`libcobra.so` 导出 `getSm4Key()`/`getHmacKey()`，XOR 数组 ^0x3C 还原
 4. `enc = hex(SM52_ECB(sm4_key, "page=N&ts=T"))`、`sign = HMAC-MD5(hmac_key, "page=N&ts=T")`
 5. `GET /api/l52?page=N&ts=T&enc=…&sign=…`
 
@@ -3153,7 +3167,7 @@ Java.perform(function () {
 
 **坑位提醒**：
 - 魔改 SM4 的 S 盒与标准只差 4 个字节——肉眼几乎看不出差异，需逐字节比对
-- `libnative52b.so` 有 8 个业务类（InventoryService/ShippingCalculator/UserPreferenceStore/DataSyncer/ReportGenerator/BackupManager/NotificationService/RateLimiter），每个类 5-8 个方法，纯干扰
+- `libregistry.so` 有 8 个业务类（InventoryService/ShippingCalculator/UserPreferenceStore/DataSyncer/ReportGenerator/BackupManager/NotificationService/RateLimiter），每个类 5-8 个方法，纯干扰；由 `moose` 的 `JNI_OnLoad` 用 `dlopen` 拉进进程（maps / dlopen hook 可见）
 - 深层调用栈：JNI → k52_dispatch → k52_process → Sm52Cipher::encryptBlock → k52_sm4_round × 32 → k52_sub_bytes
 - `Fatdog_snow`（真标记）和 `Fatdog_snowflake`（诱饵 UTF-16）用 `strings -el` 对比
 
@@ -3166,13 +3180,13 @@ Java.perform(function () {
 **协议**：`POST /api/l53` 表单 `page=1&ts=T&enc=hex(Feistel)&aes=hex(AES变体)&sign=HMAC`
 响应：`{"d": hex(RC4_enc(json))}`
 
-**SO 架构**：native53（调度+异常控制流）+ native53c（加密核心+密钥）+ native53b（22类业务干扰 ~1500+ 行）
+**SO 架构**：tapir（调度+异常控制流）+ viper（加密核心+密钥）+ customs（22类业务干扰 ~1500+ 行）
 
 **静态解法**：IDA 分析 3 个 SO：
-1. native53：`k53_dispatch` → `ErrorHandler::process`（try/catch 藏真逻辑，先对输入 XOR 0x5A）→ `CipherFactory::create`（vtable 分发：algo=1 Feistel，algo=2 独立魔改 AES）
-2. native53c：魔改 S 盒 + FK 异或（`0x5254465F, 0x4C33335F, 0x46495245, 0x5F4D4B35`）+ 共用密钥扩展；`k53FeistelEncrypt` 和 `k53AesVariantEncrypt` 分别实现两条轮结构
+1. tapir：`k53_dispatch` → `ErrorHandler::process`（try/catch 藏真逻辑，先对输入 XOR 0x5A）→ `CipherFactory::create`（vtable 分发：algo=1 Feistel，algo=2 独立魔改 AES）
+2. viper：魔改 S 盒 + FK 异或（`0x5254465F, 0x4C33335F, 0x46495245, 0x5F4D4B35`）+ 共用密钥扩展；`k53FeistelEncrypt` 和 `k53AesVariantEncrypt` 分别实现两条轮结构
 3. 密钥：混淆数组 A/B/C 各 XOR 0x3C → AES key / HMAC key / RC4 key
-4. native53b：22 个业务类（ScoringService, LeaderboardService, TournamentService, CacheManager, RateLimiter, CircuitBreaker, HealthMonitor, MetricsCollector, TelemetryEngine, AnalyticsPipeline, ResourceManager, QueueProcessor, JobScheduler, RetryPolicy, FallbackHandler, LoadBalancer, ServiceRegistry, ConfigManager, SecretRotator, AuditLogger, AlertManager, IncidentTracker），纯干扰
+4. customs：22 个业务类（ScoringService, LeaderboardService, TournamentService, CacheManager, RateLimiter, CircuitBreaker, HealthMonitor, MetricsCollector, TelemetryEngine, AnalyticsPipeline, ResourceManager, QueueProcessor, JobScheduler, RetryPolicy, FallbackHandler, LoadBalancer, ServiceRegistry, ConfigManager, SecretRotator, AuditLogger, AlertManager, IncidentTracker），纯干扰；由 `tapir` 的 `JNI_OnLoad` 用 `dlopen` 拉进进程（maps / dlopen hook 可见）
 
 **动态解法**：Frida hook Bk53.nativeSign/nativeEnc 拿明文 payload → Python 复刻
 
@@ -3209,7 +3223,7 @@ AES_KEY  = b"Fatdog_aes_key_\x00"
 HMAC_KEY = b"Fatdog_hmac_k53\x00"
 RC4_KEY  = b"Fatdog_rc4_k53\x00\x00"
 
-# Feistel + AES 变体 + HMAC-MD5 + RC4（复刻 native53c 两条加密分支）
+# Feistel + AES 变体 + HMAC-MD5 + RC4（复刻 viper 两条加密分支）
 # ...
 
 # 批量取数
@@ -3232,7 +3246,7 @@ print(total)  # 50446
 **坑位提醒**：
 - 异常控制流：`ErrorHandler::process` 的 try 块是空的，真逻辑藏在 catch 块里——IDA 跟 catch 分支
 - Feistel 轮函数每 3 轮用不同子密钥（variant 0/1/2），密钥扩展也有 3 个变体
-- native53c 对外用 `k53FeistelEncrypt` / `k53AesVariantEncrypt` / `k53Rc4Crypt` 三个 C 导出；内部 `aesEncrypt`、`rc4Encrypt` 仍是 C++ mangled 名
+- viper 对外用 `k53FeistelEncrypt` / `k53AesVariantEncrypt` / `k53Rc4Crypt` 三个 C 导出；内部 `aesEncrypt`、`rc4Encrypt` 仍是 C++ mangled 名
 - 22 个业务类（ScoringService 到 IncidentTracker）约 1500+ 行纯干扰代码
 
 答案：加和 `50446`；flag `FLAG_18_L53{scorched_fireland}`

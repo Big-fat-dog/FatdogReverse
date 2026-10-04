@@ -38,13 +38,13 @@ import okhttp3.Response;
 /**
  * Native大陆 L51 雷霆山巅（3 SO 分离 · 模板 + constexpr）
  *
- * libnative51.so  — 主入口 + 3DES-EDE-ECB
- * libnative51h.so — SM3 + HMAC + 密钥
- * libnative51b.so — 业务代码干扰（dlopen 加载）
+ * libshark.so  — 主入口 + 3DES-EDE-ECB
+ * libturtle.so — SM3 + HMAC + 密钥
+ * libquota.so — 业务代码干扰（dlopen 加载）
  *
  * 破解路线：
  *   ① IDA 定位 TemplateCipher<DesTag> 模板实例化符号
- *   ② dlopen 依赖链追踪：native51 → native51h（密钥）
+ *   ② dlopen 依赖链追踪：shark → turtle（密钥）
  *   ③ 静态复刻：还原 3DES key + SM3 salt
  *
  * Flag: FLAG_18_L51{thunder_peak}

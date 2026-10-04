@@ -38,9 +38,9 @@ import okhttp3.Response;
 /**
  * Native大陆 L52 冰封雪域（★★★★★ 魔改 SM4 · 3 SO 分离）
  *
- * libnative52.so   — 主入口 + 魔改 SM4
- * libnative52k.so  — 密钥 + RC4
- * libnative52b.so  — 业务干扰（dlopen 加载）
+ * libmoose.so   — 主入口 + 魔改 SM4
+ * libcobra.so  — 密钥 + RC4
+ * libregistry.so  — 业务干扰（dlopen 加载）
  *
  * 破解路线：
  *   ① IDA 识别魔改 SM4（S盒4处换值 + FK异或 + CK循环左移）

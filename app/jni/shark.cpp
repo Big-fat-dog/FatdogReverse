@@ -1,9 +1,9 @@
 /*
- * libnative51.so — L51 雷霆山巅（Native大陆第4关）
+ * libshark.so — L51 雷霆山巅（Native大陆第4关）
  *
  * 主入口 + 3DES-EDE-ECB + JNI
- * 密钥从 libnative51h.so 获取
- * 业务代码在 libnative51b.so
+ * 密钥从 libturtle.so 获取
+ * 业务代码在 libquota.so
  *
  * 协议：GET /api/l51?enc=3DES密文&sig=SM3摘要&ts=T
  * flag：FLAG_18_L51{thunder_peak}
@@ -18,7 +18,7 @@
 #include <vector>
 
 /* ============================================================
- * 从 libnative51h.so 获取密钥的函数指针
+ * 从 libturtle.so 获取密钥的函数指针
  * ============================================================ */
 static const unsigned char* (*getDesKey_fn)() = nullptr;
 static const unsigned char* (*getSm3Salt_fn)() = nullptr;
@@ -28,7 +28,7 @@ static void* hHash = nullptr;
 
 static bool loadHashLib() {
     if (hHash) return true;
-    hHash = dlopen("libnative51h.so", RTLD_NOW);
+    hHash = dlopen("libturtle.so", RTLD_NOW);
     if (!hHash) return false;
     getDesKey_fn = (const unsigned char*(*)())dlsym(hHash, "getDesKey");
     getSm3Salt_fn = (const unsigned char*(*)())dlsym(hHash, "getSm3Salt");
@@ -241,7 +241,7 @@ static jstring nativeSign51(JNIEnv* env, jobject, jstring encHex) {
     // sig = SM3(salt + enc)
     const unsigned char* salt = getSm3Salt_fn();
     int saltLen = getSm3SaltLen_fn();
-    // 调用 libnative51h 的 sm3Compute
+    // 调用 libturtle 的 sm3Compute
     static const char* (*sm3Compute_fn)(const unsigned char*, int) = nullptr;
     if (!sm3Compute_fn) sm3Compute_fn = (const char*(*)(const unsigned char*, int))dlsym(hHash, "sm3Compute");
     if (!sm3Compute_fn) return env->NewStringUTF("");
@@ -252,7 +252,7 @@ static jstring nativeSign51(JNIEnv* env, jobject, jstring encHex) {
 }
 
 static jstring getKeyHint51(JNIEnv* env, jobject) {
-    return env->NewStringUTF("keys_in_native51h");
+    return env->NewStringUTF("keys_in_turtle");
 }
 
 /* ============================================================
@@ -272,5 +272,8 @@ JNI_OnLoad(JavaVM* vm, void*) {
     jclass cls = env->FindClass("com/fatdog/reverse/Bk51");
     if (!cls) return JNI_ERR;
     if (env->RegisterNatives(cls, gMethods51, 3) != JNI_OK) return JNI_ERR;
+    /* 干扰 so：仅 dlopen 进进程（出现于 /proc/self/maps、可被 dlopen-trace 捕获），
+     * 不 dlsym、不调用其中任何符号（纯诱饵，不影响通关逻辑） */
+    (void)dlopen("libquota.so", RTLD_NOW);
     return JNI_VERSION_1_6;
 }

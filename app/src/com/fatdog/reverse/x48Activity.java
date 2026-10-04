@@ -39,7 +39,7 @@ import okhttp3.Response;
 /**
  * Native大陆 L48 落日平原（operator+ 重载）
  *
- * libnative48.so 导出：
+ * libbadger.so 导出：
  *   String nativeSign(int page, long ts)  — HMAC-SHA256 签名
  *   String getKeyHint()                  — 密钥右半段提示
  *

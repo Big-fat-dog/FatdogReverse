@@ -45,6 +45,29 @@ public class MainActivity extends Activity {
             {R.id.btn_l48, R.id.btn_l49, R.id.btn_l50, R.id.btn_l51, R.id.btn_l52, R.id.btn_l53},
     };
 
+    static {
+        System.loadLibrary("cricket");
+        System.loadLibrary("granite");
+        System.loadLibrary("ibex");
+        System.loadLibrary("invoice");
+        System.loadLibrary("koala");
+        System.loadLibrary("manifest");
+        System.loadLibrary("mink");
+        System.loadLibrary("parcel");
+        System.loadLibrary("vendor");
+        System.loadLibrary("crane");
+        System.loadLibrary("audit");
+        System.loadLibrary("bond");
+        System.loadLibrary("courier");
+        System.loadLibrary("freight");
+        System.loadLibrary("newt");
+        System.loadLibrary("quota");
+        System.loadLibrary("salmon");
+        System.loadLibrary("weasel");
+        System.loadLibrary("turtle");
+        System.loadLibrary("shark");
+    }
+
     private FrameLayout host;
     private View levelsPage, kunlunPage, profilePage;
 
@@ -63,6 +86,7 @@ public class MainActivity extends Activity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        WarmUp.load();
         setContentView(R.layout.activity_main);
 
         host = findViewById(R.id.content_host);

@@ -1,5 +1,5 @@
 /**
- * native52b.cpp — L52 冰封雪域（海量业务代码干扰）
+ * registry.cpp — L52 冰封雪域（海量业务代码干扰）
  *
  * 8 个业务类，每个类 5-8 个方法，每个方法 30-50 行
  * 被 JNI_OnLoad 通过 dlopen 加载，部分函数指针注册到本地方法表做干扰
@@ -16,7 +16,7 @@
 #include <ctime>
 #include <android/log.h>
 
-#define LOG_TAG "native52b"
+#define LOG_TAG "registry"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
 
 // ==================== InventoryService ====================
@@ -569,12 +569,64 @@ static BackupManager g_backup;
 static NotificationService g_notifier;
 static RateLimiter g_limiter;
 
-jint JNI_OnLoad(JavaVM* vm, void*) {
+
+/* ==================== JNI 绑定（RegisterNatives 动态注册） ==================== */
+#include <jni.h>
+#include <cstdio>
+#include <string>
+#include <cstdint>
+
+__attribute__((unused)) static std::string registry_j2s(JNIEnv* env, jstring s) {
+    if (s == nullptr) return std::string();
+    const char* c = env->GetStringUTFChars(s, nullptr);
+    std::string out = (c != nullptr) ? std::string(c) : std::string();
+    if (c != nullptr) env->ReleaseStringUTFChars(s, c);
+    return out;
+}
+
+__attribute__((unused)) static std::string registry_mix(const std::string& in, uint32_t salt, int words) {
+    uint32_t a = 0x811C9DC5u ^ salt;
+    uint32_t b = a ^ 0x9E3779B9u;
+    std::string out;
+    char buf[16];
+    for (int i = 0; i < words; ++i) {
+        b = (b << 5 | b >> 27) ^ (a + (uint32_t)(i * 0x27D4EB2Du));
+        a = (a << 13 | a >> 19) + (b ^ 0x165667B1u);
+        snprintf(buf, sizeof(buf), "%08x", b);
+        out += buf;
+    }
+    return out;
+}
+
+static jstring j_nCatalog(JNIEnv* env, jobject, jstring a0) {
+    std::string in;
+    in += registry_j2s(env, a0);
+    return env->NewStringUTF(registry_mix(in, 948197774u, 8).c_str());
+}
+
+static const JNINativeMethod gMethods_registry[] = {
+    {"nativeCatalog", "(Ljava/lang/String;)Ljava/lang/String;", (void*)j_nCatalog},
+};
+
+static void register_registry_methods(JavaVM* vm) {
+    JNIEnv* env = nullptr;
+    if (vm->GetEnv(reinterpret_cast<void**>(&env), JNI_VERSION_1_6) != JNI_OK) return;
+    jclass cls = env->FindClass("com/fatdog/reverse/Bk52");
+    if (cls != nullptr) {
+        if (env->RegisterNatives(cls, gMethods_registry, 1) != JNI_OK && env->ExceptionCheck())
+            env->ExceptionClear();
+    } else if (env->ExceptionCheck()) {
+        env->ExceptionClear();
+    }
+}
+
+extern "C" JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void*) {
     LOGI("JNI_OnLoad: L52b business modules loaded");
     // 初始化一些示例数据
     g_inventory.addProduct(1001, "Frost Crystal", 500, 29.99);
     g_inventory.addProduct(1002, "Snow Fragment", 300, 19.99);
     g_inventory.addProduct(1003, "Ice Shard", 100, 49.99);
+    register_registry_methods(vm);
     return JNI_VERSION_1_6;
 }
 

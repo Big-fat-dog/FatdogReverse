@@ -38,7 +38,7 @@ import okhttp3.Response;
 /**
  * Native大陆 L50 幽暗深渊（vtable 虚函数表分发 · AES-128-ECB + SHA-256 + HMAC-SHA256）
  *
- * libnative50.so 导出：
+ * libcrane.so 导出：
  *   String nativeEnc(int page, long ts)  — AES-128-ECB 加密（返回 hex）
  *   String nativeSign(String enc_hex)    — SHA-256 签名
  *   String getKeyHint()                 — 密钥提示

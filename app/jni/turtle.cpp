@@ -1,8 +1,8 @@
 /*
- * libnative51h.so — L51 雷霆山巅（哈希 + HMAC + 密钥）
+ * libturtle.so — L51 雷霆山巅（哈希 + HMAC + 密钥）
  *
  * 编译期常量展开 + SM3 哈希 + HMAC-SHA256 + XOR 密钥数组
- * 被 libnative51.so 通过 dlopen/dlsym 加载
+ * 被 libshark.so 通过 dlopen/dlsym 加载
  */
 
 #include <string>

@@ -1,5 +1,5 @@
 /*
- * libnative50.so — L50 幽暗深渊（Native大陆第 3 关）
+ * libcrane.so — L50 幽暗深渊（Native大陆第 3 关）
  *
  * 特性：vtable 虚函数表分发 · AES-128-ECB + SHA-256 + HMAC-SHA256
  *
@@ -928,7 +928,7 @@ Java_com_fatdog_reverse_Bk50_nativeSign(JNIEnv* env, jobject, jstring encHex) {
 JNIEXPORT jstring JNICALL
 Java_com_fatdog_reverse_Bk50_getKeyHint(JNIEnv* env, jobject) {
     // 诱饵提示（UTF-16 藏在 .rodata 中，strings 默认搜不到）
-    // strings -el libnative50.so 可见 "Fatdog_red"，但那是诱饵
+    // strings -el libcrane.so 可见 "Fatdog_red"，但那是诱饵
     // 真正的密钥在 KeyProvider 类中，通过 XOR 数组解码
     return env->NewStringUTF("hint_hidden");
 }

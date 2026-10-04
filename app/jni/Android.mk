@@ -383,89 +383,325 @@ LOCAL_CPPFLAGS := -std=c++17 -fexceptions -frtti
 LOCAL_LDLIBS := -llog
 include $(BUILD_SHARED_LIBRARY)
 
-# L48
+# L48 —— 10 个 so（1 真 + 9 干扰，名字不体现关卡号）
 include $(CLEAR_VARS)
-LOCAL_MODULE := native48
-LOCAL_SRC_FILES := native48.cpp
+LOCAL_MODULE := beetle
+LOCAL_SRC_FILES := beetle.cpp
+include $(BUILD_SHARED_LIBRARY)
+
+include $(CLEAR_VARS)
+LOCAL_MODULE := cobalt
+LOCAL_SRC_FILES := cobalt.cpp
+include $(BUILD_SHARED_LIBRARY)
+
+include $(CLEAR_VARS)
+LOCAL_MODULE := heron
+LOCAL_SRC_FILES := heron.cpp
+include $(BUILD_SHARED_LIBRARY)
+
+include $(CLEAR_VARS)
+LOCAL_MODULE := ledger
+LOCAL_SRC_FILES := ledger.cpp
+include $(BUILD_SHARED_LIBRARY)
+
+include $(CLEAR_VARS)
+LOCAL_MODULE := magpie
+LOCAL_SRC_FILES := magpie.cpp
+include $(BUILD_SHARED_LIBRARY)
+
+include $(CLEAR_VARS)
+LOCAL_MODULE := pelican
+LOCAL_SRC_FILES := pelican.cpp
+include $(BUILD_SHARED_LIBRARY)
+
+include $(CLEAR_VARS)
+LOCAL_MODULE := tariff
+LOCAL_SRC_FILES := tariff.cpp
+include $(BUILD_SHARED_LIBRARY)
+
+include $(CLEAR_VARS)
+LOCAL_MODULE := voucher
+LOCAL_SRC_FILES := voucher.cpp
+include $(BUILD_SHARED_LIBRARY)
+
+include $(CLEAR_VARS)
+LOCAL_MODULE := walrus
+LOCAL_SRC_FILES := walrus.cpp
+include $(BUILD_SHARED_LIBRARY)
+
+include $(CLEAR_VARS)
+LOCAL_MODULE := badger
+LOCAL_SRC_FILES := badger.cpp
+include $(BUILD_SHARED_LIBRARY)
+
+# L49 —— 10 个 so（1 真 + 9 干扰，名字不体现关卡号）
+include $(CLEAR_VARS)
+LOCAL_MODULE := cargo
+LOCAL_SRC_FILES := cargo.cpp
+include $(BUILD_SHARED_LIBRARY)
+
+include $(CLEAR_VARS)
+LOCAL_MODULE := dispatch
+LOCAL_SRC_FILES := dispatch.cpp
+include $(BUILD_SHARED_LIBRARY)
+
+include $(CLEAR_VARS)
+LOCAL_MODULE := escrow
+LOCAL_SRC_FILES := escrow.cpp
+include $(BUILD_SHARED_LIBRARY)
+
+include $(CLEAR_VARS)
+LOCAL_MODULE := falcon
+LOCAL_SRC_FILES := falcon.cpp
+include $(BUILD_SHARED_LIBRARY)
+
+include $(CLEAR_VARS)
+LOCAL_MODULE := gecko
+LOCAL_SRC_FILES := gecko.cpp
+include $(BUILD_SHARED_LIBRARY)
+
+include $(CLEAR_VARS)
+LOCAL_MODULE := hornet
+LOCAL_SRC_FILES := hornet.cpp
+include $(BUILD_SHARED_LIBRARY)
+
+include $(CLEAR_VARS)
+LOCAL_MODULE := lynx
+LOCAL_SRC_FILES := lynx.cpp
+include $(BUILD_SHARED_LIBRARY)
+
+include $(CLEAR_VARS)
+LOCAL_MODULE := payroll
+LOCAL_SRC_FILES := payroll.cpp
+include $(BUILD_SHARED_LIBRARY)
+
+include $(CLEAR_VARS)
+LOCAL_MODULE := quartz
+LOCAL_SRC_FILES := quartz.cpp
+include $(BUILD_SHARED_LIBRARY)
+
+include $(CLEAR_VARS)
+LOCAL_MODULE := otter
+LOCAL_SRC_FILES := otter.cpp
+include $(BUILD_SHARED_LIBRARY)
+
+# L50 —— 10 个 so（1 真 + 9 干扰，名字不体现关卡号）
+include $(CLEAR_VARS)
+LOCAL_MODULE := cricket
+LOCAL_SRC_FILES := cricket.cpp
+include $(BUILD_SHARED_LIBRARY)
+
+include $(CLEAR_VARS)
+LOCAL_MODULE := granite
+LOCAL_SRC_FILES := granite.cpp
+include $(BUILD_SHARED_LIBRARY)
+
+include $(CLEAR_VARS)
+LOCAL_MODULE := ibex
+LOCAL_SRC_FILES := ibex.cpp
+include $(BUILD_SHARED_LIBRARY)
+
+include $(CLEAR_VARS)
+LOCAL_MODULE := invoice
+LOCAL_SRC_FILES := invoice.cpp
+include $(BUILD_SHARED_LIBRARY)
+
+include $(CLEAR_VARS)
+LOCAL_MODULE := koala
+LOCAL_SRC_FILES := koala.cpp
+include $(BUILD_SHARED_LIBRARY)
+
+include $(CLEAR_VARS)
+LOCAL_MODULE := manifest
+LOCAL_SRC_FILES := manifest.cpp
+include $(BUILD_SHARED_LIBRARY)
+
+include $(CLEAR_VARS)
+LOCAL_MODULE := mink
+LOCAL_SRC_FILES := mink.cpp
+include $(BUILD_SHARED_LIBRARY)
+
+include $(CLEAR_VARS)
+LOCAL_MODULE := parcel
+LOCAL_SRC_FILES := parcel.cpp
+include $(BUILD_SHARED_LIBRARY)
+
+include $(CLEAR_VARS)
+LOCAL_MODULE := vendor
+LOCAL_SRC_FILES := vendor.cpp
+include $(BUILD_SHARED_LIBRARY)
+
+include $(CLEAR_VARS)
+LOCAL_MODULE := crane
+LOCAL_SRC_FILES := crane.cpp
+include $(BUILD_SHARED_LIBRARY)
+
+# L51 —— 10 个 so（1 真 + 9 干扰，名字不体现关卡号）
+include $(CLEAR_VARS)
+LOCAL_MODULE := audit
+LOCAL_SRC_FILES := audit.cpp
+include $(BUILD_SHARED_LIBRARY)
+
+include $(CLEAR_VARS)
+LOCAL_MODULE := bond
+LOCAL_SRC_FILES := bond.cpp
+include $(BUILD_SHARED_LIBRARY)
+
+include $(CLEAR_VARS)
+LOCAL_MODULE := courier
+LOCAL_SRC_FILES := courier.cpp
+include $(BUILD_SHARED_LIBRARY)
+
+include $(CLEAR_VARS)
+LOCAL_MODULE := freight
+LOCAL_SRC_FILES := freight.cpp
+include $(BUILD_SHARED_LIBRARY)
+
+include $(CLEAR_VARS)
+LOCAL_MODULE := newt
+LOCAL_SRC_FILES := newt.cpp
+include $(BUILD_SHARED_LIBRARY)
+
+include $(CLEAR_VARS)
+LOCAL_MODULE := quota
+LOCAL_SRC_FILES := quota.cpp
 LOCAL_CPPFLAGS := -std=c++17 -fexceptions -frtti
 LOCAL_LDLIBS := -llog
 include $(BUILD_SHARED_LIBRARY)
 
-# L49
 include $(CLEAR_VARS)
-LOCAL_MODULE := native49
-LOCAL_SRC_FILES := native49.cpp
-
+LOCAL_MODULE := salmon
+LOCAL_SRC_FILES := salmon.cpp
 include $(BUILD_SHARED_LIBRARY)
 
 include $(CLEAR_VARS)
-LOCAL_MODULE := native50
-LOCAL_SRC_FILES := native50.cpp
-
+LOCAL_MODULE := weasel
+LOCAL_SRC_FILES := weasel.cpp
 include $(BUILD_SHARED_LIBRARY)
 
 include $(CLEAR_VARS)
-LOCAL_MODULE := native51
-LOCAL_SRC_FILES := native51.cpp
+LOCAL_MODULE := turtle
+LOCAL_SRC_FILES := turtle.cpp
+include $(BUILD_SHARED_LIBRARY)
+
+include $(CLEAR_VARS)
+LOCAL_MODULE := shark
+LOCAL_SRC_FILES := shark.cpp
 LOCAL_LDLIBS := -ldl
+include $(BUILD_SHARED_LIBRARY)
 
+# L52 —— 10 个 so（1 真 + 9 干扰，名字不体现关卡号）
+include $(CLEAR_VARS)
+LOCAL_MODULE := banking
+LOCAL_SRC_FILES := banking.cpp
 include $(BUILD_SHARED_LIBRARY)
 
 include $(CLEAR_VARS)
-LOCAL_MODULE := native51h
-LOCAL_SRC_FILES := native51h.cpp
-
+LOCAL_MODULE := dingo
+LOCAL_SRC_FILES := dingo.cpp
 include $(BUILD_SHARED_LIBRARY)
 
 include $(CLEAR_VARS)
-LOCAL_MODULE := native51b
-LOCAL_SRC_FILES := native51b.cpp
+LOCAL_MODULE := eagle
+LOCAL_SRC_FILES := eagle.cpp
+include $(BUILD_SHARED_LIBRARY)
+
+include $(CLEAR_VARS)
+LOCAL_MODULE := finch
+LOCAL_SRC_FILES := finch.cpp
+include $(BUILD_SHARED_LIBRARY)
+
+include $(CLEAR_VARS)
+LOCAL_MODULE := fund
+LOCAL_SRC_FILES := fund.cpp
+include $(BUILD_SHARED_LIBRARY)
+
+include $(CLEAR_VARS)
+LOCAL_MODULE := registry
+LOCAL_SRC_FILES := registry.cpp
 LOCAL_CPPFLAGS := -std=c++17 -fexceptions -frtti
 LOCAL_LDLIBS := -llog
 include $(BUILD_SHARED_LIBRARY)
 
-# L52
 include $(CLEAR_VARS)
-LOCAL_MODULE := native52
-LOCAL_SRC_FILES := native52.cpp
+LOCAL_MODULE := retail
+LOCAL_SRC_FILES := retail.cpp
+include $(BUILD_SHARED_LIBRARY)
+
+include $(CLEAR_VARS)
+LOCAL_MODULE := tender
+LOCAL_SRC_FILES := tender.cpp
+include $(BUILD_SHARED_LIBRARY)
+
+include $(CLEAR_VARS)
+LOCAL_MODULE := cobra
+LOCAL_SRC_FILES := cobra.cpp
+LOCAL_CPPFLAGS := -std=c++17 -fexceptions -frtti
+LOCAL_LDLIBS := -llog
+include $(BUILD_SHARED_LIBRARY)
+
+include $(CLEAR_VARS)
+LOCAL_MODULE := moose
+LOCAL_SRC_FILES := moose.cpp
 LOCAL_CPPFLAGS := -std=c++17 -fexceptions -frtti
 LOCAL_LDLIBS := -llog -ldl
 include $(BUILD_SHARED_LIBRARY)
 
+# L53 —— 10 个 so（1 真 + 9 干扰，名字不体现关卡号）
 include $(CLEAR_VARS)
-LOCAL_MODULE := native52k
-LOCAL_SRC_FILES := native52k.cpp
+LOCAL_MODULE := customs
+LOCAL_SRC_FILES := customs.cpp
 LOCAL_CPPFLAGS := -std=c++17 -fexceptions -frtti
 LOCAL_LDLIBS := -llog
 include $(BUILD_SHARED_LIBRARY)
 
 include $(CLEAR_VARS)
-LOCAL_MODULE := native52b
-LOCAL_SRC_FILES := native52b.cpp
+LOCAL_MODULE := lemur
+LOCAL_SRC_FILES := lemur.cpp
+include $(BUILD_SHARED_LIBRARY)
+
+include $(CLEAR_VARS)
+LOCAL_MODULE := panda
+LOCAL_SRC_FILES := panda.cpp
+include $(BUILD_SHARED_LIBRARY)
+
+include $(CLEAR_VARS)
+LOCAL_MODULE := quail
+LOCAL_SRC_FILES := quail.cpp
+include $(BUILD_SHARED_LIBRARY)
+
+include $(CLEAR_VARS)
+LOCAL_MODULE := rebate
+LOCAL_SRC_FILES := rebate.cpp
+include $(BUILD_SHARED_LIBRARY)
+
+include $(CLEAR_VARS)
+LOCAL_MODULE := robin
+LOCAL_SRC_FILES := robin.cpp
+include $(BUILD_SHARED_LIBRARY)
+
+include $(CLEAR_VARS)
+LOCAL_MODULE := seal
+LOCAL_SRC_FILES := seal.cpp
+include $(BUILD_SHARED_LIBRARY)
+
+include $(CLEAR_VARS)
+LOCAL_MODULE := zebra
+LOCAL_SRC_FILES := zebra.cpp
+include $(BUILD_SHARED_LIBRARY)
+
+include $(CLEAR_VARS)
+LOCAL_MODULE := viper
+LOCAL_SRC_FILES := viper.cpp
 LOCAL_CPPFLAGS := -std=c++17 -fexceptions -frtti
 LOCAL_LDLIBS := -llog
 include $(BUILD_SHARED_LIBRARY)
 
-# L53
 include $(CLEAR_VARS)
-LOCAL_MODULE := native53
-LOCAL_SRC_FILES := native53.cpp
+LOCAL_MODULE := tapir
+LOCAL_SRC_FILES := tapir.cpp
 LOCAL_CPPFLAGS := -std=c++17 -fexceptions -frtti
 LOCAL_LDLIBS := -llog -ldl
-include $(BUILD_SHARED_LIBRARY)
-
-include $(CLEAR_VARS)
-LOCAL_MODULE := native53c
-LOCAL_SRC_FILES := native53c.cpp
-LOCAL_CPPFLAGS := -std=c++17 -fexceptions -frtti
-LOCAL_LDLIBS := -llog
-include $(BUILD_SHARED_LIBRARY)
-
-include $(CLEAR_VARS)
-LOCAL_MODULE := native53b
-LOCAL_SRC_FILES := native53b.cpp
-LOCAL_CPPFLAGS := -std=c++17 -fexceptions -frtti
-LOCAL_LDLIBS := -llog
 include $(BUILD_SHARED_LIBRARY)
 
 # KL41 须弥界 浅滩拾贝（H5 壳 / JSBridge 注入定位）

@@ -2,8 +2,7 @@ package com.fatdog.reverse;
 
 /**
  * Native大陆 L53 焚天火域：JNI 桥
- * loadLibrary("native53c") + loadLibrary("native53")
- * native53b.so 被 native53 通过 dlopen 加载
+ * customs.so 被 tapir 通过 dlopen 加载
  *
  * 导出：
  *   String nativeSign(String data) — HMAC-SHA256 签名（返回 hex）
@@ -12,10 +11,6 @@ package com.fatdog.reverse;
  *   static int nativeBusinessOp(int op, int arg) — 业务操作（干扰）
  */
 public final class Bk53 {
-    static {
-        System.loadLibrary("native53c");
-        System.loadLibrary("native53");
-    }
 
     public static native String nativeSign(String data);
 
@@ -26,6 +21,15 @@ public final class Bk53 {
     public static native String nativeGetServiceInfo();
 
     public static native int nativeBusinessOp(int op, int arg);
+
+    public static native String nativeClear(String a0);  // customs
+    public static native String nativeStripe(int a0);  // zebra
+    public static native String nativeMunch(String a0);  // panda
+    public static native String nativeTail(int a0, long a1);  // lemur
+    public static native String nativeCovey(int a0);  // quail
+    public static native String nativeWarbler(String a0);  // robin
+    public static native String nativeStamp(String a0, int a1);  // seal
+    public static native int nativeCredit(int a0, int a1);  // rebate
 
     private Bk53() {}
 }

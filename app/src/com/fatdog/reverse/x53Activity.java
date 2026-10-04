@@ -40,9 +40,9 @@ import okhttp3.Response;
 /**
  * Native大陆 L53 焚天火域（★★★★★ Feistel + 魔改 AES 双算法 · 3 SO 分离 · 最终关）
  *
- * libnative53.so  — 调度 + 异常控制流
- * libnative53c.so — Feistel + 魔改 AES 双算法 + 密钥
- * libnative53b.so — 22类业务代码干扰（dlopen 加载）
+ * libtapir.so  — 调度 + 异常控制流
+ * libviper.so — Feistel + 魔改 AES 双算法 + 密钥
+ * libcustoms.so — 22类业务代码干扰（dlopen 加载）
  *
  * 破解路线：
  *   ① IDA 分析 3 个 SO，识别 Feistel 与独立魔改 AES 两条分支

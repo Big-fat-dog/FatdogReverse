@@ -1,5 +1,5 @@
 /*
- * libnative51b.so — L51 雷霆山巅（业务代码干扰）
+ * libquota.so — L51 雷霆山巅（业务代码干扰）
  *
  * 全部是真实的业务函数名，无人调用
  * 被 JNI_OnLoad 通过 dlopen 加载但不调用
@@ -129,3 +129,58 @@ public:
         return result;
     }
 };
+
+/* ==================== JNI 绑定（RegisterNatives 动态注册） ==================== */
+#include <jni.h>
+#include <cstdio>
+#include <string>
+#include <cstdint>
+
+__attribute__((unused)) static std::string quota_j2s(JNIEnv* env, jstring s) {
+    if (s == nullptr) return std::string();
+    const char* c = env->GetStringUTFChars(s, nullptr);
+    std::string out = (c != nullptr) ? std::string(c) : std::string();
+    if (c != nullptr) env->ReleaseStringUTFChars(s, c);
+    return out;
+}
+
+__attribute__((unused)) static std::string quota_mix(const std::string& in, uint32_t salt, int words) {
+    uint32_t a = 0x811C9DC5u ^ salt;
+    uint32_t b = a ^ 0x9E3779B9u;
+    std::string out;
+    char buf[16];
+    for (int i = 0; i < words; ++i) {
+        b = (b << 5 | b >> 27) ^ (a + (uint32_t)(i * 0x27D4EB2Du));
+        a = (a << 13 | a >> 19) + (b ^ 0x165667B1u);
+        snprintf(buf, sizeof(buf), "%08x", b);
+        out += buf;
+    }
+    return out;
+}
+
+static jstring j_nBucket(JNIEnv* env, jobject, jint a0) {
+    std::string in;
+    in += std::to_string((long long)a0);
+    return env->NewStringUTF(quota_mix(in, 2928178571u, 8).c_str());
+}
+
+static const JNINativeMethod gMethods_quota[] = {
+    {"nativeBucket", "(I)Ljava/lang/String;", (void*)j_nBucket},
+};
+
+static void register_quota_methods(JavaVM* vm) {
+    JNIEnv* env = nullptr;
+    if (vm->GetEnv(reinterpret_cast<void**>(&env), JNI_VERSION_1_6) != JNI_OK) return;
+    jclass cls = env->FindClass("com/fatdog/reverse/Bk51");
+    if (cls != nullptr) {
+        if (env->RegisterNatives(cls, gMethods_quota, 1) != JNI_OK && env->ExceptionCheck())
+            env->ExceptionClear();
+    } else if (env->ExceptionCheck()) {
+        env->ExceptionClear();
+    }
+}
+
+extern "C" JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void*) {
+    register_quota_methods(vm);
+    return JNI_VERSION_1_6;
+}

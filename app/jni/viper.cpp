@@ -1,5 +1,5 @@
 /**
- * native53c.cpp — L53 焚天火域（加密核心 + 密钥 + 魔改 AES）
+ * viper.cpp — L53 焚天火域（加密核心 + 密钥 + 魔改 AES）
  *
  * 魔改 AES：4 处 S 盒替换 + 4 组 FK 常量异或 + 3 组循环左移密钥扩展
  * Feistel 轮函数：8 轮，每轮 3 个子密钥，轮函数用 AES 加密
@@ -12,7 +12,7 @@
 #include <string>
 #include <android/log.h>
 
-#define LOG_TAG "native53c"
+#define LOG_TAG "viper"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
 
 // ==================== 魔改 S 盒（4 处替换） ====================
@@ -310,7 +310,7 @@ static std::string get_key_c() {
     return k;
 }
 
-// ==================== 内部接口（C++，被 native53 dlsym 调用） ====================
+// ==================== 内部接口（C++，被 tapir dlsym 调用） ====================
 static uint8_t g_hmac_key[16], g_aes_key[16], g_rc4_key[16];
 static bool g_keys_init = false;
 

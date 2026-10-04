@@ -40,7 +40,7 @@ import okhttp3.Response;
 /**
  * Native大陆 L49 迷雾森林（std::map 分发 · RAII）
  *
- * libnative49.so 导出：
+ * libotter.so 导出：
  *   String nativeEnc(int page, long ts)  — SM4-ECB 加密（返回 hex）
  *   String nativeSign(String enc_hex)    — HMAC-SHA256 签名
  *   String getKeyHint()                 — 密钥提示

@@ -1,7 +1,7 @@
 /**
- * native53.cpp — L53 焚天火域（主入口 + 调度 + 异常控制流 · 最终关）
+ * tapir.cpp — L53 焚天火域（主入口 + 调度 + 异常控制流 · 最终关）
  *
- * 3 SO 分离：native53（调度+异常） + native53c（加密核心+密钥） + native53b（业务干扰）
+ * 3 SO 分离：tapir（调度+异常） + viper（加密核心+密钥） + customs（业务干扰）
  * 异常控制流：try/catch 里藏真逻辑
  * vtable 分发：CipherFactory 根据 algo_id 选择加密器
  * 深层调用栈（5+ 层）：JNI → k53_dispatch → ErrorHandler::process → CipherFactory::create → encryptor->encrypt
@@ -18,7 +18,7 @@
 #include <android/log.h>
 #include <vector>
 
-#define LOG_TAG "native53"
+#define LOG_TAG "tapir"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
 
 // ==================== dlopen 函数指针类型 ====================
@@ -304,7 +304,7 @@ static std::string hmac_sha256(const std::string& key, const std::string& msg) {
 }
 
 // ==================== XOR 密钥（本地 fallback） ====================
-// ==================== XOR 密钥（本地 fallback，正常由 libnative53c 提供） ====================
+// ==================== XOR 密钥（本地 fallback，正常由 libviper 提供） ====================
 uint8_t K53_HMAC_XOR[] = {
     0x7a,0x5d,0x48,0x58,0x53,0x5b,0x63,0x54,
     0x51,0x5d,0x5f,0x63,0x57,0x09,0x0f,0x3c
@@ -324,7 +324,7 @@ static rc4_core_fn g_rc4_fn = nullptr;
 
 static void ensure53cCore() {
     if (g_53c_handle) return;
-    g_53c_handle = dlopen("libnative53c.so", RTLD_NOW);
+    g_53c_handle = dlopen("libviper.so", RTLD_NOW);
     if (!g_53c_handle) return;
     g_feistel_fn = (feistel_core_fn)dlsym(g_53c_handle, "k53FeistelEncrypt");
     g_aes_variant_fn = (aes_variant_core_fn)dlsym(g_53c_handle, "k53AesVariantEncrypt");
@@ -373,9 +373,9 @@ static jstring nativeSign53(JNIEnv* env, jobject, jstring data) {
     std::string payload(cdata);
     env->ReleaseStringUTFChars(data, cdata);
 
-    // 从 libnative53c.so 获取 HMAC key
+    // 从 libviper.so 获取 HMAC key
     std::string hmac_key;
-    void* handle = dlopen("libnative53c.so", RTLD_NOW);
+    void* handle = dlopen("libviper.so", RTLD_NOW);
     if (handle) {
         get_key_func fn = (get_key_func)dlsym(handle, "getHmacKey");
         if (fn) {
@@ -450,5 +450,8 @@ extern "C" JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void*) {
     if (!cls) return JNI_ERR;
     if (env->RegisterNatives(cls, gMethods53, 3) != JNI_OK) return JNI_ERR;
     LOGI("JNI_OnLoad: L53 initialized (RegisterNatives dynamic)");
+    /* 干扰 so：仅 dlopen 进进程（出现于 /proc/self/maps、可被 dlopen-trace 捕获），
+     * 不 dlsym、不调用其中任何符号（纯诱饵，不影响通关逻辑） */
+    (void)dlopen("libcustoms.so", RTLD_NOW);
     return JNI_VERSION_1_6;
 }

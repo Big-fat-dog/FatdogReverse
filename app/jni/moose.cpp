@@ -1,10 +1,10 @@
 /**
- * native52.cpp — L52 冰封雪域（魔改 SM4 + 深层调用栈 + HMAC-SHA256）
+ * moose.cpp — L52 冰封雪域（魔改 SM4 + 深层调用栈 + HMAC-SHA256）
  *
  * 魔改 SM4：S 盒 4 处换值（0x3A/0x7F/0xB2/0xE8），FK 2 处异或，CK 循环左移 1 位
  * 深层调用栈：JNI → k52_dispatch → k52_process → Sm52Cipher::encryptBlock → k52_sm4_round × 32 → k52_sub_bytes
  * 签名：HMAC-SHA256
- * 密钥从 libnative52k.so 通过 dlopen 获取
+ * 密钥从 libcobra.so 通过 dlopen 获取
  * flag：FLAG_18_L52{frozen_snowfield}
  */
 
@@ -16,7 +16,7 @@
 #include <pthread.h>
 #include <android/log.h>
 
-#define LOG_TAG "native52"
+#define LOG_TAG "moose"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
 
 // ==================== 魔改 SM4 S 盒（4 处换值） ====================
@@ -360,7 +360,7 @@ static const uint8_t K52_HMAC_KEY_XOR = 0x3C;
 static std::string get_key_from_so(const char* so_name, const char* func_name);
 
 static std::string get_hmac_key() {
-    std::string key = get_key_from_so("libnative52k.so", "getHmacKey");
+    std::string key = get_key_from_so("libcobra.so", "getHmacKey");
     if (!key.empty()) return key;
     std::string fallback(K52_HMAC_XOR_LEN, '\0');
     for (int i = 0; i < K52_HMAC_XOR_LEN; i++)
@@ -390,7 +390,7 @@ static jstring nativeSign52(JNIEnv* env, jobject, jint page, jint ts) {
     // 深层调用栈：JNI → k52_dispatch → k52_process → encrypt → hmac
     std::string payload = "page=" + std::to_string(page) + "&ts=" + std::to_string(ts);
 
-    // 从 libnative52k 获取 HMAC key
+    // 从 libcobra 获取 HMAC key
     std::string hmac_key = get_hmac_key();
     if (hmac_key.empty()) {
         // fallback: 本地 XOR
@@ -416,9 +416,9 @@ static jstring nativeEnc52(JNIEnv* env, jobject, jstring data) {
     std::string input(cdata);
     env->ReleaseStringUTFChars(data, cdata);
 
-    // 获取 SM4 key（从 libnative52k.so 或本地 XOR）
+    // 获取 SM4 key（从 libcobra.so 或本地 XOR）
     std::string sm4_key;
-    void* handle = dlopen("libnative52k.so", RTLD_NOW);
+    void* handle = dlopen("libcobra.so", RTLD_NOW);
     if (handle) {
         get_key_func fn = (get_key_func)dlsym(handle, "getSm4Key");
         if (fn) {
@@ -466,5 +466,8 @@ extern "C" JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void*) {
     if (!cls) return JNI_ERR;
     if (env->RegisterNatives(cls, gMethods52, 2) != JNI_OK) return JNI_ERR;
     LOGI("JNI_OnLoad: L52 initialized (RegisterNatives dynamic)");
+    /* 干扰 so：仅 dlopen 进进程（出现于 /proc/self/maps、可被 dlopen-trace 捕获），
+     * 不 dlsym、不调用其中任何符号（纯诱饵，不影响通关逻辑） */
+    (void)dlopen("libregistry.so", RTLD_NOW);
     return JNI_VERSION_1_6;
 }

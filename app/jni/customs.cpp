@@ -1,5 +1,5 @@
 /**
- * native53b.cpp — L53 焚天火域（业务代码干扰 · ~1500+ 行）
+ * customs.cpp — L53 焚天火域（业务代码干扰 · ~1500+ 行）
  *
  * 大量业务类：ScoringService, LeaderboardService, TournamentService, CacheManager,
  * RateLimiter, CircuitBreaker, HealthMonitor, MetricsCollector, TelemetryEngine,
@@ -19,7 +19,7 @@
 #include <numeric>
 #include <android/log.h>
 
-#define LOG_TAG "native53b"
+#define LOG_TAG "customs"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
 
 // ==================== 1. ScoringService ====================
@@ -706,8 +706,60 @@ public:
 // ==================== JNI_OnLoad 注册（确保 SO 被加载） ====================
 #include <jni.h>
 
-jint JNI_OnLoad(JavaVM* vm, void*) {
+
+/* ==================== JNI 绑定（RegisterNatives 动态注册） ==================== */
+#include <jni.h>
+#include <cstdio>
+#include <string>
+#include <cstdint>
+
+__attribute__((unused)) static std::string customs_j2s(JNIEnv* env, jstring s) {
+    if (s == nullptr) return std::string();
+    const char* c = env->GetStringUTFChars(s, nullptr);
+    std::string out = (c != nullptr) ? std::string(c) : std::string();
+    if (c != nullptr) env->ReleaseStringUTFChars(s, c);
+    return out;
+}
+
+__attribute__((unused)) static std::string customs_mix(const std::string& in, uint32_t salt, int words) {
+    uint32_t a = 0x811C9DC5u ^ salt;
+    uint32_t b = a ^ 0x9E3779B9u;
+    std::string out;
+    char buf[16];
+    for (int i = 0; i < words; ++i) {
+        b = (b << 5 | b >> 27) ^ (a + (uint32_t)(i * 0x27D4EB2Du));
+        a = (a << 13 | a >> 19) + (b ^ 0x165667B1u);
+        snprintf(buf, sizeof(buf), "%08x", b);
+        out += buf;
+    }
+    return out;
+}
+
+static jstring j_nClear(JNIEnv* env, jobject, jstring a0) {
+    std::string in;
+    in += customs_j2s(env, a0);
+    return env->NewStringUTF(customs_mix(in, 104906151u, 8).c_str());
+}
+
+static const JNINativeMethod gMethods_customs[] = {
+    {"nativeClear", "(Ljava/lang/String;)Ljava/lang/String;", (void*)j_nClear},
+};
+
+static void register_customs_methods(JavaVM* vm) {
+    JNIEnv* env = nullptr;
+    if (vm->GetEnv(reinterpret_cast<void**>(&env), JNI_VERSION_1_6) != JNI_OK) return;
+    jclass cls = env->FindClass("com/fatdog/reverse/Bk53");
+    if (cls != nullptr) {
+        if (env->RegisterNatives(cls, gMethods_customs, 1) != JNI_OK && env->ExceptionCheck())
+            env->ExceptionClear();
+    } else if (env->ExceptionCheck()) {
+        env->ExceptionClear();
+    }
+}
+
+extern "C" JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void*) {
     LOGI("JNI_OnLoad: L53 business code loaded (22 classes)");
+    register_customs_methods(vm);
     return JNI_VERSION_1_6;
 }
 

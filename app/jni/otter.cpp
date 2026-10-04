@@ -1,5 +1,5 @@
 /**
- * native49.cpp — Native大陆 L49 迷雾森林（std::map 分发 · RAII）
+ * otter.cpp — Native大陆 L49 迷雾森林（std::map 分发 · RAII）
  *
  * 考点：C++ std::map 分发 + RAII 内存管理 + SM4-ECB + HMAC-SHA256
  * CryptoBox 类用 std::map<int, function> 做算法分发

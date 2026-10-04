@@ -394,10 +394,10 @@ check("KL10 IV derivation", len(iv_kl10) == 32)
 # So coefficients are swapped: (2,3,1,1) -> (3,2,1,1)
 check("KL10 MixColumns swap documented", True)
 
-# ─── L48: HMAC key (native48.cpp) ───
-print("\n=== L48: HMAC (native48.cpp) ===")
+# ─── L48: HMAC key (badger.cpp) ───
+print("\n=== L48: HMAC (badger.cpp) ===")
 KEY48_HMAC_SERVER = b"Fatdog_calm_2026"
-# native48.cpp: K48_A[] XOR ^0x3C and K48_B[] XOR ^0x5A, then concatenate.
+# badger.cpp: K48_A[] XOR ^0x3C and K48_B[] XOR ^0x5A, then concatenate.
 K48_A_NATIVE = [0x7A, 0x5D, 0x48, 0x58, 0x53, 0x5B, 0x63, 0x5F,
                 0x5D, 0x50, 0x51, 0x63]
 K48_B_NATIVE = [0x68, 0x6A, 0x68, 0x6C]
@@ -408,11 +408,11 @@ k48_decoded = (
 check("L48 K48_A + K48_B XOR decode to server key", k48_decoded == KEY48_HMAC_SERVER,
       f"client={k48_decoded!r} server={KEY48_HMAC_SERVER!r}")
 
-# ─── L49: SM4 + HMAC (native49.cpp) ───
-print("\n=== L49: SM4 + HMAC (native49.cpp) ===")
+# ─── L49: SM4 + HMAC (otter.cpp) ───
+print("\n=== L49: SM4 + HMAC (otter.cpp) ===")
 KEY49_SM4_SERVER = b"Fatdog_mist_2026"
 KEY49_HMAC_SERVER = b"Fatdog_forest_2026"
-# native49.cpp: K49_SM4[] XOR ^0x3C, K49_HMAC[] XOR ^0x5A
+# otter.cpp: K49_SM4[] XOR ^0x3C, K49_HMAC[] XOR ^0x5A
 K49_SM4_NATIVE = [0x7A, 0x5D, 0x48, 0x58, 0x53, 0x5B, 0x63, 0x51,
                   0x55, 0x4F, 0x48, 0x63, 0x0E, 0x0C, 0x0E, 0x0A]
 K49_HMAC_NATIVE = [0x1C, 0x3B, 0x2E, 0x3E, 0x35, 0x3D, 0x05, 0x3C,
@@ -427,11 +427,11 @@ k49_hmac_expected = KEY49_HMAC_SERVER
 check("L49 K49_HMAC XOR ^0x5A decodes to server key", k49_hmac_decoded == k49_hmac_expected,
       f"client={k49_hmac_decoded!r} server={k49_hmac_expected!r}")
 
-# ─── L50: AES + SHA256 (native50.cpp) ───
-print("\n=== L50: AES + SHA256 (native50.cpp) ===")
+# ─── L50: AES + SHA256 (crane.cpp) ───
+print("\n=== L50: AES + SHA256 (crane.cpp) ===")
 KEY50_AES_SERVER = b"Fatdog_abys_2026"
 KEY50_HMAC_SERVER = b"Fatdog_depths_2026"
-# native50.cpp: getAesKey() XOR ^0x2A, getHmacKey() XOR ^0x3D.
+# crane.cpp: getAesKey() XOR ^0x2A, getHmacKey() XOR ^0x3D.
 K50_AES_NATIVE = [0x6C, 0x4B, 0x5E, 0x4E, 0x45, 0x4D, 0x75, 0x4B,
                   0x48, 0x53, 0x59, 0x75, 0x18, 0x1A, 0x18, 0x1C]
 K50_HMAC_NATIVE = [0x7B, 0x5C, 0x49, 0x59, 0x52, 0x5A, 0x62, 0x59, 0x58,
@@ -445,11 +445,11 @@ k50_hmac_decoded = bytes([b ^ 0x3D for b in K50_HMAC_NATIVE])
 check("L50 HMAC key: client XOR ^0x3D decodes to server key", k50_hmac_decoded == KEY50_HMAC_SERVER,
       f"client={k50_hmac_decoded!r} server={KEY50_HMAC_SERVER!r}")
 
-# ─── L51: 3DES + SM3 (native51h.cpp) ───
-print("\n=== L51: 3DES + SM3 (native51h.cpp) ===")
+# ─── L51: 3DES + SM3 (turtle.cpp) ───
+print("\n=== L51: 3DES + SM3 (turtle.cpp) ===")
 KEY51_3DES_SERVER = b"Fatdog_thunder_2026" + b"\x00" * 5  # 24 bytes
 KEY51_SM3_SALT_SERVER = b"Fatdog_peak_salt!"
-# native51h.cpp: DES_KEY_XOR[] XOR ^0x4B, SM3_SALT_XOR[] XOR ^0x2D
+# turtle.cpp: DES_KEY_XOR[] XOR ^0x4B, SM3_SALT_XOR[] XOR ^0x2D
 K51_DES_NATIVE = [0x0d,0x2a,0x3f,0x2f,0x24,0x2c,0x14,0x3f,
                   0x23,0x3e,0x25,0x2f,0x2e,0x39,0x14,0x79,
                   0x7b,0x79,0x7d,0x4b,0x4b,0x4b,0x4b,0x4b]
@@ -462,11 +462,11 @@ k51_salt_decoded = bytes([b ^ 0x2D for b in K51_SALT_NATIVE])
 check("L51 SM3 salt: client XOR ^0x2D decodes to server key", k51_salt_decoded == KEY51_SM3_SALT_SERVER,
       f"client={k51_salt_decoded!r} server={KEY51_SM3_SALT_SERVER!r}")
 
-# ─── L52: Modified SM4 + HMAC (native52k.cpp) ───
-print("\n=== L52: Modified SM4 + HMAC (native52k.cpp) ===")
+# ─── L52: Modified SM4 + HMAC (cobra.cpp) ───
+print("\n=== L52: Modified SM4 + HMAC (cobra.cpp) ===")
 KEY52_SM4_SERVER = b"Fatdog_snow_sm4_"
 KEY52_HMAC_SERVER = b"Fatdog_snow_key!"
-# native52k.cpp: K52_SM4_XOR[] XOR ^0x3C, K52_HMAC_XOR[] XOR ^0x3C
+# cobra.cpp: K52_SM4_XOR[] XOR ^0x3C, K52_HMAC_XOR[] XOR ^0x3C
 K52_SM4_NATIVE = [0x7a,0x5d,0x48,0x58,0x53,0x5b,0x63,0x4f,
                   0x52,0x53,0x4b,0x63,0x4f,0x51,0x08,0x63]
 K52_HMAC_NATIVE = [0x7a,0x5d,0x48,0x58,0x53,0x5b,0x63,0x4f,
@@ -478,12 +478,12 @@ k52_hmac_decoded = bytes([b ^ 0x3C for b in K52_HMAC_NATIVE])
 check("L52 HMAC key: client XOR ^0x3C decodes to server key", k52_hmac_decoded == KEY52_HMAC_SERVER,
       f"client={k52_hmac_decoded!r} server={KEY52_HMAC_SERVER!r}")
 
-# ─── L53: Modified AES + Feistel + HMAC + RC4 (native53c.cpp) ───
-print("\n=== L53: Modified AES + Feistel + HMAC + RC4 (native53c.cpp) ===")
+# ─── L53: Modified AES + Feistel + HMAC + RC4 (viper.cpp) ───
+print("\n=== L53: Modified AES + Feistel + HMAC + RC4 (viper.cpp) ===")
 KEY53_AES_SERVER = b"Fatdog_aes_key_\x00"
 KEY53_HMAC_SERVER = b"Fatdog_hmac_k53\x00"
 KEY53_RC4_SERVER = b"Fatdog_rc4_k53\x00\x00"
-# native53c.cpp: K53_AES_OBFUSC_A[] XOR ^0x3C, etc.
+# viper.cpp: K53_AES_OBFUSC_A[] XOR ^0x3C, etc.
 K53_AES_NATIVE = [0x7a,0x5d,0x48,0x58,0x53,0x5b,0x63,0x5d,
                   0x59,0x4f,0x63,0x57,0x59,0x45,0x63,0x3c]
 K53_HMAC_NATIVE = [0x7a,0x5d,0x48,0x58,0x53,0x5b,0x63,0x54,
@@ -750,14 +750,14 @@ try:
     check("L53 validates independent AES variant ciphertext",
           "expected_aes = _aes_variant53_encrypt(payload).hex()" in _l53_src
           and "if aes != expected_aes" in _l53_src)
-    _native53_src = pathlib.Path("app/jni/native53.cpp").read_text(encoding="utf-8")
-    _native53c_src = pathlib.Path("app/jni/native53c.cpp").read_text(encoding="utf-8")
+    _tapir_src = pathlib.Path("app/jni/tapir.cpp").read_text(encoding="utf-8")
+    _viper_src = pathlib.Path("app/jni/viper.cpp").read_text(encoding="utf-8")
     check("L53 native dispatch has separate algo=1/algo=2 paths",
-          "if (algo_id == 1) return new FeistelEngine();" in _native53_src
-          and "if (algo_id == 2) return new AesVariantEngine();" in _native53_src)
+          "if (algo_id == 1) return new FeistelEngine();" in _tapir_src
+          and "if (algo_id == 2) return new AesVariantEngine();" in _tapir_src)
     check("L53 native exports independent modified AES variant",
-          "int k53AesVariantEncrypt(" in _native53c_src
-          and "return aes_variant_encrypt(data, aes_key);" in _native53c_src)
+          "int k53AesVariantEncrypt(" in _viper_src
+          and "return aes_variant_encrypt(data, aes_key);" in _viper_src)
     _des3_src = "\n".join(_server_funcs.get(name, "") for name in (
         "_des3_ecb_encrypt_py", "_des3_ecb_decrypt_py"))
     check("L35 3DES helpers use _DES.new",

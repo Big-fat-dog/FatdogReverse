@@ -1,9 +1,9 @@
 /**
- * native52k.cpp — L52 冰封雪域（密钥 + RC4 + 响应解密）
+ * cobra.cpp — L52 冰封雪域（密钥 + RC4 + 响应解密）
  *
  * XOR 数组 → SM4 key + HMAC key + RC4 key
  * RC4 加密/解密响应体
- * 导出函数供 libnative52.so dlopen 调用
+ * 导出函数供 libmoose.so dlopen 调用
  */
 
 #include <jni.h>
@@ -12,7 +12,7 @@
 #include <cstdint>
 #include <android/log.h>
 
-#define LOG_TAG "native52k"
+#define LOG_TAG "cobra"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
 
 // ==================== XOR 密钥数组 ====================
