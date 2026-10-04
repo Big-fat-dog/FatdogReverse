@@ -1,7 +1,28 @@
 /**
  * dusk.c — 扶桑树 KL26 暮霭沉沉
- * 双重检测：timing side-channel + Frida 版本字符串嗅探
- * 判定逻辑：OR（任一子路触发即判定）
+ *
+ * 6 路信号 + 评分阈值制 + 加载期 (.init_array) 先跑。
+ *
+ *   ① timing 侧信道            —— 多轮采样，多数超阈值且中位数超限
+ *   ② Frida 版本/特征嗅探      —— dlsym frida_* 符号 + maps frida/gadget 特征
+ *   ③ 可执行段私有脏页         —— smaps 里 file-backed r-x 段 Private_Dirty 异常
+ *   ④ 无名可执行映射(代码岛)   —— 无 VMA 名的 r-x 段（注入落点）
+ *   ⑤ ARM64 跳板扫描           —— 代码岛内 LDR X16/17,[PC] / BR X16/17 成簇
+ *   ⑥ libc 关键函数入口比对    —— 内存 vs 磁盘 libc.so 的 prologue 差异
+ *
+ *   命中数 >= KL26_THRESHOLD(2) 才判定检出 —— 评分阈值制，
+ *   禁「任一命中即判」（沿用扶桑树评测铁律，防 ROM 误杀）。
+ *
+ * 【本关升级点 · 从"明文特征"走向"抓注入本身"】
+ *   ① ② 是前几关的老路子（依赖明文特征串 / libc 接口）；③④⑤⑥ 是看雪 Sentry
+ *   点名的「注入痕迹」检测——即使玩家把 frida 特征串全洗掉（strongR/Florida）、
+ *   把 libc 的 open/read 换成假的，代码岛的脏页、跳板、libc 被改写的字节仍会露馅。
+ *
+ * 【加载期检测】
+ *   so 被 System.loadLibrary 加载时，.init_array 里的 constructor 先跑一遍检测
+ *   并缓存进 g_load_phase（0=未执行 / 1=加载期干净 / 2=加载期已命定）。
+ *   nativeAnswer() 读缓存 —— 加载期一旦命中即永久锁定，事后 hook 运行期检测无效。
+ *
  * SEED = 20280720
  * Flag: FLAG_18_KL26{dusk_hides_the_truth}
  */
@@ -16,18 +37,32 @@
 #include <dlfcn.h>
 #include <sys/time.h>
 
-/* ============================================================
- * 诱饵标记：Fatdog_dusk（真）/ Fatdog_duks（假·少 s）
- * ============================================================ */
-static const char REAL_MARK[]  = "Fatdog_dusk";
-static const char FAKE_MARK[]  = "Fatdog_duks";
+#include "fuso_probe.h"
 
 /* ============================================================
- * 检测①：timing side-channel（多轮采样 + 中位数去抖）
+ * 诱饵标记：Fatdog_dusk（真）/ Fatdog_duks（假·少 s）
+ * 仅作报告展示，不参与答案。
  * ============================================================ */
-#define DUSK_TIMING_ROUNDS      9
-#define DUSK_TIMING_MIN_SLOW    7
-#define DUSK_TIMING_LIMIT_NS    500000L
+static const char REAL_MARK[] = "Fatdog_dusk";
+static const char FAKE_MARK[] = "Fatdog_duks";
+
+/* 评分阈值制：6 路信号里命中 >= 2 才判检出（验证时可 -DKL26_THRESHOLD=n 覆盖） */
+#define KL26_SIG_COUNT 6
+#ifndef KL26_THRESHOLD
+#define KL26_THRESHOLD 2
+#endif
+
+/* 加载期相位 */
+#define PHASE_UNRUN 0
+#define PHASE_CLEAN 1
+#define PHASE_HIT   2
+
+/* ============================================================
+ * 信号①：timing 侧信道（多轮采样 + 中位数去抖）
+ * ============================================================ */
+#define DUSK_TIMING_ROUNDS   9
+#define DUSK_TIMING_MIN_SLOW 7
+#define DUSK_TIMING_LIMIT_NS 500000L
 
 static long dusk_timing_delta_ns(const struct timespec *a, const struct timespec *b) {
     return (b->tv_sec - a->tv_sec) * 1000000000L + (b->tv_nsec - a->tv_nsec);
@@ -69,13 +104,11 @@ static int detect_timing(void) {
 }
 
 /* ============================================================
- * 检测②：Frida 版本字符串嗅探
+ * 信号②：Frida 版本/特征嗅探
  * ============================================================ */
 static int detect_frida_version(void) {
-    /* 尝试通过 dlsym 查找 Frida 特有符号 */
     void *handle = dlopen(NULL, RTLD_NOW);
     if (handle) {
-        /* Frida 注入的典型符号 */
         const char *symbols[] = {
             "frida_agent_main",
             "frida_uspawn_client",
@@ -83,7 +116,6 @@ static int detect_frida_version(void) {
             "_frida_backtrace",
             NULL
         };
-
         for (int i = 0; symbols[i]; i++) {
             if (dlsym(handle, symbols[i])) {
                 dlclose(handle);
@@ -93,7 +125,6 @@ static int detect_frida_version(void) {
         dlclose(handle);
     }
 
-    /* 检查 /proc/self/maps 中的 frida 特征 */
     FILE *f = fopen("/proc/self/maps", "r");
     if (f) {
         char line[512];
@@ -105,33 +136,54 @@ static int detect_frida_version(void) {
         }
         fclose(f);
     }
-
     return 0;
 }
 
 /* ============================================================
- * 综合检测（OR 判定：任一子路触发即判定）
+ * 信号③④⑤⑥：注入痕迹层（实现见 fuso_probe.h）
+ *   ③ fuso_smaps_dirty() / ④ fuso_anon_exec() /
+ *   ⑤ fuso_trampoline()  / ⑥ fuso_libc_prologue()
+ * ============================================================ */
+
+/* ============================================================
+ * 评分：返回命中信号数（0..KL26_SIG_COUNT）
+ * ============================================================ */
+static int detect_score(void) {
+    int s = 0;
+    s += detect_timing();
+    s += detect_frida_version();
+    s += fuso_smaps_dirty();
+    s += fuso_anon_exec();
+    s += fuso_trampoline();
+    s += fuso_libc_prologue();
+    return s;
+}
+
+/* ============================================================
+ * 加载期检测缓存（.init_array 阶段写入）
+ * ============================================================ */
+static volatile int g_load_phase = PHASE_UNRUN;
+static volatile int g_load_score = 0;
+
+/* constructor(101)：优先级 101 为可用最小值，确保在其它构造前先跑 */
+__attribute__((constructor(101)))
+static void _dusk_load_guard(void) {
+    int s = detect_score();
+    g_load_score = s;
+    g_load_phase = (s >= KL26_THRESHOLD) ? PHASE_HIT : PHASE_CLEAN;
+}
+
+/* ============================================================
+ * 综合检测（评分阈值制 + 加载期锁定）
  * ============================================================ */
 static int detect_frida(void) {
-    /* 版本嗅探（含 maps 中 frida/gadget 特征）已足够可靠，优先采信 */
-    if (detect_frida_version()) return 1;
-    /* timing 侧信道极易误报（低端机 / 高负载下普通循环也会变慢），
-     * 仅当 maps 中也出现 frida 特征时才采信，避免单独误判锁死正常玩家。 */
-    int timing = detect_timing();
-    if (!timing) return 0;
-    int fd = open("/proc/self/maps", O_RDONLY);
-    if (fd < 0) return 0;
-    char buf[512];
-    int n = read(fd, buf, sizeof(buf) - 1);
-    close(fd);
-    if (n <= 0) return 0;
-    buf[n] = '\0';
-    if (strstr(buf, "frida") || strstr(buf, "gadget")) return 1;
-    return 0;
+    if (g_load_phase == PHASE_HIT) return 1;   /* 加载期已判定命中 → 永久锁定 */
+    return detect_score() >= KL26_THRESHOLD;
 }
 
 /* ============================================================
- * 答案计算
+ * 答案计算：基于 SEED 的确定性哈希
+ *   检出 → 固定锁定串（提交必败）；未检出 → 真答案。
  * ============================================================ */
 static const char* compute_answer(void) {
     static char result[33];
@@ -156,19 +208,46 @@ static const char* compute_answer(void) {
 /* ============================================================
  * 状态详情
  * ============================================================ */
+static const char* load_phase_str(void) {
+    switch (g_load_phase) {
+        case PHASE_HIT:   return "已命中(2)";
+        case PHASE_CLEAN: return "干净(1)";
+        default:          return "未执行(0)";
+    }
+}
+
 static const char* compute_status(void) {
-    static char buf[512];
+    static char buf[1400];
     int timing = detect_timing();
     int version = detect_frida_version();
+    int dirty = fuso_smaps_dirty();
+    int anon = fuso_anon_exec();
+    int tramp = fuso_trampoline();
+    int libc = fuso_libc_prologue();
+    int sc = detect_score();
 
     snprintf(buf, sizeof(buf),
-        "=== 暮霭沉沉 ===\n"
-        "timing检测:     %s\n"
-        "版本嗅探:       %s\n"
-        "综合判定(OR):   %s\n\n"
+        "=== 暮霭沉沉（6 路评分阈值制 · 加载期先跑）===\n"
+        "加载期相位(.init_array): %s   加载期命中数: %d\n"
+        "--------------------------------------------------\n"
+        "① timing 侧信道    : %-4s\n"
+        "② 版本/特征嗅探    : %-4s\n"
+        "③ 可执行段私有脏页 : %-4s\n"
+        "④ 无名可执行代码岛 : %-4s\n"
+        "⑤ ARM64 跳板扫描   : %-4s\n"
+        "⑥ libc 入口比对    : %-4s\n"
+        "--------------------------------------------------\n"
+        "命中 %d/%d 路，阈值 >= %d 判检出\n"
+        "综合判定: %s\n\n"
         "标记A: %s\n标记B: %s",
-        timing ? "检出" : "安全",
-        version ? "检出" : "安全",
+        load_phase_str(), g_load_score,
+        timing ? "命中" : "安全",
+        version ? "命中" : "安全",
+        dirty ? "命中" : "安全",
+        anon ? "命中" : "安全",
+        tramp ? "命中" : "安全",
+        libc ? "命中" : "安全",
+        sc, KL26_SIG_COUNT, KL26_THRESHOLD,
         detect_frida() ? "检出" : "安全",
         REAL_MARK, FAKE_MARK);
     return buf;
@@ -179,21 +258,52 @@ static const char* compute_status(void) {
  * ============================================================ */
 
 JNIEXPORT jint JNICALL Java_com_fatdog_reverse_Sk_nativeTiming(JNIEnv *e, jclass c) {
+    (void)e; (void)c;
     return detect_timing();
 }
 
 JNIEXPORT jint JNICALL Java_com_fatdog_reverse_Sk_nativeVersion(JNIEnv *e, jclass c) {
+    (void)e; (void)c;
     return detect_frida_version();
 }
 
+JNIEXPORT jint JNICALL Java_com_fatdog_reverse_Sk_nativeSmapsDirty(JNIEnv *e, jclass c) {
+    (void)e; (void)c;
+    return fuso_smaps_dirty();
+}
+
+JNIEXPORT jint JNICALL Java_com_fatdog_reverse_Sk_nativeAnonExec(JNIEnv *e, jclass c) {
+    (void)e; (void)c;
+    return fuso_anon_exec();
+}
+
+JNIEXPORT jint JNICALL Java_com_fatdog_reverse_Sk_nativeTrampoline(JNIEnv *e, jclass c) {
+    (void)e; (void)c;
+    return fuso_trampoline();
+}
+
+JNIEXPORT jint JNICALL Java_com_fatdog_reverse_Sk_nativeLibcPrologue(JNIEnv *e, jclass c) {
+    (void)e; (void)c;
+    return fuso_libc_prologue();
+}
+
+/* 加载期相位：0=未执行 1=加载期干净 2=加载期已命中 */
+JNIEXPORT jint JNICALL Java_com_fatdog_reverse_Sk_nativeLoadPhase(JNIEnv *e, jclass c) {
+    (void)e; (void)c;
+    return (jint)g_load_phase;
+}
+
 JNIEXPORT jint JNICALL Java_com_fatdog_reverse_Sk_nativeFridaDetect(JNIEnv *e, jclass c) {
+    (void)e; (void)c;
     return detect_frida();
 }
 
 JNIEXPORT jstring JNICALL Java_com_fatdog_reverse_Sk_nativeAnswer(JNIEnv *e, jclass c) {
+    (void)c;
     return (*e)->NewStringUTF(e, compute_answer());
 }
 
 JNIEXPORT jstring JNICALL Java_com_fatdog_reverse_Sk_nativeStatus(JNIEnv *e, jclass c) {
+    (void)c;
     return (*e)->NewStringUTF(e, compute_status());
 }

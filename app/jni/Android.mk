@@ -285,10 +285,12 @@ LOCAL_MODULE := veil
 LOCAL_SRC_FILES := veil.c
 include $(BUILD_SHARED_LIBRARY)
 
-# KL28
+# KL28 扶桑树 雪落无痕（C++ OOP：8 路评分阈值制 + 加载期检测 + 注入痕迹层，Probe 抽象基类虚派发 + RAII）
 include $(CLEAR_VARS)
 LOCAL_MODULE := snow
-LOCAL_SRC_FILES := snow.c
+LOCAL_SRC_FILES := snow.cpp
+LOCAL_CPPFLAGS := -std=c++17 -fexceptions -frtti
+LOCAL_LDLIBS := -llog -ldl
 include $(BUILD_SHARED_LIBRARY)
 
 # KL29

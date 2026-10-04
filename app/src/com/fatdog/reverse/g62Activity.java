@@ -15,16 +15,19 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 /**
- * 扶桑树 KL25 暮雾锁听：三重检测 AND 判定。
- * libmist.so 导出六个函数：
- *   int    nativeMapsFrida()    — maps 特征搜索
- *   int    nativeThreadFinger() — 线程指纹检测
- *   int    nativeAuxvHook()     — auxv/ELF 一致性校验
- *   int    nativeFridaDetect()  — 综合检测（AND）
- *   String nativeAnswer()       — 最终答案
- *   String nativeStatus()       — 检测详情
+ * 扶桑树 KL25 暮雾锁听：内存/线程/结构层 5 路评分阈值制 + 加载期检测。
+ * libmist.so 导出九个函数：
+ *   int    nativeMapsFrida()          — maps 特征搜索
+ *   int    nativeThreadFinger()       — 线程指纹检测
+ *   int    nativeAuxvHook()           — auxv/ELF 一致性校验（守卫）
+ *   int    nativeThreadCountCheck()   — 线程数一致性（防枚举被 hook）
+ *   int    nativeMapsPhantom()        — maps 幻影映射（memfd:/(deleted)）
+ *   int    nativeLoadPhase()          — 加载期(.init_array)检测相位
+ *   int    nativeFridaDetect()        — 综合检测（评分阈值制，≥2 判检出）
+ *   String nativeAnswer()             — 最终答案（加载期命中则永久锁定）
+ *   String nativeStatus()             — 检测详情
  *
- * 关键点：AND 判定（Frida 指纹与运行时结构一致性全部成立）
+ * 关键点：① 5 路评分阈值制 ② 检测在 so 加载瞬间(.init_array)已跑完并缓存
  */
 public class g62Activity extends Activity {
 
@@ -37,27 +40,35 @@ public class g62Activity extends Activity {
         root.setPadding(Ui.dp(16), Ui.dp(20), Ui.dp(16), Ui.dp(12));
 
         TextView tv = new TextView(this);
-        tv.setText("KL25 · 暮雾锁听（★★★ AND 判定）\n\n"
-                + "libmist.so 导出六个函数：\n"
+        tv.setText("KL25 · 暮雾锁听（★★★ 五路评分阈值制）\n\n"
+                + "libmist.so 导出九个函数：\n"
                 + "  int    nativeMapsFrida()\n"
                 + "  int    nativeThreadFinger()\n"
                 + "  int    nativeAuxvHook()\n"
+                + "  int    nativeThreadCountCheck()\n"
+                + "  int    nativeMapsPhantom()\n"
+                + "  int    nativeLoadPhase()\n"
                 + "  int    nativeFridaDetect()\n"
                 + "  String nativeAnswer()\n"
                 + "  String nativeStatus()\n\n"
-                + "AND 判定（条件全部成立才判定）：\n"
+                + "评分阈值制（5 路命中 ≥2 才判检出）：\n"
                 + "  ① maps frida 特征\n"
-                + "  ② 线程指纹检测\n"
-                + "  ③ auxv/ELF 一致性校验\n\n"
-                + "标记：两个标记一真一假，需仔细辨别\n\n"
-                + "【重要】本关答案与检测结果绑定：一旦被检出 Frida，答案会被锁定，\n"
-                + "必须先绕过检测（hook nativeFridaDetect 返回 0）再提交。");
+                + "  ② 线程名指纹\n"
+                + "  ③ auxv/ELF 一致性（守卫）\n"
+                + "  ④ 线程数一致性（防枚举被 hook）\n"
+                + "  ⑤ maps 幻影映射（memfd/(deleted)）\n\n"
+                + "★ 本关检测在 so【加载瞬间】(.init_array)就已执行并缓存，\n"
+                + "  答案与加载期结果绑定——事后 hook 运行期检测解不开。\n\n"
+                + "标记：两个标记一真一假，需仔细辨别");
         tv.setGravity(Gravity.CENTER);
         root.addView(tv, Ui.wrap(6));
 
+        // 加载期相位：读这一行会触发 loadLibrary → .init_array 已跑完
+        int phase = Rk.nativeLoadPhase();
         final TextView statusTv = new TextView(this);
-        statusTv.setText("点击「运行检测」查看状态");
-        statusTv.setTextColor(Color.LTGRAY);
+        statusTv.setText("加载期检测(.init_array)：相位 " + phaseDesc(phase)
+                + "（检测在 so 加载那一刻就已完成）\n\n点击「运行检测」查看完整状态");
+        statusTv.setTextColor(phase == 2 ? 0xFFFF6B6B : Color.LTGRAY);
         statusTv.setTypeface(Typeface.MONOSPACE);
         statusTv.setTextSize(12);
         statusTv.setGravity(Gravity.CENTER);
@@ -109,15 +120,16 @@ public class g62Activity extends Activity {
             @Override public void onClick(View v) {
                 new AlertDialog.Builder(g62Activity.this)
                         .setTitle("提示")
-                        .setMessage("三重 AND 判定：\n\n"
-                                + "Frida 指纹命中且运行时结构一致才判定\n"
-                                + "（与 OR 不同——需要全部条件同时成立）\n\n"
+                        .setMessage("内存/线程/结构层 · 五路评分阈值制：\n\n"
                                 + "① maps frida 特征搜索\n"
-                                + "② 线程指纹检测（gum-js-loop/gmain）\n"
-                                + "③ auxv/ELF 一致性校验（ABI 无关）\n\n"
-                                + "绕过路线：\n"
-                                + "  • 只需让任一条结构校验失败即可\n"
-                                + "  • 也可以只处理 Frida 特征路\n\n"
+                                + "② 线程名指纹（gum-js-loop/pool-frida/linjector）\n"
+                                + "③ auxv/ELF 一致性（守卫，不一致才记分）\n"
+                                + "④ 线程数一致性：status Threads vs /proc/self/task 目录数\n"
+                                + "   （专治 hook opendir/readdir 藏掉 Frida 线程）\n"
+                                + "⑤ maps 幻影映射：r-x 段出现 memfd: 或 (deleted)\n\n"
+                                + "评分阈值制：命中 ≥2 路才判检出（单路异常不误杀）\n\n"
+                                + "★ 时机同 KL24：检测在 so 加载瞬间(.init_array)已跑完并缓存，\n"
+                                + "  进关点按钮只是查看结果；hook nativeFridaDetect 返回 0 解不开答案。\n\n"
                                 + "静态复刻：SEED = 20280719\n\n"
                                 + "注意两个标记中有一个是诱饵，仔细对比拼写差异。")
                         .setPositiveButton("知道了", null)
@@ -132,10 +144,20 @@ public class g62Activity extends Activity {
         ThemeKit.apply(this);
     }
 
+    private static String phaseDesc(int phase) {
+        switch (phase) {
+            case 2:  return "已命中(2)";
+            case 1:  return "干净(1)";
+            default: return "未执行(0)";
+        }
+    }
+
     private void showFridaDetected() {
         new AlertDialog.Builder(this)
                 .setTitle("已被 Frida 检测")
-                .setMessage("检测到 Frida 注入！\n\n本关答案与检测结果绑定：一旦被检出，答案即被锁定，无法通关。\n请先绕过检测（例如 hook nativeFridaDetect 返回 0）再提交。")
+                .setMessage("检测到 Frida 注入！\n\n本关答案与【加载期】检测结果绑定：\n"
+                        + "一旦 so 加载时被检出，答案即被永久锁定，事后 hook 运行期检测也解不开。\n\n"
+                        + "干净环境下直接计算并提交即可；若确需挂 Frida，须用 spawn 抢在 so 加载前处理 .init_array 中的检测。")
                 .setPositiveButton("知道了", null)
                 .show();
     }
