@@ -12,7 +12,7 @@
  *
  * 设计要点（按新规范）：
  *  - 标准算法、不魔改：SHA-256 / HMAC-SHA256 均为标准实现（前三关不打血）。
- *  - 真标记：Fatdog_reweave ；明文诱饵（一字之差）：Fatdog_reweaves 。
+ *  - 真标记：Fatdog_reweave ；明文诱饵（一字之差）：bN7!dW3@fR8#hK1 。
  *  - 网络层：KEY = SHA256(<标记> + "kl18")[:32]，对 "page=N&ts=T" 做 HMAC-SHA256 签名
  *    （与 /api/kl18 对拍；同 KL17 一样不再 AES 加密请求体）。
  */
@@ -32,7 +32,7 @@ static const unsigned char EXTRACTED[14] = {
 #define MARK_LEN 14
 #define NOP_FILL 0xFF   /* 抽空后填充的 nop 字节 */
 
-static const char DECOY_MARK[] = "Fatdog_reweaves";  /* strings 可见，差一个字母 */
+static const char DECOY_MARK[] = "bN7!dW3@fR8#hK1";  /* strings 可见，差一个字母 */
 
 /* 运行时缓冲区：加载时全是 nop，还原点走过后才是真标记（.bss，DEX 不落盘） */
 static char g_mark[64];

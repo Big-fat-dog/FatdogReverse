@@ -4,8 +4,8 @@
 // 因此由本 so 承担"发包瞬间的加密 + 签名 + 证书固定校验"。
 //
 // 本关算法（摘要 + 对称，**无 HMAC**）：
-//   aeskey = SHA256("<KEY>|aes") 的前 16 字节
-//   enc    = AES-128-CBC-PKCS7(aeskey, iv=随机 16B 前置, "page=<page>&ts=<ts>")  → hex
+//   mix_seed = SHA256("<KEY>|aes") 的前 16 字节
+//   enc    = AES-128-CBC-PKCS7(mix_seed, iv=随机 16B 前置, "page=<page>&ts=<ts>")  → hex
 //   sign   = SHA256(enc_hex + "<KEY>") 的十六进制前 16 位
 //
 // 证书固定（本关的题眼）：服务器用自签 CA，App 侧在 TLS 握手后拿叶子证书 DER
@@ -48,7 +48,7 @@
 // ============================================================
 // SHA-256（证书指纹 + sign + answer 共用）
 // ============================================================
-namespace sha256_ns {
+namespace omega_ns {
 static const uint32_t K[64] = {
     0x428a2f98,0x71374491,0xb5c0fbcf,0xe9b5dba5,0x3956c25b,0x59f111f1,0x923f82a4,0xab1c5ed5,
     0xd807aa98,0x12835b01,0x243185be,0x550c7dc3,0x72be5d74,0x80deb1fe,0x9bdc06a7,0xc19bf174,
@@ -136,12 +136,12 @@ static std::string digest_first16(const std::string& s) {
     uint8_t out[32]; finish(c, out);
     return std::string(reinterpret_cast<const char*>(out), 16);
 }
-} // namespace sha256_ns
+} // namespace omega_ns
 
 // ============================================================
 // AES-128（加密，CBC 模式 + PKCS#7）
 // ============================================================
-namespace aes_ns {
+namespace kappa_ns {
 
 static const uint8_t SBOX[256] = {
     0x63,0x7c,0x77,0x7b,0xf2,0x6b,0x6f,0xc5,0x30,0x01,0x67,0x2b,0xfe,0xd7,0xab,0x76,
@@ -239,12 +239,12 @@ static std::string cbcEncryptHex(const std::string& key16, const uint8_t iv[16],
     return out;
 }
 
-} // namespace aes_ns
+} // namespace kappa_ns
 
 // ============================================================
 // 密钥：优先从真实 libapp.so 对象池取；失败退镜像常量
 // ============================================================
-namespace key_store {
+namespace anchor_store {
 
 // 镜像兜底：真标记 UTF-8 各字节 ^0x3C（volatile 防常量折叠，rule 35）
 static const volatile uint8_t MIRROR[] = {
@@ -254,7 +254,7 @@ static const volatile uint8_t MIRROR[] = {
 static const char TAG[] = "FDK38|";
 static const size_t TAG_LEN = sizeof(TAG) - 1;
 
-static std::string g_key;
+static std::string g_anchor;
 static bool g_ready = false;
 static bool g_from_payload = false;
 
@@ -305,27 +305,27 @@ static bool read_tag_from_payload(const std::string& path, std::string& out) {
 }
 
 static const std::string& get() {
-    if (g_ready) return g_key;
+    if (g_ready) return g_anchor;
     std::string path, key;
     if (locate_payload(path) && read_tag_from_payload(path, key)) {
-        g_key = key;
+        g_anchor = key;
         g_from_payload = true;
         LOGI("KL38 key: source=primary");
     } else {
         std::string m;
         m.reserve(sizeof(MIRROR));
         for (size_t i = 0; i < sizeof(MIRROR); i++) m += (char)(MIRROR[i] ^ 0x3C);
-        g_key = m;
+        g_anchor = m;
         g_from_payload = false;
         LOGI("KL38 key: source=fallback");
     }
     g_ready = true;
-    return g_key;
+    return g_anchor;
 }
 
 [[maybe_unused]] static bool from_payload() { get(); return g_from_payload; }
 
-} // namespace key_store
+} // namespace anchor_store
 
 // ============================================================
 // 证书固定（pin）：叶子证书 DER 的 SHA-256
@@ -349,7 +349,7 @@ static std::string pin_hex() {
 
 static bool verify(const uint8_t* der, size_t len) {
     if (!der || len == 0) return false;
-    return sha256_ns::digest_hex_bytes(der, len) == pin_hex();
+    return omega_ns::digest_hex_bytes(der, len) == pin_hex();
 }
 } // namespace pin_store
 
@@ -375,28 +375,28 @@ static void make_iv(uint8_t iv[16]) {
 
 // 当前使用的主密钥
 static std::string active_master() {
-    return key_store::get();
+    return anchor_store::get();
 }
 
 static std::string build_enc(int page, long long ts) {
     char head[64];
     snprintf(head, sizeof(head), "page=%d&ts=%lld", page, ts);
     const std::string& master = active_master();
-    std::string aeskey = sha256_ns::digest_first16(master + "|aes");
+    std::string mix_seed = omega_ns::digest_first16(master + "|aes");
     uint8_t iv[16];
     make_iv(iv);
-    return aes_ns::cbcEncryptHex(aeskey, iv, std::string(head));
+    return kappa_ns::cbcEncryptHex(mix_seed, iv, std::string(head));
 }
 
 static std::string build_sign(int page, long long ts, const std::string& enc) {
     (void)page; (void)ts;
     const std::string& master = active_master();
-    return sha256_ns::digest_hex(enc + master).substr(0, 16);
+    return omega_ns::digest_hex(enc + master).substr(0, 16);
 }
 
 // nativeAnswer：sha256(str(1000 数和))[:8]，SEED_KL38 = 20280701
 static std::string build_answer() {
-    return sha256_ns::digest_hex(std::to_string(mt_rng::kl_server_sum(20280701))).substr(0, 8);
+    return omega_ns::digest_hex(std::to_string(mt_rng::kl_server_sum(20280701))).substr(0, 8);
 }
 
 // ============================================================
@@ -405,7 +405,7 @@ static std::string build_answer() {
 #ifdef KL38_HOST_TEST
 
 int main() {
-    printf("sha256(abc)       = %s\n", sha256_ns::digest_hex("abc").c_str());
+    printf("sha256(abc)       = %s\n", omega_ns::digest_hex("abc").c_str());
     printf("expect            = ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad\n");
     std::string e1 = build_enc(1, 1787013761LL);
     std::string e2 = build_enc(7, 1700000000LL);
@@ -419,8 +419,8 @@ int main() {
     printf("expect            = da19ec6a90056b64\n");
     printf("answer(KL38)      = %s\n", build_answer().c_str());
     printf("expect            = 5c8a0ad4\n");
-    printf("master            = %s (from %s)\n", key_store::get().c_str(),
-           key_store::from_payload() ? "payload" : "mirror");
+    printf("master            = %s (from %s)\n", anchor_store::get().c_str(),
+           anchor_store::from_payload() ? "payload" : "mirror");
     // 证书固定对拍：pin 对应的明文 → true；任意其它 DER → false
     {
         const char* prod = "fatdog://prod/leaf/2026";
@@ -484,7 +484,7 @@ Java_com_fatdog_reverse_FlutterNet_nativeAnswer(JNIEnv* env, jclass clz) {
 JNIEXPORT jstring JNICALL
 Java_com_fatdog_reverse_FlutterNet_nativeGetStatus(JNIEnv* env, jclass clz) {
     (void)clz;
-    const bool ok = (sha256_ns::digest_hex("abc")
+    const bool ok = (omega_ns::digest_hex("abc")
                      == "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
     return env->NewStringUTF(ok ? "自检:通过" : "自检:异常");
 }

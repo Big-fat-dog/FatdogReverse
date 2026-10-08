@@ -34,7 +34,7 @@
 // ============================================================
 // MD5（RFC 1321）—— 本关唯一摘要原语
 // ============================================================
-namespace md5_ns {
+namespace zeta_ns {
 
 static inline uint32_t rotl(uint32_t x, int c) { return (x << c) | (x >> (32 - c)); }
 
@@ -123,12 +123,12 @@ static std::string digest(const std::string& in) {
     return hex(out, 16);
 }
 
-} // namespace md5_ns
+} // namespace zeta_ns
 
 // ============================================================
 // SHA-256（仅用于 nativeAnswer：sha256(str(sum))[:8]）
 // ============================================================
-namespace sha256_ns {
+namespace omega_ns {
 static const uint32_t K[64] = {
     0x428a2f98,0x71374491,0xb5c0fbcf,0xe9b5dba5,0x3956c25b,0x59f111f1,0x923f82a4,0xab1c5ed5,
     0xd807aa98,0x12835b01,0x243185be,0x550c7dc3,0x72be5d74,0x80deb1fe,0x9bdc06a7,0xc19bf174,
@@ -198,12 +198,12 @@ static std::string digest_hex(const std::string& s) {
     update(c, reinterpret_cast<const uint8_t*>(s.data()), s.size());
     return final_hex(c);
 }
-} // namespace sha256_ns
+} // namespace omega_ns
 
 // ============================================================
 // 密钥：优先从真实 libapp.so 对象池取；失败退镜像常量
 // ============================================================
-namespace key_store {
+namespace anchor_store {
 
 // 镜像兜底常量：真标记的 UTF-8 各字节 ^ 0x3C（volatile 防常量折叠，rule 35）
 static const volatile uint8_t MIRROR[] = {
@@ -214,7 +214,7 @@ static const volatile uint8_t MIRROR[] = {
 static const char TAG[] = "FDK36|";   // 对象池哨兵（只有前缀，密钥不在本文件）
 static const size_t TAG_LEN = sizeof(TAG) - 1;
 
-static std::string g_key;
+static std::string g_anchor;
 static bool g_ready = false;
 static bool g_from_payload = false;
 
@@ -268,42 +268,42 @@ static bool read_tag_from_payload(const std::string& path, std::string& out) {
 }
 
 static const std::string& get() {
-    if (g_ready) return g_key;
+    if (g_ready) return g_anchor;
     std::string path, key;
     if (locate_payload(path) && read_tag_from_payload(path, key)) {
-        g_key = key;
+        g_anchor = key;
         g_from_payload = true;
         LOGI("KL36 key: source=primary");
     } else {
         std::string m;
         m.reserve(sizeof(MIRROR));
         for (size_t i = 0; i < sizeof(MIRROR); i++) m += (char)(MIRROR[i] ^ 0x3C);
-        g_key = m;
+        g_anchor = m;
         g_from_payload = false;
         LOGI("KL36 key: source=fallback");
     }
     g_ready = true;
-    return g_key;
+    return g_anchor;
 }
 
 [[maybe_unused]] static bool from_payload() { get(); return g_from_payload; }
 
-} // namespace key_store
+} // namespace anchor_store
 
 // ============================================================
 // 签名：sign = md5("page=<page>&ts=<ts>&k=<KEY>")
 // ============================================================
 static std::string build_sign(int page, long long ts) {
-    const std::string& k = key_store::get();
+    const std::string& k = anchor_store::get();
     char head[64];
     snprintf(head, sizeof(head), "page=%d&ts=%lld&k=", page, ts);
-    return md5_ns::digest(std::string(head) + k);
+    return zeta_ns::digest(std::string(head) + k);
 }
 
 // nativeAnswer：sha256(str(1000 数和))[:8]（与其它网络关一致；和由 SEED 现场复算）
 static std::string build_answer() {
     std::string s = std::to_string(mt_rng::kl_server_sum(20271125));
-    return sha256_ns::digest_hex(s).substr(0, 8);
+    return omega_ns::digest_hex(s).substr(0, 8);
 }
 
 // ============================================================
@@ -312,7 +312,7 @@ static std::string build_answer() {
 #ifdef KL36_HOST_TEST
 
 int main() {
-    printf("md5(abc)        = %s\n", md5_ns::digest("abc").c_str());
+    printf("md5(abc)        = %s\n", zeta_ns::digest("abc").c_str());
     printf("expect          = 900150983cd24fb0d6963f7d28e17f72\n");
     printf("sign(1,1787013761) = %s\n", build_sign(1, 1787013761LL).c_str());
     printf("expect             = 7299ee3ec8e2da29f775da0094ad2044\n");
@@ -320,7 +320,7 @@ int main() {
     printf("expect             = 9e96f422a0a940e288c1da4d7a7b8658\n");
     printf("answer(KL36)    = %s\n", build_answer().c_str());
     printf("expect          = f13984c0\n");
-    printf("key source      = %s\n", key_store::from_payload() ? "payload" : "mirror");
+    printf("key source      = %s\n", anchor_store::from_payload() ? "payload" : "mirror");
     return 0;
 }
 
@@ -344,7 +344,7 @@ Java_com_fatdog_reverse_FlutterBridge_nativeAnswer(JNIEnv* env, jclass clz) {
 JNIEXPORT jstring JNICALL
 Java_com_fatdog_reverse_FlutterBridge_nativeGetStatus(JNIEnv* env, jclass clz) {
     (void)clz;
-    const bool ok = (md5_ns::digest("abc") == "900150983cd24fb0d6963f7d28e17f72");
+    const bool ok = (zeta_ns::digest("abc") == "900150983cd24fb0d6963f7d28e17f72");
     return env->NewStringUTF(ok ? "自检:通过" : "自检:异常");
 }
 

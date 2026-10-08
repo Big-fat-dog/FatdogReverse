@@ -63,7 +63,7 @@ unsigned short MARK[14] = {
 };
 
 /* 明文诱饵标记：非 static 保证落盘，strings 一眼可见，一字之差 */
-const char DECOY_MARK[] = "Fatdog_travel";
+const char DECOY_MARK[] = "Z9~mB3#xK7!vq";
 
 /* 假密文：用诱饵标记派生的钥加密的一段“像样”假载荷 */
 static const unsigned char DECOY_BLOB[32] = {
@@ -240,12 +240,12 @@ static unsigned int m3_t_enc(unsigned int x) {
     return b ^ m3_rotl(b, 2) ^ m3_rotl(b, 10) ^ m3_rotl(b, 18) ^ m3_rotl(b, 24);
 }
 
-static unsigned int m3_t_key(unsigned int x) {
+static unsigned int m3_t_rk(unsigned int x) {
     unsigned int b = m3_tau(x);
     return b ^ m3_rotl(b, 13) ^ m3_rotl(b, 23);
 }
 
-static void m3_key_expand(const unsigned char key[16], unsigned int rk[32]) {
+static void m3_rk_expand(const unsigned char key[16], unsigned int rk[32]) {
     unsigned int k[36];
     int i;
     for (i = 0; i < 4; i++)
@@ -253,7 +253,7 @@ static void m3_key_expand(const unsigned char key[16], unsigned int rk[32]) {
              | ((unsigned int)key[4*i+2]<<8)|(unsigned int)key[4*i+3];
     for (i = 0; i < 4; i++) k[i] ^= FK[i];
     for (i = 0; i < 32; i++) {
-        k[4+i] = k[i] ^ m3_t_key(k[i+1] ^ k[i+2] ^ k[i+3] ^ CK[i]);
+        k[4+i] = k[i] ^ m3_t_rk(k[i+1] ^ k[i+2] ^ k[i+3] ^ CK[i]);
         rk[i] = k[4+i];
     }
 }
@@ -321,7 +321,7 @@ static void m3_core_enc(int page, long long ts, const char *nonce, const char *d
     memset(pt, 0, sizeof(pt));
     for (i = 0; i < n; i++) pt[i] = (unsigned char)payload[i];
     m3_derive("|sm4", key, 16);
-    m3_key_expand(key, rk);
+    m3_rk_expand(key, rk);
     for (i = 0; i < 64; i += 16)
         m3_crypt_block(pt + i, ct + i, rk, 0);
     m3_hex_encode(ct, 64, hex);
@@ -424,7 +424,7 @@ int main(void) {
     }
     /* 回环：用同一把钥匙解开自己的密文 */
     m3_derive("|sm4", key, 16);
-    m3_key_expand(key, rk);
+    m3_rk_expand(key, rk);
     for (i = 0; i < 64; i += 16) {
         unsigned char ct[16];
         for (j = 0; j < 16; j++) {

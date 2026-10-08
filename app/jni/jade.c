@@ -58,7 +58,7 @@ unsigned short MARK[11] = {
 };
 
 /* 明文诱饵标记：非 static 保证落盘，strings 一眼可见，一字之差 */
-const char DECOY_MARK[] = "Fatdog_vile";
+const char DECOY_MARK[] = "魑魅のø";
 
 /* 假密文：用诱饵标记派生的钥加密的一段“像样”假载荷 */
 static const unsigned char DECOY_BLOB[32] = {

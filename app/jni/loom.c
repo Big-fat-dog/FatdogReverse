@@ -14,10 +14,10 @@
 #include <stdint.h>
 
 /* ============================================================
- * 诱饵标记：Fatdog_weave（真，服务端 HMAC 密钥）/ Fatdog_knit（假）
+ * 诱饵标记：幽玄の鍵（真，服务端 HMAC 密钥）/ 幽玄のж（假）
  * ============================================================ */
-static const char REAL_MARK[] = "Fatdog_weave";
-static const char FAKE_MARK[] = "Fatdog_knit";
+static const char REAL_MARK[] = "幽玄の鍵";
+static const char FAKE_MARK[] = "幽玄のж";
 
 #define SEED30 20280724
 

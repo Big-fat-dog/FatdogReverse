@@ -7,5 +7,5 @@ public class Xu {
     private Xu() {
     }
 
-    public static final String FAKE_KEY = "Fatdog_travel";
+    public static final String SPARE_SEED = "Z9~mB3#xK7!vq";
 }

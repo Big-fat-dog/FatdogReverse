@@ -6,7 +6,7 @@
  *  - 多动态加载：真标记 Fatdog_unveil 拆成两段密文（ENC_A/ENC_B），JNI_OnLoad 分两个
  *    阶段动态解密拼回 g_mark（阶段1 解 "Fatdog_"，阶段2 解 "unveil"），模拟一代壳
  *    "分片加载 DEX"——DEX 不是一次性还原，而是分阶段加载进内存。
- *  - 真标记：Fatdog_unveil ；明文诱饵（一字之差）：Fatdog_unveils 。
+ *  - 真标记：Fatdog_unveil ；明文诱饵（一字之差）：P4@nR8!tY2#wZ6 。
  *  - 派生：aes_key = sha256(<标记>|"|aes")[:16] ， mac = sha256(<标记>|"|mac") 。
  *  - 网络层用标准 AES-128-ECB 加密 "page=N&ts=T" 再 HMAC-SHA256 签名（与 /api/kl16 对拍）。
  */
@@ -30,8 +30,8 @@ static const unsigned char ENC_B[6] = {0x16, 0x9e, 0x94, 0x7e, 0x2e, 0x9a};
 static char g_mark[64];
 static int g_mark_len = 0;
 
-/* 明文诱饵标记：strings 一眼可见，差一个字母 Fatdog_unveils */
-static const char DECOY_MARK[] = "Fatdog_unveils";
+/* 明文诱饵标记：strings 一眼可见，差一个字母 P4@nR8!tY2#wZ6 */
+static const char DECOY_MARK[] = "P4@nR8!tY2#wZ6";
 
 static unsigned char ash_rol(unsigned char b, int n) {
     return (unsigned char)(((b << n) | (b >> (8 - n))) & 0xFF);
@@ -168,7 +168,7 @@ static void ash_hmac_sha256(const unsigned char *key, unsigned int klen,
 
 /* ---------- 标准 AES-128 核心 ---------- */
 static void ash_ark(unsigned char s[16], const unsigned char k[16]) { int i; for (i=0;i<16;i++) s[i]^=k[i]; }
-static void ash_key_expand(const unsigned char *key, const unsigned char *tab, unsigned char rk[11][16]) {
+static void ash_rk_expand(const unsigned char *key, const unsigned char *tab, unsigned char rk[11][16]) {
     int i,j; unsigned char t[4]; memcpy(rk[0], key, 16);
     for (i=1;i<=10;i++){ const unsigned char *p=rk[i-1]; unsigned char *c=rk[i];
         t[0]=SBOX[p[13]]^tab[i-1]; t[1]=SBOX[p[14]]; t[2]=SBOX[p[15]]; t[3]=SBOX[p[12]];
@@ -214,7 +214,7 @@ static void ash_core_enc(int page, long long ts, char hex[65]) {
     if (n < 0) n = 0; if (n > 31) n = 31;
     memset(pt, 0, sizeof(pt));
     for (i=0;i<n;i++) pt[i]=(unsigned char)payload[i];
-    ash_derive("|aes", key, 16); ash_key_expand(key, RCON, rk);
+    ash_derive("|aes", key, 16); ash_rk_expand(key, RCON, rk);
     for (i=0;i+16<=32;i+=16) ash_enc_block(pt+i, ct+i, rk);
     ash_hex_encode(ct, 32, hex);
 }
@@ -261,7 +261,7 @@ int main(void) {
     ash_core_sign(enc, sign);
     printf("sample_enc  = %s\n", enc);
     printf("sample_sign = %s\n", sign);
-    ash_derive("|aes", key, 16); ash_key_expand(key, RCON, rk);
+    ash_derive("|aes", key, 16); ash_rk_expand(key, RCON, rk);
     for (i=0;i<32;i+=16){ unsigned char ct[16];
         for(j=0;j<16;j++){ char c1=enc[2*(i+j)],c2=enc[2*(i+j)+1];
             int hi=(c1<='9')?(c1-'0'):(c1-'a'+10); int lo=(c2<='9')?(c2-'0'):(c2-'a'+10); ct[j]=(unsigned char)((hi<<4)|lo); }

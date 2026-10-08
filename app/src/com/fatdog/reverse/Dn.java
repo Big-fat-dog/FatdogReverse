@@ -4,7 +4,7 @@ package com.fatdog.reverse;
 // 拿它算签名只会换来 403。真密钥 Fatdog_anxious 在 libraven.so 的 UTF-16 数组里，
 // 而且只有"环境干净"时才有效——哨兵一报警就会被改成一个字节。
 public class Dn {
-    public static final String FAKE_KEY = "Fatdog_tense";
+    public static final String SPARE_RUNE = "Fatdog_tense";
 
     private Dn() {
     }

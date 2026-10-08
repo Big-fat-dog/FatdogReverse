@@ -79,7 +79,7 @@ unsigned short MARK[13] = {
 };
 
 /* 明文诱饵标记：非 static 保证落盘，strings 一眼可见，一字之差 */
-const char DECOY_MARK[] = "Fatdog_piece";
+const char DECOY_MARK[] = "Vx3#Lq7~Bz2m";
 
 /* 假密文：用诱饵标记派生的钥加密的一段“像样”假载荷 */
 static const unsigned char DECOY_BLOB[32] = {
@@ -244,7 +244,7 @@ static void m1_ark(unsigned char s[16], const unsigned char k[16]) {
     int i; for (i = 0; i < 16; i++) s[i] ^= k[i];
 }
 
-static void m1_key_expand(const unsigned char *key, const unsigned char *tab,
+static void m1_rk_expand(const unsigned char *key, const unsigned char *tab,
                           unsigned char rk[11][16]) {
     int i, j;
     unsigned char t[4];
@@ -391,7 +391,7 @@ static void m1_core_enc(int page, long long ts, const char *nonce, const char *d
     memset(pt, 0, sizeof(pt));
     for (i = 0; i < n; i++) pt[i] = (unsigned char)payload[i];
     m1_derive("|aes", key, 16);
-    m1_key_expand(key, RCON, rk);
+    m1_rk_expand(key, RCON, rk);
     for (i = 0; i + 16 <= 64; i += 16)
         m1_enc_block(pt + i, ct + i, rk);
     m1_hex_encode(ct, 64, hex);
@@ -493,7 +493,7 @@ int main(void) {
     }
     /* 回环：用同一把钥匙解开自己的密文 */
     m1_derive("|aes", key, 16);
-    m1_key_expand(key, RCON, rk);
+    m1_rk_expand(key, RCON, rk);
     for (i = 0; i < 64; i += 16) {
         unsigned char ct[16];
         for (j = 0; j < 16; j++) {

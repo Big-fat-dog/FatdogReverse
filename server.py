@@ -140,7 +140,7 @@ NUMS30 = [_rng30.randint(1, 100) for _ in range(PAGES30 * PER_PAGE30)]
 KL30_SEED = 20280724
 KL30_PAGES = 100
 KL30_PER_PAGE = 10
-KL30_HMAC_KEY = b"Fatdog_weave"
+KL30_HMAC_KEY = b"\xe5\xb9\xbd\xe7\x8e\x84\xe3\x81\xae\xe9\x8d\xb5"
 _kl30_rng = random.Random(KL30_SEED)
 KL30_NUMS = [_kl30_rng.randint(1, 100) for _ in range(KL30_PAGES * KL30_PER_PAGE)]
 
@@ -480,7 +480,7 @@ def api_l36(page: int = Query(...), ts: int = Query(...), enc: str = Query(...),
 
 # ---------------- 关卡 43（KL6）冰封之钥：魔改 AES-128（Rcon 三处换血） ----------------
 KL6_MASTER = "Fatdog_pierce"
-DECOY_KL6 = ["Fatdog_piece"]
+DECOY_KL6 = ["Vx3#Lq7~Bz2m"]
 PAGES_KL6, PER_PAGE_KL6, SEED_KL6 = 100, 10, 20280107
 _rng_kl6 = random.Random(SEED_KL6)
 NUMS_KL6 = [_rng_kl6.randint(1, 100) for _ in range(PAGES_KL6 * PER_PAGE_KL6)]
@@ -627,7 +627,7 @@ def api_kl6(page: int = Query(...), ts: int = Query(...), nonce: str = Query(...
 # 标记派生标准 AES/HMAC 钥匙，加密 "page=N&ts=T" 后带 HMAC 签名取数。
 # 与 KL6 不同：这里用标准算法（轮常量未做手脚），难度在前置的“壳内动态拼标记”。
 KL16_MASTER = "Fatdog_unveil"
-DECOY_KL16 = ["Fatdog_unveils"]  # 一字之差诱饵：命中即 403
+DECOY_KL16 = ["P4@nR8!tY2#wZ6"]  # 一字之差诱饵：命中即 403
 PAGES_KL16, PER_PAGE_KL16, SEED_KL16 = 100, 10, 20260116
 _rng_kl16 = random.Random(SEED_KL16)
 NUMS_KL16 = [_rng_kl16.randint(1, 100) for _ in range(PAGES_KL16 * PER_PAGE_KL16)]
@@ -755,7 +755,7 @@ def api_kl16(page: int = Query(...), ts: int = Query(...), enc: str = Query(...)
 # （模拟类抽取回填）。标记派生 HMAC 密钥对 "page=N&ts=T" 签名取数。
 # 与 KL16 不同：本关不再 AES 加密请求体，只做标准 HMAC-SHA256 验签；难度在前置的「类抽取回填」。
 KL17_MASTER = "Fatdog_reclaim"
-DECOY_KL17 = ["Fatdog_reclaims"]  # 一字之差诱饵：命中即 403
+DECOY_KL17 = ["hJ5~kM2#qT9!vX4"]  # 一字之差诱饵：命中即 403
 PAGES_KL17, PER_PAGE_KL17, SEED_KL17 = 100, 10, 20260117
 _rng_kl17 = random.Random(SEED_KL17)
 NUMS_KL17 = [_rng_kl17.randint(1, 100) for _ in range(PAGES_KL17 * PER_PAGE_KL17)]
@@ -788,7 +788,7 @@ def api_kl17(page: int = Query(...), ts: int = Query(...), sign: str = Query(...
 # （模拟方法体还原），且后一字节依赖前一字节。标记派生 HMAC 密钥对 "page=N&ts=T" 签名取数。
 # 与 KL17 不同：KL17 在加载时分段回填（类抽取），KL18 加载时不还原、必须经还原点（方法抽取）。
 KL18_MASTER = "Fatdog_reweave"
-DECOY_KL18 = ["Fatdog_reweaves"]  # 一字之差诱饵：命中即 403
+DECOY_KL18 = ["bN7!dW3@fR8#hK1"]  # 一字之差诱饵：命中即 403
 PAGES_KL18, PER_PAGE_KL18, SEED_KL18 = 100, 10, 20260118
 _rng_kl18 = random.Random(SEED_KL18)
 NUMS_KL18 = [_rng_kl18.randint(1, 100) for _ in range(PAGES_KL18 * PER_PAGE_KL18)]
@@ -821,7 +821,7 @@ def api_kl18(page: int = Query(...), ts: int = Query(...), sign: str = Query(...
 # 还原出的标记，签名随之失效。还原点仍是链式逐字节填回，标记派生 HMAC 密钥签名取数。
 # 服务端只认真标记 Fatdog_rekindle 派生的签名；被抹掉/用诱饵签名的请求拿不到数字。
 KL19_MASTER = "Fatdog_rekindle"
-DECOY_KL19 = ["Fatdog_rekindles"]  # 一字之差诱饵：命中即 403
+DECOY_KL19 = ["魍魎の罠øß"]  # 一字之差诱饵：命中即 403
 PAGES_KL19, PER_PAGE_KL19, SEED_KL19 = 100, 10, 20260119
 _rng_kl19 = random.Random(SEED_KL19)
 NUMS_KL19 = [_rng_kl19.randint(1, 100) for _ in range(PAGES_KL19 * PER_PAGE_KL19)]
@@ -853,7 +853,7 @@ def api_kl19(page: int = Query(...), ts: int = Query(...), sign: str = Query(...
 # 仿腾讯乐固：DEX 内存解密不落盘 + SO 自加固。so 在还原点外面裹 anti-frida 守卫（maps/27042 端口/命名管道/CRC 自校验），
 # 命中 ≥2 项即抹掉还原出的标记，签名随之失效。标记派生 HMAC 密钥签名取数。
 KL20_MASTER = "Fatdog_unsheathe"
-DECOY_KL20 = ["Fatdog_unsheathes"]  # 一字之差诱饵：命中即 403
+DECOY_KL20 = ["魍魎の罠札ø"]  # 一字之差诱饵：命中即 403
 PAGES_KL20, PER_PAGE_KL20, SEED_KL20 = 100, 10, 20260120
 _rng_kl20 = random.Random(SEED_KL20)
 NUMS_KL20 = [_rng_kl20.randint(1, 100) for _ in range(PAGES_KL20 * PER_PAGE_KL20)]
@@ -883,7 +883,7 @@ def api_kl20(page: int = Query(...), ts: int = Query(...), sign: str = Query(...
 
 # ---------------- 关卡 44（KL7）裂魂之匣：魔改 DES（IP 首尾互换 + S3 换位 + FP 重算） ----------------
 KL7_MASTER = "Fatdog_shatter"
-DECOY_KL7 = ["Fatdog_scatter"]
+DECOY_KL7 = ["qR8!tW4@yP1#nK"]
 PAGES_KL7, PER_PAGE_KL7, SEED_KL7 = 100, 10, 20271115
 _rng_kl7 = random.Random(SEED_KL7)
 NUMS_KL7 = [_rng_kl7.randint(1, 100) for _ in range(PAGES_KL7 * PER_PAGE_KL7)]
@@ -1057,7 +1057,7 @@ def api_kl7(page: int = Form(...), ts: int = Form(...), nonce: str = Form(...),
 
 # ---------------- 关卡 45（KL8）幽泉之眼：魔改 SM4（CK[24..31] 尾部换血） ----------------
 KL8_MASTER = "Fatdog_unravel"
-DECOY_KL8 = ["Fatdog_travel"]
+DECOY_KL8 = ["Z9~mB3#xK7!vq"]
 PAGES_KL8, PER_PAGE_KL8, SEED_KL8 = 100, 10, 20271028
 _rng_kl8 = random.Random(SEED_KL8)
 NUMS_KL8 = [_rng_kl8.randint(1, 100) for _ in range(PAGES_KL8 * PER_PAGE_KL8)]
@@ -1167,7 +1167,7 @@ def api_kl8(page: int = Query(...), ts: int = Query(...), nonce: str = Query(...
 
 # ---------------- 关卡 46（KL9）天罡北斗：魔改 RC4（KSA 初排换血 + PRGA 过掩码） ----------------
 KL9_MASTER = "Fatdog_veil"
-DECOY_KL9 = ["Fatdog_vile"]
+DECOY_KL9 = ["魑魅のø"]
 PAGES_KL9, PER_PAGE_KL9, SEED_KL9 = 100, 10, 20270915
 _rng_kl9 = random.Random(SEED_KL9)
 NUMS_KL9 = [_rng_kl9.randint(1, 100) for _ in range(PAGES_KL9 * PER_PAGE_KL9)]
@@ -1242,7 +1242,7 @@ def api_kl9(page: int = Query(...), ts: int = Query(...), nonce: str = Query(...
 
 # ---------------- 关卡 47（KL10）万象归一：魔改 SHA256 变体 + 魔改 AES 综合卷 ----------------
 KL10_MASTER = "Fatdog_eclipse"
-DECOY_KL10 = ["Fatdog_ellipse"]
+DECOY_KL10 = ["魑魅の錠ø"]
 PAGES_KL10, PER_PAGE_KL10, SEED_KL10 = 100, 10, 20270820
 _rng_kl10 = random.Random(SEED_KL10)
 NUMS_KL10 = [_rng_kl10.randint(1, 100) for _ in range(PAGES_KL10 * PER_PAGE_KL10)]
@@ -1406,7 +1406,7 @@ def api_kl10(page: int = Form(...), ts: int = Form(...), nonce: str = Form(...),
         idx = (page - 1) * PER_PAGE_KL10
         return {"page": page, "nums": NUMS_KL10[idx:idx + PER_PAGE_KL10]}
     # 近亲假钥 ellipse：命中即点名 403
-    if hmac.compare_digest(sign, variant_sign_kl10(payload, master="Fatdog_ellipse")):
+    if hmac.compare_digest(sign, variant_sign_kl10(payload, master="魑魅の錠ø")):
         raise HTTPException(status_code=403, detail="sign invalid")
     return {"page": page, "nums": []}
 
@@ -2271,8 +2271,8 @@ def api_l27(page: int = Form(...), ts: int = Form(...), enc: str = Form(...), si
 
 
 # ---------------- 关卡 KKL2：万剑冢（真 DEX 内存加载 · 服务端只验 HMAC） ----------------
-# HMAC 密钥 = SHA-256("Fatdog_tense" + "|kkl2_swordfield")，与 libkkl2.so nativeDeriveKey()
-# 派生一致；真标记在 so 里藏 UTF-16（strings 哑火），明文诱饵 Fatdog_timid 验签 403。
+# HMAC 密钥 = SHA-256("Fatdog_tense" + "|kkl2_swordfield")，与 libkkl2.so nativeDeriveSeal()
+# 派生一致；真标记在 so 里藏 UTF-16（strings 哑火），明文诱饵 yT4!pW8@kR2# 验签 403。
 KEY_KKL2 = hashlib.sha256(b"Fatdog_tense|kkl2_swordfield").digest()
 PAGES_KKL2, PER_PAGE_KKL2, SEED_KKL2 = 100, 10, 20260909
 _rng_kkl2 = random.Random(SEED_KKL2)
@@ -2290,8 +2290,8 @@ def api_kkl2(page: int = Query(...), ts: int = Query(...), sign: str = Query(...
 
 
 # ---------------- 关卡 KKL3：断魂谷（四路哨兵命中即静默投毒 · 服务端只验 HMAC） ----------------
-# HMAC 密钥 = SHA-256("Fatdog_quell" + "|kkl3_valley")，与 libkkl3.so real_key() 派生一致；
-# 真标记在 so 里藏 UTF-16（strings 哑火），明文诱饵 Fatdog_quiet 验签 403。
+# HMAC 密钥 = SHA-256("Fatdog_quell" + "|kkl3_valley")，与 libkkl3.so real_seal() 派生一致；
+# 真标记在 so 里藏 UTF-16（strings 哑火），明文诱饵 mZ7~qB3#nV9! 验签 403。
 KEY_KKL3 = hashlib.sha256(b"Fatdog_quell|kkl3_valley").digest()
 PAGES_KKL3, PER_PAGE_KKL3, SEED_KKL3 = 100, 10, 20260916
 _rng_kkl3 = random.Random(SEED_KKL3)
@@ -2309,8 +2309,8 @@ def api_kkl3(page: int = Query(...), ts: int = Query(...), sign: str = Query(...
 
 
 # ---------------- 关卡 KKL4：锁妖塔（代码段 CRC 自校验 + 三点记账 · 服务端只验 HMAC） ----------------
-# HMAC 密钥 = SHA-256("Fatdog_grit" + "|kkl4_tower")，与 libkkl4.so real_key() 派生一致；
-# 真标记在 so 里藏 UTF-16（strings 哑火），明文诱饵 Fatdog_grim 验签 403。
+# HMAC 密钥 = SHA-256("Fatdog_grit" + "|kkl4_tower")，与 libkkl4.so real_seal() 派生一致；
+# 真标记在 so 里藏 UTF-16（strings 哑火），明文诱饵 靐飝のø 验签 403。
 KEY_KKL4 = hashlib.sha256(b"Fatdog_grit|kkl4_tower").digest()
 PAGES_KKL4, PER_PAGE_KKL4, SEED_KKL4 = 100, 10, 20260923
 _rng_kkl4 = random.Random(SEED_KKL4)
@@ -2883,7 +2883,7 @@ def api_l53(page: int = Form(...), ts: int = Form(...),
 
 # ---------------- 关卡 KKL5：诛仙台（VMP + AES-128-CBC + 三点记账 · 服务端只验复合签名） ----------------
 # HMAC 密钥 = SHA-256("Fatdog_ascend" + "|kkl5_ascension")，由 libkkl5.so 的 VMP 解释器派生；
-# 真标记 Fatdog_ascend UTF-16 藏于 VM 字节码内存，明文诱饵 Fatdog_ascent 派生密钥验签 403。
+# 真标记 Fatdog_ascend UTF-16 藏于 VM 字节码内存，明文诱饵 靐飝のжλ 派生密钥验签 403。
 # enc = hex(IV(16) || AES-128-CBC(key_aes, PKCS7("page=N&ts=T")))；sign = HMAC(mac_key, enc)。
 # 响应先签后密：iv/d 为另一把 AES 密钥的 CBC 密文，sign 覆盖 f"{page}|{ts}|{iv}|{d}"。
 KEY_KKL5_AES = bytes.fromhex("6a3315b12737d2b16d2ed50ddf8d4852")
@@ -3643,7 +3643,7 @@ def api_kl51(page: int = Query(...), ts: int = Query(...), enc: str = Query(...)
 # sm4_key = SHA256("Fatdog_phantom|sm4")[:16]。
 # 考点：客户端签名函数被 OLLVM 虚假控制流（不透明谓词 + 不可达虚假块）混淆。
 KEY_KL52 = "Fatdog_phantom"
-DECOY_KL52 = ["Fatdog_illusion"]
+DECOY_KL52 = ["cV6~zB2#nM9!qX4"]
 PAGES_KL52, PER_PAGE_KL52, SEED_KL52 = 100, 10, 20280907
 _rng_kl52 = random.Random(SEED_KL52)
 NUMS_KL52 = [_rng_kl52.randint(1, 100) for _ in range(PAGES_KL52 * PER_PAGE_KL52)]
@@ -3750,7 +3750,7 @@ def api_kl53(page: int = Query(...), ts: int = Query(...), enc: str = Query(...)
 # enc = hex(魔改SM4-ECB(sm4_key, "page=N&ts=T" 零填充到 32))，sign = SHA256("Fatdog_beast|"+page+"|"+ts)。
 # sm4_key = SHA256("Fatdog_beast|sm4")[:16]，客户端以魔改 Base64（码表循环右移 7 位）藏钥。
 KEY_KL54 = "Fatdog_beast"
-DECOY_KL54 = ["Fatdog_cage"]
+DECOY_KL54 = ["鸞鼇のø"]
 PAGES_KL54, PER_PAGE_KL54, SEED_KL54 = 100, 10, 20280909
 _rng_kl54 = random.Random(SEED_KL54)
 NUMS_KL54 = [_rng_kl54.randint(1, 100) for _ in range(PAGES_KL54 * PER_PAGE_KL54)]
@@ -3844,7 +3844,7 @@ def api_kl54(page: int = Query(...), ts: int = Query(...), enc: str = Query(...)
 # 考点：客户端六重 OLLVM 叠加（平坦化/虚假控制流/字符串加密 JNI_OnLoad/间接跳转/多层嵌套/反调试评分制）
 #       + 魔改 AES S 盒（换值 0x3A↔0x7F、0xB2↔0xE8）+ 魔改 Base64 响应（自定义码表）。
 KEY_KL55 = "Fatdog_gate"
-DECOY_KL55 = ["Fatdog_fence"]
+DECOY_KL55 = ["鸞鼇の齾"]
 PAGES_KL55, PER_PAGE_KL55, SEED_KL55 = 100, 10, 20280910
 _rng_kl55 = random.Random(SEED_KL55)
 NUMS_KL55 = [_rng_kl55.randint(1, 100) for _ in range(PAGES_KL55 * PER_PAGE_KL55)]

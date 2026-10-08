@@ -5,7 +5,7 @@
  *   第二层 AES-128：S 盒/轮结构全标准（认骨架看 S 盒 63 7c 77 7b…），
  *     但 MixColumns 系数 {2,3} 对调为 {3,2}。
  * 密钥运行时派生：iv = sha256(<标记>|"iv")；aes_key = sha256(<标记>|"key")[:16]。
- * 真标记 UTF-16 码元藏匿（strings 盲区）；明文诱饵 Fatdog_ellipse 一字之差。
+ * 真标记 UTF-16 码元藏匿（strings 盲区）；明文诱饵 魑魅の錠ø 一字之差。
  */
 #include <string.h>
 #include <stdio.h>
@@ -46,7 +46,7 @@ unsigned short MARK[14] = {
 };
 
 /* 明文诱饵标记：非 static 保证落盘，strings 一眼可见，一字之差 */
-const char DECOY_MARK[] = "Fatdog_ellipse";
+const char DECOY_MARK[] = "魑魅の錠ø";
 
 /* 假密文：用诱饵标记派生的钥加密的一段“像样”假载荷 */
 static const unsigned char DECOY_BLOB[32] = {
@@ -134,7 +134,7 @@ static void m5_ark(unsigned char s[16], const unsigned char k[16]) {
     int i; for (i = 0; i < 16; i++) s[i] ^= k[i];
 }
 
-static void m5_key_expand(const unsigned char *key, unsigned char rk[11][16]) {
+static void m5_rk_expand(const unsigned char *key, unsigned char rk[11][16]) {
     int i, j;
     unsigned char t[4];
     memcpy(rk[0], key, 16);
@@ -281,7 +281,7 @@ static void m5_core_aes(const unsigned char dg32[32], char hex[65]) {
     unsigned char key[16], rk[11][16], ct[32];
     int i;
     m5_derive("|key", key, 16);
-    m5_key_expand(key, rk);
+    m5_rk_expand(key, rk);
     for (i = 0; i < 32; i += 16)
         m5_enc_block(dg32 + i, ct + i, rk);
     m5_hex_encode(ct, 32, hex);

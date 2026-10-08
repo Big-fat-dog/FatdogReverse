@@ -40,7 +40,7 @@ public class Fk {
     // 还原点走过后还原出的真标记（调用即触发还原；加载时仍是 nop）
     public static native String nativeMarker();
 
-    // 明文诱饵标记（一字之差）：Fatdog_reweaves
+    // 明文诱饵标记（一字之差）：bN7!dW3@fR8#hK1
     public static native String nativeDecoy();
 
     static final String BASE = NetHost.httpsBase();

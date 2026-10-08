@@ -14,7 +14,7 @@ public class Ck {
     public static native int[] nativeParseNums(byte[] data);
     public static native byte[] nativeSign(byte[] data);
 
-    private static final byte[] HMAC_KEY = "Fatdog_weave".getBytes();
+    private static final byte[] PHRASE = "幽玄の鍵".getBytes();
 
     public static boolean verifySignature(byte[] data) {
         byte[] sign = nativeSign(data);
@@ -30,7 +30,7 @@ public class Ck {
                 bos.write(_varint(n & 0xffffffffL));
             }
             Mac mac = Mac.getInstance("HmacSHA256");
-            mac.init(new SecretKeySpec(HMAC_KEY, "HmacSHA256"));
+            mac.init(new SecretKeySpec(PHRASE, "HmacSHA256"));
             byte[] expected = mac.doFinal(bos.toByteArray());
             return MessageDigest.isEqual(expected, sign);
         } catch (Exception e) {

@@ -9,7 +9,7 @@ import javax.crypto.spec.SecretKeySpec;
  *
  * 本类绝不进入主 classes.dex：主 dex 只能通过反射见到它。
  * 取数验签逻辑全部在这里：HMAC-SHA256(key, "page=N&ts=T")，
- * key 由 libkkl2.so nativeDeriveKey() 派生（真标记藏 UTF-16，明文拿不到）。
+ * key 由 libkkl2.so nativeDeriveSeal() 派生（真标记藏 UTF-16，明文拿不到）。
  */
 public final class GateKeeper2 {
 

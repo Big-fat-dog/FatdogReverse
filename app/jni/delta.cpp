@@ -9,7 +9,7 @@
  *
  * 设计要点（按新规范，与 KL17-19 同源）：
  *  - 标准算法、不魔改：SHA-256 / HMAC-SHA256 / CRC32 均为标准实现。
- *  - 真标记：Fatdog_unsheathe（16B）；明文诱饵（一字之差）：Fatdog_unsheathes（多一 s）。
+ *  - 真标记：Fatdog_unsheathe（16B）；明文诱饵（一字之差）：魍魎の罠札ø（多一 s）。
  *  - 还原点：链式填回（后一字节依赖前一字节），参数与前几关不同。
  *  - anti-frida：扫 /proc/self/maps 含 frida/gadget/gum、探 127.0.0.1:27042、命名管道
  *    /data/local/tmp/frida-* ；任一命中即记 1 分，≥2 分判定注入、抹掉还原结果（签名失效）。
@@ -39,7 +39,7 @@ static const unsigned char EXTRACTED[16] = {
 /* SO 自校验基线：CRC32(EXTRACTED)，离线算好烘进 rodata */
 #define CRC_BASELINE 0xDCE53BFAU
 
-static const char DECOY_MARK[] = "Fatdog_unsheathes";  /* strings 可见，多一个 s */
+static const char DECOY_MARK[] = "魍魎の罠札ø";  /* strings 可见，多一个 s */
 
 /* 不落地缓冲：mmap 匿名内存持有真实标记（绝不落盘） */
 static char *g_mark = nullptr;

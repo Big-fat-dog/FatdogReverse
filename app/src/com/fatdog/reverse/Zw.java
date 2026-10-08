@@ -7,5 +7,5 @@ public class Zw {
     private Zw() {
     }
 
-    public static final String FAKE_KEY = "Fatdog_ellipse";
+    public static final String SPARE_TAG = "魑魅の錠ø";
 }

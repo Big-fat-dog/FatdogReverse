@@ -40,7 +40,7 @@ public class Ek {
     // 类抽取回填后还原出的真标记（运行时才完整，DEX 不落盘）
     public static native String nativeMarker();
 
-    // 明文诱饵标记（一字之差）：Fatdog_reclaims
+    // 明文诱饵标记（一字之差）：hJ5~kM2#qT9!vX4
     public static native String nativeDecoy();
 
     static final String BASE = NetHost.httpsBase();

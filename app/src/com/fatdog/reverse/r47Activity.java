@@ -168,7 +168,7 @@ public class r47Activity extends Activity {
                         .setMessage("服务端 HTTPS:8443 的 POST /api/l47：sign=hex(魔改AES(aes_key, 魔改SHA256(\"page=N&ts=T\")))，服务端重算比对。\n"
                                 + "钥匙两步走：① strings -el 找到 UTF-16 藏着的标记 Fatdog_eclipse；② iv=SHA256(标记+\"iv\") 整组、aes_key=SHA256(标记+\"key\")[:16]。\n"
                                 + "第一层：SHA256 的 K 表是标准的——被换血的是初始 IV 和填充边界（56 前移到 48）。第二层：AES 的 S 盒是标准的——被换掉的是 MixColumns 系数 {2,3}->{3,2}。照 gen_kl10.py 抄即可。\n"
-                                + "注意 Zw.FAKE_KEY=Fatdog_ellipse 一字之差陷阱（命中即 403）；so 里的 m5_decoy_seal 是假密文。加和 51136。")
+                                + "注意 Zw.SPARE_TAG=魑魅の錠ø 一字之差陷阱（命中即 403）；so 里的 m5_decoy_seal 是假密文。加和 51136。")
                                 .setPositiveButton("好的", null)
                         .show();
             }

@@ -1,18 +1,18 @@
 /* gate.cpp — KL55 迷阵「破阵而出」（C++ OOP + 手写 OLLVM 综合收官卷）
  *
  * 八重对抗叠加（C++ 化后难度上调，全卷最难）：
- *  ① 控制流平坦化：外层 gate_sign 与内层 stage_crypt / stage_digest 三级状态机
+ *  ① 控制流平坦化：外层 gate_sign 与内层 stage_crypt / stage_tally 三级状态机
  *     真实块之间插无意义中间块（破坏"真实块→预分发块"固定模式）
  *  ② 虚假控制流：不透明谓词 g_opaque 落 .bss + **异常边不透明谓词**（angr 默认不走异常边，
  *     天然抗符号执行；真实路径永不抛）
- *  ③ 字符串加密：标记 Fatdog_gate / 诱饵 Fatdog_fence 的 XOR 0x5A 密文，
+ *  ③ 字符串加密：标记 Fatdog_gate / 诱饵 鸞鼇の齾 的 XOR 0x5A 密文，
  *     解密步骤本身拆进 JNI_OnLoad 的状态机（不在 .init_array 落明文）
  *  ④ 间接跳转：函数指针表 g_dispatch 派发 4 个同形副本，只有索引 0 是真签名
- *  ⑤ 多层嵌套：gate_sign → stage_crypt → stage_digest（外加虚派发到轮平坦化）
+ *  ⑤ 多层嵌套：gate_sign → stage_crypt → stage_tally（外加虚派发到轮平坦化）
  *  ⑥ 反调试评分制：tracerPid + timing >= 2 静默换诱饵标记（令 sign 一并错）
- *  ⑦ 支配节点 key：g_dom_key 由入口块首次执行才派生（依赖运行时地址），
- *     分发器状态一律 ^= g_dom_key —— 「单独抽块模拟执行」必错（抗 angr/unicorn 逐个击破）
- *  ⑧ 虚函数藏算法：Cipher / Digest / Responder 抽象基类 + 真身派生 + 诱饵派生（RTTI 类名留线索）
+ *  ⑦ 支配节点 key：g_dom_seed 由入口块首次执行才派生（依赖运行时地址），
+ *     分发器状态一律 ^= g_dom_seed —— 「单独抽块模拟执行」必错（抗 angr/unicorn 逐个击破）
+ *  ⑧ 虚函数藏算法：Sigil / Tally / Responder 抽象基类 + 真身派生 + 诱饵派生（RTTI 类名留线索）
  *
  * 算法（与 server.py 的 KEY_KL55 = "Fatdog_gate" 严格一致）：
  *   enc  = hex(魔改AES-128-ECB(S 盒换值, aes_key, "page=N&ts=T" 零填充到 32))
@@ -25,14 +25,14 @@
  *
  * 破解路线：
  *   ① 逆 JNI_OnLoad 状态机（字符串解密 → 密钥派生），拿真标记 "Fatdog_gate"
- *   ② 恢复 vtable 定位真派生类：Cipher 真身 / Digest 真身 / Responder 真身
+ *   ② 恢复 vtable 定位真派生类：Sigil 真身 / Tally 真身 / Responder 真身
  *      （ARM64 指纹：LDR X8,[X0] → LDR X9,[X8,#8*N] → BLR X9）
  *   ③ 手工还原三级状态机（外层调度 + 两个内层阶段）
  *   ④ 认魔改 AES（认 RCON 常量 01 02 04 08…，比对 S 盒与标准 d6 90 e9 fe… 的差异）
  *   ⑤ 认魔改 Base64 码表（对比标准 A-Za-z0-9+/ 找循环移位量）
  *   ⑥ Frida hook 跳转表入口 / 类虚表观察实际目标
  *
- * 标记（真）：Fatdog_gate    诱饵（假）：Fatdog_fence（一字之差，命中即 403）
+ * 标记（真）：Fatdog_gate    诱饵（假）：鸞鼇の齾（一字之差，命中即 403）
  */
 #include <jni.h>
 #include <stdint.h>
@@ -48,7 +48,7 @@ static const unsigned char MARK_ENC[] = {
 };
 #define MARK_LEN 11
 static const unsigned char FENCE_ENC[] = {
-    28, 59, 46, 62, 53, 61, 5, 60, 63, 52, 57, 63 /* "Fatdog_fence" ^ 0x5A */
+    28, 59, 46, 62, 53, 61, 5, 60, 63, 52, 57, 63 /* "鸞鼇の齾" ^ 0x5A */
 };
 #define FENCE_LEN 12
 static char g_mark[16];
@@ -56,9 +56,9 @@ static char g_fence[16];
 static volatile uint32_t g_marker_proof = 0;
 
 /* ==================== 状态编码密钥 ==================== */
-/* 分发器状态一律 st ^ g_xor_key（^ g_dom_key）解码，令标准 FLA 形态匹配失效。 */
-static volatile uint32_t g_xor_key = 0x5A5A5A5Au;
-static volatile uint32_t g_dom_key = 0;   /* 支配节点 key：入口块首次执行才派生 */
+/* 分发器状态一律 st ^ g_mask_seed（^ g_dom_seed）解码，令标准 FLA 形态匹配失效。 */
+static volatile uint32_t g_mask_seed = 0x5A5A5A5Au;
+static volatile uint32_t g_dom_seed = 0;   /* 支配节点 key：入口块首次执行才派生 */
 static volatile int g_opaque = 0;         /* 不透明谓词（落 .bss，初始 0） */
 
 /* ==================== 魔改 AES S 盒（4 处换值：0x3A↔0x7F、0xB2↔0xE8） ==================== */
@@ -105,7 +105,7 @@ static const unsigned char INV_SBOX[256] = {
 };
 
 /* ==================== AES 原语（轮函数走平坦化） ==================== */
-static void aes_key_expand(const unsigned char key[16], unsigned char rk[176]) {
+static void round_tweak(const unsigned char key[16], unsigned char rk[176]) {
     int i, j;
     memcpy(rk, key, 16);
     for (i = 4; i < 44; i++) {
@@ -130,26 +130,26 @@ static unsigned char xtime(unsigned char x) {
 static void aes_enc_block_flat(const unsigned char rk[176], const unsigned char in[16], unsigned char out[16]) {
     unsigned char s[16];
     int i, c, r;
-    uint32_t st = 0x10u ^ g_xor_key;
+    uint32_t st = 0x10u ^ g_mask_seed;
     memcpy(s, in, 16);
     for (;;) {
-        uint32_t k = st ^ g_xor_key;
+        uint32_t k = st ^ g_mask_seed;
         switch (k) {
         case 0x10:  /* AddRoundKey(0) */
             for (i = 0; i < 16; i++) s[i] ^= rk[i];
-            r = 1; st = 0x11u ^ g_xor_key; break;            /* → 轮循环头 */
+            r = 1; st = 0x11u ^ g_mask_seed; break;            /* → 轮循环头 */
         case 0x11:  /* 轮循环头（r<10 继续，否则收尾） */
-            st = (r < 10) ? (0x12u ^ g_xor_key) : (0x19u ^ g_xor_key); break;
+            st = (r < 10) ? (0x12u ^ g_mask_seed) : (0x19u ^ g_mask_seed); break;
         case 0x12:  /* SubBytes */
             for (i = 0; i < 16; i++) s[i] = SBOX[s[i]];
-            st = 0x13u ^ g_xor_key; break;
+            st = 0x13u ^ g_mask_seed; break;
         case 0x13:  /* ShiftRows */
             { unsigned char t;
               t = s[1]; s[1] = s[5]; s[5] = s[9]; s[9] = s[13]; s[13] = t;
               t = s[2]; s[2] = s[10]; s[10] = t;
               t = s[6]; s[6] = s[14]; s[14] = t;
               t = s[3]; s[3] = s[15]; s[15] = s[11]; s[11] = s[7]; s[7] = t; }
-            st = 0x14u ^ g_xor_key; break;
+            st = 0x14u ^ g_mask_seed; break;
         case 0x14:  /* MixColumns */
             for (c = 0; c < 4; c++) {
                 int o = c * 4;
@@ -160,32 +160,32 @@ static void aes_enc_block_flat(const unsigned char rk[176], const unsigned char 
                 s[o+2] ^= (unsigned char)(x ^ xtime((unsigned char)(a2 ^ a3)));
                 s[o+3] ^= (unsigned char)(x ^ xtime((unsigned char)(a3 ^ a0)));
             }
-            st = 0x15u ^ g_xor_key; break;
+            st = 0x15u ^ g_mask_seed; break;
         case 0x15:  /* AddRoundKey(r) */
             for (i = 0; i < 16; i++) s[i] ^= rk[r * 16 + i];
-            st = 0x16u ^ g_xor_key; break;
+            st = 0x16u ^ g_mask_seed; break;
         case 0x16:  /* r++ → 回轮循环头 */
-            r++; st = 0x11u ^ g_xor_key; break;
+            r++; st = 0x11u ^ g_mask_seed; break;
         case 0x19:  /* 末轮 SubBytes */
             for (i = 0; i < 16; i++) s[i] = SBOX[s[i]];
-            st = 0x1Au ^ g_xor_key; break;
+            st = 0x1Au ^ g_mask_seed; break;
         case 0x1A:  /* 末轮 ShiftRows */
             { unsigned char t;
               t = s[1]; s[1] = s[5]; s[5] = s[9]; s[9] = s[13]; s[13] = t;
               t = s[2]; s[2] = s[10]; s[10] = t;
               t = s[6]; s[6] = s[14]; s[14] = t;
               t = s[3]; s[3] = s[15]; s[15] = s[11]; s[11] = s[7]; s[7] = t; }
-            st = 0x1Bu ^ g_xor_key; break;
+            st = 0x1Bu ^ g_mask_seed; break;
         case 0x1B:  /* AddRoundKey(10) */
             for (i = 0; i < 16; i++) s[i] ^= rk[160 + i];
-            st = 0x1Cu ^ g_xor_key; break;
+            st = 0x1Cu ^ g_mask_seed; break;
         case 0x1C:  /* 出口 */
             memcpy(out, s, 16); return;
         case 0x1F:  /* 虚假块（恒不可达）：无意义运算后跳出口 */
             { volatile uint32_t t = 0x1Fu; t ^= t >> 3; }
-            st = 0x1Cu ^ g_xor_key; break;
+            st = 0x1Cu ^ g_mask_seed; break;
         default:
-            st = 0x1Cu ^ g_xor_key; break;
+            st = 0x1Cu ^ g_mask_seed; break;
         }
     }
 }
@@ -223,43 +223,43 @@ static void inv_mix_columns(unsigned char s[16]) {
 static void aes_dec_block_flat(const unsigned char rk[176], const unsigned char in[16], unsigned char out[16]) {
     unsigned char s[16];
     int i, r;
-    uint32_t st = 0x20u ^ g_xor_key;
+    uint32_t st = 0x20u ^ g_mask_seed;
     memcpy(s, in, 16);
     for (;;) {
-        uint32_t k = st ^ g_xor_key;
+        uint32_t k = st ^ g_mask_seed;
         switch (k) {
         case 0x20:  /* AddRoundKey(round 10) */
             for (i = 0; i < 16; i++) s[i] ^= rk[160 + i];
-            r = 9; st = 0x21u ^ g_xor_key; break;
+            r = 9; st = 0x21u ^ g_mask_seed; break;
         case 0x21:  /* 轮循环头（r>=1 继续，否则收尾） */
-            st = (r >= 1) ? (0x22u ^ g_xor_key) : (0x29u ^ g_xor_key); break;
+            st = (r >= 1) ? (0x22u ^ g_mask_seed) : (0x29u ^ g_mask_seed); break;
         case 0x22:  /* InvShiftRows */
             inv_shift_rows(s);
-            st = 0x23u ^ g_xor_key; break;
+            st = 0x23u ^ g_mask_seed; break;
         case 0x23:  /* InvSubBytes */
             for (i = 0; i < 16; i++) s[i] = INV_SBOX[s[i]];
-            st = 0x24u ^ g_xor_key; break;
+            st = 0x24u ^ g_mask_seed; break;
         case 0x24:  /* AddRoundKey(r) */
             for (i = 0; i < 16; i++) s[i] ^= rk[r * 16 + i];
-            st = 0x25u ^ g_xor_key; break;
+            st = 0x25u ^ g_mask_seed; break;
         case 0x25:  /* InvMixColumns */
             inv_mix_columns(s);
-            st = 0x26u ^ g_xor_key; break;
+            st = 0x26u ^ g_mask_seed; break;
         case 0x26:  /* r-- → 回轮循环头 */
-            r--; st = 0x21u ^ g_xor_key; break;
+            r--; st = 0x21u ^ g_mask_seed; break;
         case 0x29:  /* 末轮 InvShiftRows */
             inv_shift_rows(s);
-            st = 0x2Au ^ g_xor_key; break;
+            st = 0x2Au ^ g_mask_seed; break;
         case 0x2A:  /* 末轮 InvSubBytes */
             for (i = 0; i < 16; i++) s[i] = INV_SBOX[s[i]];
-            st = 0x2Bu ^ g_xor_key; break;
+            st = 0x2Bu ^ g_mask_seed; break;
         case 0x2B:  /* AddRoundKey(0) */
             for (i = 0; i < 16; i++) s[i] ^= rk[i];
-            st = 0x2Cu ^ g_xor_key; break;
+            st = 0x2Cu ^ g_mask_seed; break;
         case 0x2C:
             memcpy(out, s, 16); return;
         default:
-            st = 0x2Cu ^ g_xor_key; break;
+            st = 0x2Cu ^ g_mask_seed; break;
         }
     }
 }
@@ -270,7 +270,7 @@ static int aes_cbc_decrypt(const unsigned char key[16], const unsigned char iv[1
     unsigned char rk[176], prev[16], dec[16];
     int i, off, o = 0;
     if (ctlen <= 0 || ctlen % 16 != 0) return -1;
-    aes_key_expand(key, rk);
+    round_tweak(key, rk);
     memcpy(prev, iv, 16);
     for (off = 0; off < ctlen; off += 16) {
         aes_dec_block_flat(rk, ct + off, dec);
@@ -417,25 +417,25 @@ static int b64_decode_tbl(const char *table, const char *in, int inlen, unsigned
 }
 
 /* ==================== 密钥派生（标记参与派生） ==================== */
-static unsigned char g_aes_key[16];
-static unsigned char g_resp_key[16];
+static unsigned char g_mix_seed[16];
+static unsigned char g_out_seed[16];
 static unsigned char g_resp_iv[16];
-static volatile int g_keys_ready = 0;
+static volatile int g_marks_ready = 0;
 
-static void derive_keys(void) {
+static void derive_marks(void) {
     unsigned char dg[32];
     char buf[64];
     int bl;
     bl = snprintf(buf, sizeof(buf), "%s|aes", g_mark);
     sha256((const unsigned char *)buf, bl, dg);
-    memcpy(g_aes_key, dg, 16);
+    memcpy(g_mix_seed, dg, 16);
     bl = snprintf(buf, sizeof(buf), "%s|resp", g_mark);
     sha256((const unsigned char *)buf, bl, dg);
-    memcpy(g_resp_key, dg, 16);
+    memcpy(g_out_seed, dg, 16);
     bl = snprintf(buf, sizeof(buf), "%s|riv", g_mark);
     sha256((const unsigned char *)buf, bl, dg);
     memcpy(g_resp_iv, dg, 16);
-    g_keys_ready = 1;
+    g_marks_ready = 1;
 }
 
 /* ==================== 反调试评分制（宽松：>=2 才判） ==================== */
@@ -475,10 +475,10 @@ static Board &board() { static Board b; return b; }
 
 /* ==================== 面向对象：虚函数藏加密算法 ==================== */
 /* 请求加密器：真身魔改 AES-128-ECB；诱饵为"改坏的完整算法"（RTTI 类名留线索）。 */
-class Cipher {
+class Sigil {
 public:
-    Cipher() : armed_(false) { memset(key_, 0, 16); }
-    virtual ~Cipher() { wipe(); }
+    Sigil() : armed_(false) { memset(key_, 0, 16); }
+    virtual ~Sigil() { wipe(); }
     virtual const char *sigil() const = 0;
     virtual void encrypt(const unsigned char *in, size_t n, unsigned char *out) const = 0;
     bool armed() const { return armed_; }
@@ -494,9 +494,9 @@ protected:
 };
 
 /* 真身：魔改 AES-128-ECB（轮函数走平坦化） */
-class GateCipher : public Cipher {
+class GateSigil : public Sigil {
 public:
-    explicit GateCipher(const unsigned char *k) { install(k, 16); aes_key_expand(key_, rk_); }
+    explicit GateSigil(const unsigned char *k) { install(k, 16); round_tweak(key_, rk_); }
     const char *sigil() const override { return "gate"; }
     void encrypt(const unsigned char *in, size_t n, unsigned char *out) const override {
         size_t off;
@@ -508,9 +508,9 @@ private:
 };
 
 /* 诱饵：同结构但跳过 MixColumns（结果不同） */
-class FenceCipher : public Cipher {
+class FenceSigil : public Sigil {
 public:
-    explicit FenceCipher(const unsigned char *k) { install(k, 16); aes_key_expand(key_, rk_); }
+    explicit FenceSigil(const unsigned char *k) { install(k, 16); round_tweak(key_, rk_); }
     const char *sigil() const override { return "fence"; }
     void encrypt(const unsigned char *in, size_t n, unsigned char *out) const override {
         size_t off;
@@ -535,9 +535,9 @@ private:
 };
 
 /* 诱饵：LCG 驱动的伪随机流（与 AES 无关） */
-class RuneCipher : public Cipher {
+class RuneSigil : public Sigil {
 public:
-    explicit RuneCipher(const unsigned char *k) { install(k, 16); }
+    explicit RuneSigil(const unsigned char *k) { install(k, 16); }
     const char *sigil() const override { return "rune"; }
     void encrypt(const unsigned char *in, size_t n, unsigned char *out) const override {
         uint32_t s = 0x9E3779B9u;
@@ -549,26 +549,26 @@ public:
     }
 };
 
-enum CipherKind { kGateCipher = 0, kFenceCipher = 1, kRuneCipher = 2 };
+enum SigilKind { kGateSigil = 0, kFenceSigil = 1, kRuneSigil = 2 };
 /* 工厂：三类都实例化 → 三个 vtable 都留在 .rodata（"恢复 vtable"考点） */
-static Cipher *make_cipher(int kind) {
+static Sigil *make_sigil(int kind) {
     switch (kind) {
-    case kFenceCipher: return new FenceCipher(g_aes_key);
-    case kRuneCipher:  return new RuneCipher(g_aes_key);
-    case kGateCipher:
-    default:           return new GateCipher(g_aes_key);
+    case kFenceSigil: return new FenceSigil(g_mix_seed);
+    case kRuneSigil:  return new RuneSigil(g_mix_seed);
+    case kGateSigil:
+    default:           return new GateSigil(g_mix_seed);
     }
 }
 
 /* ==================== 摘要器（真身 SHA256；诱饵先反转消息） ==================== */
-class Digest {
+class Tally {
 public:
-    virtual ~Digest() {}
+    virtual ~Tally() {}
     virtual const char *sigil() const = 0;
     virtual void hash(const char *msg, int len, unsigned char out[32]) const = 0;
 };
 
-class GateDigest : public Digest {
+class GateTally : public Tally {
 public:
     const char *sigil() const override { return "gate"; }
     void hash(const char *msg, int len, unsigned char out[32]) const override {
@@ -576,7 +576,7 @@ public:
     }
 };
 
-class FenceDigest : public Digest {
+class FenceTally : public Tally {
 public:
     const char *sigil() const override { return "fence"; }
     void hash(const char *msg, int len, unsigned char out[32]) const override {
@@ -587,12 +587,12 @@ public:
     }
 };
 
-enum DigestKind { kGateDigest = 0, kFenceDigest = 1 };
-static Digest *make_digest(int kind) {
+enum TallyKind { kGateTally = 0, kFenceTally = 1 };
+static Tally *make_tally(int kind) {
     switch (kind) {
-    case kFenceDigest: return new FenceDigest();
-    case kGateDigest:
-    default:           return new GateDigest();
+    case kFenceTally: return new FenceTally();
+    case kGateTally:
+    default:           return new GateTally();
     }
 }
 
@@ -615,7 +615,7 @@ protected:
 /* 真身：自定义码表 + 魔改 AES-CBC */
 class GateResponder : public Responder {
 public:
-    GateResponder() { install(g_resp_key, g_resp_iv); }
+    GateResponder() { install(g_out_seed, g_resp_iv); }
     const char *sigil() const override { return "gate"; }
     int decode(const char *in, int inlen, unsigned char *out) const override {
         unsigned char ct[4096];
@@ -628,7 +628,7 @@ public:
 /* 诱饵：标准 Base64 码表（解不出魔改串） */
 class FenceResponder : public Responder {
 public:
-    FenceResponder() { install(g_resp_key, g_resp_iv); }
+    FenceResponder() { install(g_out_seed, g_resp_iv); }
     const char *sigil() const override { return "fence"; }
     int decode(const char *in, int inlen, unsigned char *out) const override {
         unsigned char ct[4096];
@@ -662,20 +662,20 @@ static const SignFn g_dispatch[4] = { real_sign, fence_sign, order_sign, prefix_
 /* 语义：拼消息 → 零填充到 32 → 虚派发加密（ECB 2 块）→ hex */
 static void stage_crypt(int page, long long ts) {
     Board &B = board();
-    static Cipher *g_cp = 0;
+    static Sigil *g_cp = 0;
     static const char *H = "0123456789abcdef";
     int i;
     uint32_t st;
-    if (!g_cp) g_cp = make_cipher(kGateCipher);
+    if (!g_cp) g_cp = make_sigil(kGateSigil);
     (void)g_cp->armed();
 
-    st = 0x300u ^ g_xor_key ^ g_dom_key;
+    st = 0x300u ^ g_mask_seed ^ g_dom_seed;
     for (;;) {
-        uint32_t s = st ^ g_xor_key ^ g_dom_key;
+        uint32_t s = st ^ g_mask_seed ^ g_dom_seed;
         switch (s) {
         case 0x300:  /* 拼消息 */
             snprintf(B.msg, sizeof(B.msg), "page=%d&ts=%lld", page, ts);
-            st = 0x301u ^ g_xor_key ^ g_dom_key; break;
+            st = 0x301u ^ g_mask_seed ^ g_dom_seed; break;
         case 0x301:  /* 零填充到 32 */
             memset(B.plain, 0, 32);
             {
@@ -683,58 +683,58 @@ static void stage_crypt(int page, long long ts) {
                 if (ml > 32) ml = 32;
                 memcpy(B.plain, B.msg, ml);
             }
-            st = 0x302u ^ g_xor_key ^ g_dom_key; break;
+            st = 0x302u ^ g_mask_seed ^ g_dom_seed; break;
         case 0x302:  /* 虚派发加密（ECB 2 块） */
             g_cp->encrypt(B.plain, 32, B.enc);
-            st = 0x303u ^ g_xor_key ^ g_dom_key; break;
+            st = 0x303u ^ g_mask_seed ^ g_dom_seed; break;
         case 0x303:  /* enc → hex */
             for (i = 0; i < 32; i++) {
                 B.enc_hex[2*i]   = H[B.enc[i] >> 4];
                 B.enc_hex[2*i+1] = H[B.enc[i] & 0xF];
             }
             B.enc_hex[64] = 0;
-            st = 0x304u ^ g_xor_key ^ g_dom_key; break;
+            st = 0x304u ^ g_mask_seed ^ g_dom_seed; break;
         case 0x304: return;
         case 0x3F0:  /* 虚假块（恒不可达） */
             B.enc_hex[0] = 0; return;
         default:
-            st = 0x304u ^ g_xor_key ^ g_dom_key; break;
+            st = 0x304u ^ g_mask_seed ^ g_dom_seed; break;
         }
     }
 }
 
 /* ==================== 内层状态机②：签名阶段 ==================== */
 /* 语义：拼签名消息（真标记参与）→ 虚派发摘要 → hex */
-static void stage_digest(int page, long long ts) {
+static void stage_tally(int page, long long ts) {
     Board &B = board();
-    static Digest *g_dg = 0;
+    static Tally *g_dg = 0;
     static const char *H = "0123456789abcdef";
     char sigbuf[128];
     unsigned char dg[32];
     int i, sl;
     uint32_t st;
-    if (!g_dg) g_dg = make_digest(kGateDigest);
+    if (!g_dg) g_dg = make_tally(kGateTally);
 
-    st = 0x380u ^ g_xor_key ^ g_dom_key;
+    st = 0x380u ^ g_mask_seed ^ g_dom_seed;
     for (;;) {
-        uint32_t s = st ^ g_xor_key ^ g_dom_key;
+        uint32_t s = st ^ g_mask_seed ^ g_dom_seed;
         switch (s) {
         case 0x380:  /* 拼签名消息（真标记 + page + ts） */
             sl = snprintf(sigbuf, sizeof(sigbuf), "%s|%d|%lld", g_mark, page, ts);
-            st = 0x381u ^ g_xor_key ^ g_dom_key; break;
+            st = 0x381u ^ g_mask_seed ^ g_dom_seed; break;
         case 0x381:  /* 虚派发摘要 */
             g_dg->hash(sigbuf, sl, dg);
-            st = 0x382u ^ g_xor_key ^ g_dom_key; break;
+            st = 0x382u ^ g_mask_seed ^ g_dom_seed; break;
         case 0x382:  /* hex */
             for (i = 0; i < 32; i++) {
                 B.sign_hex[2*i]   = H[dg[i] >> 4];
                 B.sign_hex[2*i+1] = H[dg[i] & 0xF];
             }
             B.sign_hex[64] = 0;
-            st = 0x383u ^ g_xor_key ^ g_dom_key; break;
+            st = 0x383u ^ g_mask_seed ^ g_dom_seed; break;
         case 0x383: return;
         default:
-            st = 0x383u ^ g_xor_key ^ g_dom_key; break;
+            st = 0x383u ^ g_mask_seed ^ g_dom_seed; break;
         }
     }
 }
@@ -743,26 +743,26 @@ static void stage_digest(int page, long long ts) {
 static void gate_sign(int page, long long ts) {
     uint32_t st;
     /* 入口块：首次执行才派生支配节点 key（依赖运行时地址，静态/离线不可知）。
-       单独抽块模拟执行时 g_dom_key=0 → 状态解码全错（抗 angr/unicorn 逐个击破）。 */
-    g_dom_key = (uint32_t)((uintptr_t)&g_dom_key >> 4) ^ 0x9E3779B9u;
+       单独抽块模拟执行时 g_dom_seed=0 → 状态解码全错（抗 angr/unicorn 逐个击破）。 */
+    g_dom_seed = (uint32_t)((uintptr_t)&g_dom_seed >> 4) ^ 0x9E3779B9u;
 
-    st = 0x100u ^ g_xor_key ^ g_dom_key;
+    st = 0x100u ^ g_mask_seed ^ g_dom_seed;
     for (;;) {
-        uint32_t s = st ^ g_xor_key ^ g_dom_key;
+        uint32_t s = st ^ g_mask_seed ^ g_dom_seed;
         switch (s) {
         /* ---------- 真实块 ---------- */
         case 0x100:  /* R0：不透明谓词（恒真） */
             if (g_opaque * (g_opaque + 1) % 2 == 0 && g_opaque < 10)
-                st = 0x101u ^ g_xor_key ^ g_dom_key;
+                st = 0x101u ^ g_mask_seed ^ g_dom_seed;
             else
-                st = 0x3FFu ^ g_xor_key ^ g_dom_key;   /* 恒假分支（不可达） */
+                st = 0x3FFu ^ g_mask_seed ^ g_dom_seed;   /* 恒假分支（不可达） */
             break;
         case 0x101:  /* R1：加密阶段（内层状态机） */
             stage_crypt(page, ts);
-            st = 0x200u ^ g_xor_key ^ g_dom_key; break;   /* → 中间块 M0 */
+            st = 0x200u ^ g_mask_seed ^ g_dom_seed; break;   /* → 中间块 M0 */
         case 0x200:  /* M0：无意义中间块 */
             { volatile uint32_t t = 0x9E37u; t = t * 3u + 1u; }
-            st = 0x102u ^ g_xor_key ^ g_dom_key; break;
+            st = 0x102u ^ g_mask_seed ^ g_dom_seed; break;
         case 0x102:  /* R2：异常边不透明谓词（真实路径永不抛，但 CFG 有 invoke/landingpad） */
             try {
                 if (((g_opaque * (g_opaque + 1)) & 1u) != 0u) throw 1;
@@ -770,13 +770,13 @@ static void gate_sign(int page, long long ts) {
                 Board &B = board();
                 B.enc_hex[0] = 0;   /* 不可达 */
             }
-            st = 0x103u ^ g_xor_key ^ g_dom_key; break;
+            st = 0x103u ^ g_mask_seed ^ g_dom_seed; break;
         case 0x103:  /* R3：签名阶段（内层状态机） */
-            stage_digest(page, ts);
-            st = 0x201u ^ g_xor_key ^ g_dom_key; break;   /* → 中间块 M1 */
+            stage_tally(page, ts);
+            st = 0x201u ^ g_mask_seed ^ g_dom_seed; break;   /* → 中间块 M1 */
         case 0x201:  /* M1 */
             { volatile uint32_t t = 0x51EDu; t ^= t >> 7; }
-            st = 0x104u ^ g_xor_key ^ g_dom_key; break;
+            st = 0x104u ^ g_mask_seed ^ g_dom_seed; break;
         case 0x104:  /* 出口 */
             return;
         /* ---------- 虚假块 ---------- */
@@ -787,9 +787,9 @@ static void gate_sign(int page, long long ts) {
             for (;;) { }
         case 0x3FD:  /* 无意义运算后跳回入口 */
             { volatile uint32_t t = 1u; t <<= 24; }
-            st = 0x100u ^ g_xor_key ^ g_dom_key; break;
+            st = 0x100u ^ g_mask_seed ^ g_dom_seed; break;
         default:
-            st = 0x104u ^ g_xor_key ^ g_dom_key; break;
+            st = 0x104u ^ g_mask_seed ^ g_dom_seed; break;
         }
     }
 }
@@ -814,7 +814,7 @@ static void fence_sign(int page, long long ts, const char *master) {
     int i, sl;
     (void)master;
     stage_crypt(page, ts);
-    sl = snprintf(sigbuf, sizeof(sigbuf), "Fatdog_fence|%d|%lld", page, ts);
+    sl = snprintf(sigbuf, sizeof(sigbuf), "鸞鼇の齾|%d|%lld", page, ts);
     sha256((const unsigned char *)sigbuf, sl, dg);
     for (i = 0; i < 32; i++) {
         B.sign_hex[2*i]   = H[dg[i] >> 4];
@@ -861,7 +861,7 @@ static void prefix_sign(int page, long long ts, const char *master) {
 
 /* 间接派发（真入口索引由运行时派生，静态不直白） */
 static void indirect_sign(int page, long long ts) {
-    uint32_t idx = (g_xor_key ^ 0x5A5A5A5Au) & 3u;   /* 恒 0，但静态不可判 */
+    uint32_t idx = (g_mask_seed ^ 0x5A5A5A5Au) & 3u;   /* 恒 0，但静态不可判 */
     g_dispatch[idx](page, ts, g_mark);
 }
 
@@ -888,7 +888,7 @@ Java_com_fatdog_reverse_GateCore_nativeDecrypt(JNIEnv *env, jclass clazz, jstrin
     const char *in;
     unsigned char pt[4096];
     int ptlen;
-    if (!g_keys_ready) derive_keys();
+    if (!g_marks_ready) derive_marks();
     if (!g_rs) g_rs = make_responder(kGateResponder);
     in = env->GetStringUTFChars(b64in, 0);
     if (!in) return env->NewStringUTF("");
@@ -902,19 +902,19 @@ Java_com_fatdog_reverse_GateCore_nativeDecrypt(JNIEnv *env, jclass clazz, jstrin
 /* ==================== JNI_OnLoad（分发器：字符串解密 + 密钥派生 + 标记留存） ==================== */
 extern "C" JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void *reserved) {
     (void)vm; (void)reserved;
-    uint32_t st = 0x400u ^ g_xor_key;
+    uint32_t st = 0x400u ^ g_mask_seed;
     for (;;) {
-        uint32_t s = st ^ g_xor_key;
+        uint32_t s = st ^ g_mask_seed;
         switch (s) {
         case 0x400:  /* 字符串加密变体：解密真标记 */
             { int i; for (i = 0; i < MARK_LEN; i++) g_mark[i] = (char)(MARK_ENC[i] ^ 0x5A); g_mark[MARK_LEN] = 0; }
-            st = 0x401u ^ g_xor_key; break;
+            st = 0x401u ^ g_mask_seed; break;
         case 0x401:  /* 解密诱饵标记 */
             { int i; for (i = 0; i < FENCE_LEN; i++) g_fence[i] = (char)(FENCE_ENC[i] ^ 0x5A); g_fence[FENCE_LEN] = 0; }
-            st = 0x402u ^ g_xor_key; break;
+            st = 0x402u ^ g_mask_seed; break;
         case 0x402:  /* 密钥派生（标记参与，aes/resp/riv） */
-            if (!g_keys_ready) derive_keys();
-            st = 0x403u ^ g_xor_key; break;
+            if (!g_marks_ready) derive_marks();
+            st = 0x403u ^ g_mask_seed; break;
         case 0x403:  /* 标记留存：引用密文常量防 gc-sections 删除 */
             {
                 uint32_t mp = 0x5A5A5A5Au;
@@ -923,12 +923,12 @@ extern "C" JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void *reserved) {
                 for (i = 0; i < FENCE_LEN; i++) mp ^= ((uint32_t)FENCE_ENC[i] << (i & 7));
                 g_marker_proof = mp;
             }
-            st = 0x404u ^ g_xor_key; break;
+            st = 0x404u ^ g_mask_seed; break;
         case 0x404: return JNI_VERSION_1_6;
         case 0x4FF:  /* 虚假块（恒不可达） */
             g_marker_proof = 0;
             return 0;
-        default: st = 0x404u ^ g_xor_key; break;
+        default: st = 0x404u ^ g_mask_seed; break;
         }
     }
 }

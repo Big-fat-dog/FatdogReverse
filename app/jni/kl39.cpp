@@ -40,7 +40,7 @@
 // ============================================================
 // MD5（RFC 1321）—— Dart 侧那份摘要的 native 镜像（fd_moon_enc 用）
 // ============================================================
-namespace md5_ns {
+namespace zeta_ns {
 static inline uint32_t rotl(uint32_t x, int c) { return (x << c) | (x >> (32 - c)); }
 
 static const uint32_t K[64] = {
@@ -125,12 +125,12 @@ static std::string digest_hex(const std::string& in) {
     for (int i = 0; i < 16; i++) { s += H[d[i] >> 4]; s += H[d[i] & 0xF]; }
     return s;
 }
-} // namespace md5_ns
+} // namespace zeta_ns
 
 // ============================================================
 // AES-128（加密，ECB 模式 + PKCS#7）
 // ============================================================
-namespace aes_ns {
+namespace kappa_ns {
 static const uint8_t SBOX[256] = {
     0x63,0x7c,0x77,0x7b,0xf2,0x6b,0x6f,0xc5,0x30,0x01,0x67,0x2b,0xfe,0xd7,0xab,0x76,
     0xca,0x82,0xc9,0x7d,0xfa,0x59,0x47,0xf0,0xad,0xd4,0xa2,0xaf,0x9c,0xa4,0x72,0xc0,
@@ -214,12 +214,12 @@ static std::string ecbEncryptHex(const uint8_t key[16], const uint8_t* data, siz
     }
     return out;
 }
-} // namespace aes_ns
+} // namespace kappa_ns
 
 // ============================================================
 // SHA-256（仅用于 nativeAnswer）
 // ============================================================
-namespace sha256_ns {
+namespace omega_ns {
 static const uint32_t K[64] = {
     0x428a2f98,0x71374491,0xb5c0fbcf,0xe9b5dba5,0x3956c25b,0x59f111f1,0x923f82a4,0xab1c5ed5,
     0xd807aa98,0x12835b01,0x243185be,0x550c7dc3,0x72be5d74,0x80deb1fe,0x9bdc06a7,0xc19bf174,
@@ -278,12 +278,12 @@ static std::string digest_hex(const std::string& s) {
     for (int i = 0; i < 8; i++) snprintf(out + i*8, 9, "%08x", c.h[i]);
     return std::string(out, 64);
 }
-} // namespace sha256_ns
+} // namespace omega_ns
 
 // ============================================================
 // 密钥分片：FRAG_DART 优先从载荷对象池取；FRAG_C 编在本 so
 // ============================================================
-namespace key_store {
+namespace anchor_store {
 
 // FRAG_DART 镜像兜底：8 字节 ^0x42（volatile 防常量折叠，rule 35）
 static const volatile uint8_t MIRROR_DART[] = {4,35,54,38,45,37,29,47};
@@ -382,14 +382,14 @@ static std::string frag_c() {
 static std::string master() { return frag_dart() + frag_c(); }
 
 // AES 密钥：主密钥补零到 16 字节
-static void aes_key(uint8_t out[16]) {
+static void mix_seed(uint8_t out[16]) {
     memset(out, 0, 16);
     std::string m = master();
     size_t n = m.size() < 16 ? m.size() : 16;
     memcpy(out, m.data(), n);
 }
 
-} // namespace key_store
+} // namespace anchor_store
 
 // ============================================================
 // 加密：enc = AES-128-ECB-PKCS7(KEY16, MD5("page=N&ts=T"))
@@ -398,10 +398,10 @@ static std::string build_enc(int page, long long ts) {
     char head[64];
     snprintf(head, sizeof(head), "page=%d&ts=%lld", page, ts);
     uint8_t d[16];
-    md5_ns::digestRaw(std::string(head), d);
+    zeta_ns::digestRaw(std::string(head), d);
     uint8_t k[16];
-    key_store::aes_key(k);
-    return aes_ns::ecbEncryptHex(k, d, 16);
+    anchor_store::mix_seed(k);
+    return kappa_ns::ecbEncryptHex(k, d, 16);
 }
 
 // 若外部已算好摘要（Dart 侧传来的 16 字节 hex），直接用它加密
@@ -421,13 +421,13 @@ static std::string build_enc_with_d(const std::string& dHex) {
         d[i] = (uint8_t)((v1 << 4) | v2);
     }
     uint8_t k[16];
-    key_store::aes_key(k);
-    return aes_ns::ecbEncryptHex(k, d, 16);
+    anchor_store::mix_seed(k);
+    return kappa_ns::ecbEncryptHex(k, d, 16);
 }
 
 // nativeAnswer：sha256(str(1000 数和))[:8]，SEED_KL39 = 20280715
 static std::string build_answer() {
-    return sha256_ns::digest_hex(std::to_string(mt_rng::kl_server_sum(20280715))).substr(0, 8);
+    return omega_ns::digest_hex(std::to_string(mt_rng::kl_server_sum(20280715))).substr(0, 8);
 }
 
 // ============================================================
@@ -436,16 +436,16 @@ static std::string build_answer() {
 #ifdef KL39_HOST_TEST
 
 int main() {
-    printf("md5(abc)          = %s\n", md5_ns::digest_hex("abc").c_str());
+    printf("md5(abc)          = %s\n", zeta_ns::digest_hex("abc").c_str());
     printf("expect            = 900150983cd24fb0d6963f7d28e17f72\n");
     printf("master            = %s (FRAG_DART from %s + FRAG_C)\n",
-           key_store::master().c_str(), key_store::from_payload() ? "payload" : "mirror");
+           anchor_store::master().c_str(), anchor_store::from_payload() ? "payload" : "mirror");
     printf("enc(1,1787013761) = %s\n", build_enc(1, 1787013761LL).c_str());
     printf("expect            = cffd009355f00094f0cf7a69b5f35c8b74b22287afa36e098a4c282f985d68d6\n");
     printf("enc(7,1700000000) = %s\n", build_enc(7, 1700000000LL).c_str());
     printf("expect            = 51ece1f3a4e3198dc9ff794b835d3bf074b22287afa36e098a4c282f985d68d6\n");
     printf("via d-hex         = %s\n",
-           build_enc_with_d(md5_ns::digest_hex("page=1&ts=1787013761")).c_str());
+           build_enc_with_d(zeta_ns::digest_hex("page=1&ts=1787013761")).c_str());
     printf("answer(KL39)      = %s\n", build_answer().c_str());
     printf("expect            = 0e84adc5\n");
     return 0;
@@ -492,7 +492,7 @@ Java_com_fatdog_reverse_FlutterFFI_nativeAnswer(JNIEnv* env, jclass clz) {
 JNIEXPORT jstring JNICALL
 Java_com_fatdog_reverse_FlutterFFI_nativeGetStatus(JNIEnv* env, jclass clz) {
     (void)clz;
-    const bool ok = (sha256_ns::digest_hex("abc")
+    const bool ok = (omega_ns::digest_hex("abc")
                      == "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
     return env->NewStringUTF(ok ? "自检:通过" : "自检:异常");
 }

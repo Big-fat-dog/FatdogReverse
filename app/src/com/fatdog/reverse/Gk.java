@@ -40,7 +40,7 @@ public class Gk {
     // 还原点走过后还原出的真标记（调用即触发还原；若哨兵判定成立则被抹掉）
     public static native String nativeMarker();
 
-    // 明文诱饵标记（一字之差）：Fatdog_rekindles
+    // 明文诱饵标记（一字之差）：魍魎の罠øß
     public static native String nativeDecoy();
 
     // 只读自检：只报告哨兵命中了哪些信号，不还原、不判胜、不吐标记

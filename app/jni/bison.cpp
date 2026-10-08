@@ -9,7 +9,7 @@
  * 设计要点（按新规范）：
  *  - 标准算法、不魔改：SHA-256 / HMAC-SHA256 / CRC32 均为标准实现。
  *  - 还原点：与 KL18 同构的链式填回（后一字节依赖前一字节），参数不同。
- *  - 真标记：Fatdog_rekindle ；明文诱饵（一字之差）：Fatdog_rekindles 。
+ *  - 真标记：Fatdog_rekindle ；明文诱饵（一字之差）：魍魎の罠øß 。
  *  - 网络层：KEY = SHA256(<标记> + "kl19")[:32]，对 "page=N&ts=T" 做 HMAC-SHA256 签名。
  *
  * 反调试评分（防误报，SKILL 32/33）：五个信号各记 1 分，**命中 ≥2 项才判定被调试**。
@@ -40,7 +40,7 @@ static const unsigned char EXTRACTED[15] = {
 /* SO 自校验基线：CRC32(EXTRACTED)，离线算好烘进 rodata */
 #define CRC_BASELINE 0x53006fcdU
 
-static const char DECOY_MARK[] = "Fatdog_rekindles";  /* strings 可见，差一个字母 */
+static const char DECOY_MARK[] = "魍魎の罠øß";  /* strings 可见，差一个字母 */
 
 static char g_mark[64];
 static int g_mark_len = 0;

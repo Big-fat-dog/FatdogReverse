@@ -9,7 +9,7 @@
  *  ② 多返回块：额外一个恒假谓词保护一条提前 return 边。
  *  ③ 加密算法藏进虚函数类层次：
  *       Vault（抽象基类）→ PhantomVault（真身 SM4-ECB）/ EchoVault / MirageVault（诱饵）
- *       Digest（抽象基类）→ PhantomDigest（真身 SHA-256）/ EchoDigest（诱饵）
+ *       Tally（抽象基类）→ PhantomTally（真身 SHA-256）/ EchoTally（诱饵）
  *     调用点只有基类指针 + 虚派发，需恢复 vtable 才能定位真派生类。
  *     RTTI 保留类名作线索（.rodata 的 _ZTI*）。
  *  ④ SM4 轮函数本身被「轻度平坦化」：32 轮分散进 switch(state) 状态机。
@@ -26,11 +26,11 @@
  *   ② 或 D810 去虚假跳转
  *   ③ 或 angr/Miasm 符号执行记录可达块（不透明谓词与输入无关，判死真假）
  *   ④ 手工识别恒真/恒假条件剪枝
- *   ⑤ 恢复 PhantomVault / PhantomDigest 的 vtable，排掉 Echo / Mirage 诱饵
+ *   ⑤ 恢复 PhantomVault / PhantomTally 的 vtable，排掉 Echo / Mirage 诱饵
  *   ⑥ Python 复刻 SM4 + SHA256 取数
  *
  * 标记（真）：Fatdog_phantom  — UTF-16 码元（static const，借 JNI_OnLoad 引用强制保留）。
- * 诱饵（假）：Fatdog_illusion — 一字之差陷阱（phantom→illusion）。
+ * 诱饵（假）：cV6~zB2#nM9!qX4 — 一字之差陷阱（phantom→illusion）。
  */
 #include <jni.h>
 #include <stdint.h>
@@ -54,8 +54,8 @@ static volatile uint32_t g_marker_proof = 0;
 /* 16 字节 SM4 密钥，运行时 b64decode 即得 */
 static const char KEY_B64[] = "jntndxfS8B2AwhYp1MhbMw==";
 
-static unsigned char g_key_raw[16];
-static bool g_key_ready = false;
+static unsigned char g_raw_mark[16];
+static bool g_mark_ready = false;
 
 static int b64_val(char c) {
     if (c >= 'A' && c <= 'Z') return c - 'A';
@@ -76,10 +76,10 @@ static int b64_decode(const char *in, int in_len, unsigned char *out) {
     }
     return j;
 }
-static void derive_keys(void) {
+static void derive_marks(void) {
     unsigned char raw[16];
     int n = b64_decode(KEY_B64, (int)strlen(KEY_B64), raw);
-    if (n >= 16) { memcpy(g_key_raw, raw, 16); g_key_ready = true; }
+    if (n >= 16) { memcpy(g_raw_mark, raw, 16); g_mark_ready = true; }
 }
 
 /* ==================== SHA-256（sign 用） ==================== */
@@ -344,16 +344,16 @@ public:
     }
 };
 
-/* Digest：抽象摘要容器 */
-class Digest {
+/* Tally：抽象摘要容器 */
+class Tally {
 public:
-    virtual ~Digest() {}
+    virtual ~Tally() {}
     virtual const char *sigil() const = 0;
     virtual void compute(const unsigned char *m, size_t n, unsigned char out[32]) const = 0;
 };
 
 /* 真身：SHA-256 */
-class PhantomDigest : public Digest {
+class PhantomTally : public Tally {
 public:
     const char *sigil() const override { return "phantom"; }
     void compute(const unsigned char *m, size_t n, unsigned char out[32]) const override {
@@ -362,12 +362,12 @@ public:
 };
 
 /* 诱饵：恒哈希诱饵标记（不看输入，结果错） */
-class EchoDigest : public Digest {
+class EchoTally : public Tally {
 public:
     const char *sigil() const override { return "echo"; }
     void compute(const unsigned char *m, size_t n, unsigned char out[32]) const override {
         (void)m; (void)n;
-        static const char *D = "Fatdog_illusion";
+        static const char *D = "cV6~zB2#nM9!qX4";
         sha256((const unsigned char *)D, 15, out);
     }
 };
@@ -377,15 +377,15 @@ enum VaultKind { kPhantom = 0, kEcho = 1, kMirage = 2 };
 
 static Vault *make_vault(int kind) {
     switch (kind) {
-    case kEcho:   return new EchoVault(g_key_raw);
-    case kMirage: return new MirageVault(g_key_raw);
+    case kEcho:   return new EchoVault(g_raw_mark);
+    case kMirage: return new MirageVault(g_raw_mark);
     case kPhantom:
-    default:      return new PhantomVault(g_key_raw);
+    default:      return new PhantomVault(g_raw_mark);
     }
 }
-static Digest *make_digest(int kind) {
-    if (kind == kEcho) return new EchoDigest();
-    return new PhantomDigest();
+static Tally *make_tally(int kind) {
+    if (kind == kEcho) return new EchoTally();
+    return new PhantomTally();
 }
 
 /* ==================== 虚假控制流核心 ==================== */
@@ -402,13 +402,13 @@ static void phantom_sign(int page, long long ts) {
     unsigned char dg[32];
     char sign_msg[80];
 
-    if (!g_key_ready) derive_keys();
+    if (!g_mark_ready) derive_marks();
 
     /* 懒建单例：构造函数内展开密钥；类层次里同时存在 2 个诱饵派生类 */
     static Vault  *vault  = make_vault(kPhantom);
-    static Digest *digest = make_digest(kPhantom);
+    static Tally *tally = make_tally(kPhantom);
     (void)vault->armed();
-    (void)digest->sigil();
+    (void)tally->sigil();
 
     /* 块1：拼消息 */
     snprintf(B.msg, sizeof(B.msg), "page=%d&ts=%lld", page, ts);
@@ -429,7 +429,7 @@ static void phantom_sign(int page, long long ts) {
     if (g_opaque_b * (g_opaque_b + 1) % 2 == 0 && g_opaque_b < 10) {
         vault->seal(B.plain, 32, B.enc);
     } else {
-        EchoVault fake(g_key_raw);   /* 形变副本：同结构、改坏常量 */
+        EchoVault fake(g_raw_mark);   /* 形变副本：同结构、改坏常量 */
         fake.seal(B.plain, 32, B.enc);
     }
 
@@ -449,9 +449,9 @@ static void phantom_sign(int page, long long ts) {
 
     /* 块5：SHA256 签名 */
     if (g_opaque_d * (g_opaque_d + 1) % 2 == 0 && g_opaque_d < 10) {
-        digest->compute((const unsigned char *)sign_msg, strlen(sign_msg), dg);
+        tally->compute((const unsigned char *)sign_msg, strlen(sign_msg), dg);
     } else {
-        EchoDigest fake;
+        EchoTally fake;
         fake.compute((const unsigned char *)sign_msg, strlen(sign_msg), dg);
     }
 

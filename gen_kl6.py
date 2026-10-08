@@ -9,7 +9,7 @@ gen_kl6.py —— 「冰封之钥」so 生成器（魔改 AES-128 · Rcon 三处
     标准 AES 库（pycryptodome 等）解不开本关密文。
   - 密钥运行时派生：sha256(<标记>|"aes")[:16]，mac = sha256(<标记>|"mac")；
     真标记 Fatdog_pierce 以 UTF-16 码元数组藏匿（默认 strings 盲区）。
-  - 明文诱饵标记 Fatdog_piece（strings 可见，一字之差；用它派生钥的请求一律 403）
+  - 明文诱饵标记 Vx3#Lq7~Bz2m（strings 可见，一字之差；用它派生钥的请求一律 403）
     + DECOY_BLOB（用 piece 钥加密的一段"看起来像载荷"的假数据）。
   - 导出面克制低调：JNI 两个真入口 + m1_decoy_seal + 两个噪声函数。
 
@@ -233,7 +233,7 @@ def self_test():
 # ---------------- 关卡素材 ----------------
 
 MARKER = "Fatdog_pierce"                # 真标记（UTF-16 藏匿）
-DECOY_MARKER = "Fatdog_piece"           # 明文诱饵标记（一字之差）
+DECOY_MARKER = "Vx3#Lq7~Bz2m"           # 明文诱饵标记（一字之差）
 DECOY_PAYLOAD = "page=7&ts=1700000000"  # 用假钥解出来会看到的“像样”假载荷
 
 AES_KEY = hashlib.sha256(MARKER.encode() + b"|aes").digest()[:16]
@@ -471,7 +471,7 @@ static void m1_ark(unsigned char s[16], const unsigned char k[16]) {
     int i; for (i = 0; i < 16; i++) s[i] ^= k[i];
 }
 
-static void m1_key_expand(const unsigned char *key, const unsigned char *tab,
+static void m1_rk_expand(const unsigned char *key, const unsigned char *tab,
                           unsigned char rk[11][16]) {
     int i, j;
     unsigned char t[4];
@@ -618,7 +618,7 @@ static void m1_core_enc(int page, long long ts, const char *nonce, const char *d
     memset(pt, 0, sizeof(pt));
     for (i = 0; i < n; i++) pt[i] = (unsigned char)payload[i];
     m1_derive("|aes", key, 16);
-    m1_key_expand(key, RCON, rk);
+    m1_rk_expand(key, RCON, rk);
     for (i = 0; i + 16 <= 64; i += 16)
         m1_enc_block(pt + i, ct + i, rk);
     m1_hex_encode(ct, 64, hex);
@@ -720,7 +720,7 @@ int main(void) {
     }
     /* 回环：用同一把钥匙解开自己的密文 */
     m1_derive("|aes", key, 16);
-    m1_key_expand(key, RCON, rk);
+    m1_rk_expand(key, RCON, rk);
     for (i = 0; i < 64; i += 16) {
         unsigned char ct[16];
         for (j = 0; j < 16; j++) {

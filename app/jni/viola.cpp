@@ -8,7 +8,7 @@
  *  - 类抽取模拟：真标记 Fatdog_reclaim 拆成 4 段（ENC_0..3），每段 rot+xor 密钥不同，
  *    分别藏在 fill_seg0..3 四个函数里；JNI_OnLoad（=stub「加载」）调 refill_marker()
  *    把四段拼回 g_mark（运行时才完整，DEX 不落盘）。
- *  - 真标记：Fatdog_reclaim ；明文诱饵（一字之差）：Fatdog_reclaims 。
+ *  - 真标记：Fatdog_reclaim ；明文诱饵（一字之差）：hJ5~kM2#qT9!vX4 。
  *  - 网络层：KEY = SHA256(<标记> + "kl17")[:32]，对 "page=N&ts=T" 做 HMAC-SHA256 签名
  *    （与 /api/kl17 对拍；同 KL16 不同，本关不再额外 AES 加密请求体）。
  */
@@ -20,7 +20,7 @@
 #endif
 
 /* ---------- 标记分片存储（类抽取：4 段散布不同函数，各段旋转/异或密钥不同） ---------- */
-static const char DECOY_MARK[] = "Fatdog_reclaims";  /* strings 可见，差一个字母 */
+static const char DECOY_MARK[] = "hJ5~kM2#qT9!vX4";  /* strings 可见，差一个字母 */
 static char g_mark[64];
 static int g_mark_len = 0;
 

@@ -7,5 +7,5 @@ public class Ww {
     private Ww() {
     }
 
-    public static final String FAKE_KEY = "Fatdog_scatter";
+    public static final String SPARE_SALT = "qR8!tW4@yP1#nK";
 }

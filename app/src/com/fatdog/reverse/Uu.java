@@ -7,5 +7,5 @@ public class Uu {
     private Uu() {
     }
 
-    public static final String FAKE_KEY = "Fatdog_piece";
+    public static final String SPARE_TOKEN = "Vx3#Lq7~Bz2m";
 }

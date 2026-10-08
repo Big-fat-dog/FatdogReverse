@@ -7,10 +7,10 @@
  *     PLAIN = "KKL1_SEED:20260903" + 零填充（种子 = 20260903）。
  *
  * 抽取表不直接写死在主流程：三个 C++ 派生类通过虚函数 table() 各返回
- * 一张表，只有 RealCipher 是真身；另两个返回假表（identity/reverse），
+ * 一张表，只有 RealSigil 是真身；另两个返回假表（identity/reverse），
  * 解出的都是乱码。选谁由 choose_selector() 运行时决定（默认走真身）。
  *
- * 玩家需：① 认 vtable 结构 → ② 定位真派生类 RealCipher → ③ 复刻抽取表
+ * 玩家需：① 认 vtable 结构 → ② 定位真派生类 RealSigil → ③ 复刻抽取表
  *          与解密链 → ④ 提交 SHA-256(seed) 通关。
  *
  * 标记（真）：Fatdog_hallow — UTF-16 码元藏 .data。
@@ -57,7 +57,7 @@ static const jchar DECOY[] = {
 #define DECOY_LEN (sizeof(DECOY) / sizeof(jchar))
 
 /* ================= 常量数据 ================= */
-static const uint8_t XOR_KEY[8] = { 0x4D,0x9E,0x2B,0xF1,0x88,0x63,0x3A,0xC5 };
+static const uint8_t XOR_PAD[8] = { 0x4D,0x9E,0x2B,0xF1,0x88,0x63,0x3A,0xC5 };
 static const uint8_t POOL[40] = {
     0x10,0x20,0x30,0x40,0x50,0x60,0x70,0x80,0xC5,0xD9,0x6D,0xF7,0x88,0x63,0x3A,0xC5,0x88,0x63,0x3A,0xC5,0x63,0x09,0x92,0x6D,0x4B,0xF8,0x2B,0xF1,0x4D,0x9E,0x2B,0xF1,0x24,0xF7,0xA2,0xD7,0xCE,0xA5,0x3C,0xE2
 };
@@ -125,50 +125,50 @@ static void to_hex(const uint8_t *in, int n, char *out) {
 }
 
 /* ================= C++ 虚函数表派发 ================= */
-class CipherBase {
+class SigilBase {
 public:
-    virtual ~CipherBase() {}
+    virtual ~SigilBase() {}
     /* 返回抽取表：POOL 第 table[r] 组 -> ENC 第 r 组 */
     virtual const uint8_t *table(int &n) = 0;
 };
 
 /* 诱饵 A：identity —— 直接把含噪声的组序当密文，解出乱码 */
-class DecoyCipherA : public CipherBase {
+class DecoySigilA : public SigilBase {
 private:
     static const uint8_t T[8];
 public:
     const uint8_t *table(int &n) override { n = 8; return T; }
 };
-const uint8_t DecoyCipherA::T[8] = { 0x00,0x01,0x02,0x03,0x04,0x05,0x06,0x07 };
+const uint8_t DecoySigilA::T[8] = { 0x00,0x01,0x02,0x03,0x04,0x05,0x06,0x07 };
 
 /* 诱饵 B：reverse —— 逆序抽取，同样解不出种子 */
-class DecoyCipherB : public CipherBase {
+class DecoySigilB : public SigilBase {
 private:
     static const uint8_t T[8];
 public:
     const uint8_t *table(int &n) override { n = 8; return T; }
 };
-const uint8_t DecoyCipherB::T[8] = { 0x07,0x06,0x05,0x04,0x03,0x02,0x01,0x00 };
+const uint8_t DecoySigilB::T[8] = { 0x07,0x06,0x05,0x04,0x03,0x02,0x01,0x00 };
 
 /* 真身：EXTRACT_REAL —— 唯一能还原 32 字节密文的表 */
-class RealCipher : public CipherBase {
+class RealSigil : public SigilBase {
 private:
     static const uint8_t T[8];
 public:
     const uint8_t *table(int &n) override { n = 8; return T; }
 };
-const uint8_t RealCipher::T[8] = { 0x06,0x03,0x00,0x07,0x04,0x01,0x05,0x02 };
+const uint8_t RealSigil::T[8] = { 0x06,0x03,0x00,0x07,0x04,0x01,0x05,0x02 };
 
-/* 运行时选择：默认 0 -> RealCipher；hook 此函数可观察派发目标 */
+/* 运行时选择：默认 0 -> RealSigil；hook 此函数可观察派发目标 */
 static int choose_selector(const uint8_t *pool) {
     /* (前两个噪声字节之和 & 3) 恒为 0 —— 正常路径永远是真身 */
     return (pool[0] + pool[1]) & 3;
 }
 
-static CipherBase *make_cipher(const uint8_t *pool) {
-    static DecoyCipherA sA;
-    static DecoyCipherB sB;
-    static RealCipher    sR;
+static SigilBase *make_sigil(const uint8_t *pool) {
+    static DecoySigilA sA;
+    static DecoySigilB sB;
+    static RealSigil    sR;
     switch (choose_selector(pool)) {
         case 1: return &sA;
         case 2: return &sB;
@@ -187,7 +187,7 @@ static void extract(const uint8_t *tab, uint8_t *enc) {
 /* XOR + 循环左移 3 位（与 Python 生成器互为镜像） */
 static void decrypt(uint8_t *out, const uint8_t *enc) {
     for (int i = 0; i < 32; i++) {
-        uint8_t v = enc[i] ^ XOR_KEY[i % 8];
+        uint8_t v = enc[i] ^ XOR_PAD[i % 8];
         out[i] = (uint8_t)((v << 3) | (v >> 5));
     }
 }
@@ -220,7 +220,7 @@ extern "C" {
 JNIEXPORT jstring JNICALL
 Java_com_fatdog_reverse_Kkl1Native_nativeDecrypt(JNIEnv *env, jclass clazz) {
     (void)clazz;
-    CipherBase *c = make_cipher(POOL);
+    SigilBase *c = make_sigil(POOL);
     int n = 0;
     const uint8_t *tab = c->table(n);
     uint8_t enc[32], plain[32];
@@ -234,7 +234,7 @@ Java_com_fatdog_reverse_Kkl1Native_nativeDecrypt(JNIEnv *env, jclass clazz) {
 JNIEXPORT jint JNICALL
 Java_com_fatdog_reverse_Kkl1Native_nativeSeed(JNIEnv *env, jclass clazz) {
     (void)clazz;
-    CipherBase *c = make_cipher(POOL);
+    SigilBase *c = make_sigil(POOL);
     int n = 0;
     const uint8_t *tab = c->table(n);
     uint8_t enc[32], plain[32];
@@ -246,7 +246,7 @@ Java_com_fatdog_reverse_Kkl1Native_nativeSeed(JNIEnv *env, jclass clazz) {
 JNIEXPORT jstring JNICALL
 Java_com_fatdog_reverse_Kkl1Native_nativeAnswer(JNIEnv *env, jclass clazz) {
     (void)clazz;
-    CipherBase *c = make_cipher(POOL);
+    SigilBase *c = make_sigil(POOL);
     int n = 0;
     const uint8_t *tab = c->table(n);
     uint8_t enc[32], plain[32];

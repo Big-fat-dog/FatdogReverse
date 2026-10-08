@@ -13,7 +13,7 @@ gen_kl10.py —— 「万象归一」so 生成器（魔改 SHA256 变体 + 魔�
     payload 形如 "page=N&ts=T"（零填充到 32 字节）。
   - 密钥运行时派生：sha_iv = sha256(<标记>|"iv")；aes_key = sha256(<标记>|"key")[:16]；
     真标记 Fatdog_eclipse 以 UTF-16 码元非 static 非 const 全局藏匿。
-  - 明文诱饵标记 Fatdog_ellipse（eclipse 一字之差）+ DECOY_BLOB（诱饵钥加密的假载荷）。
+  - 明文诱饵标记 魑魅の錠ø（eclipse 一字之差）+ DECOY_BLOB（诱饵钥加密的假载荷）。
   - 导出面：JNI 两入口（分层暴露便于观察）+ m5_decoy_seal + 两个噪声函数。
 
 自测：
@@ -235,7 +235,7 @@ def self_test():
 # ---------------- 关卡素材 ----------------
 
 MARKER = "Fatdog_eclipse"               # 真标记（UTF-16 藏匿）
-DECOY_MARKER = "Fatdog_ellipse"         # 明文诱饵标记（eclipse 一字之差）
+DECOY_MARKER = "魑魅の錠ø"         # 明文诱饵标记（eclipse 一字之差）
 DECOY_PAYLOAD = "page=21&ts=1700000000"
 
 IV_WORDS = [int.from_bytes(hashlib.sha256(MARKER.encode() + b"|iv").digest()[4*i:4*i+4], "big")
@@ -281,7 +281,7 @@ C_TEMPLATE = r"""/* libonyx.so ——「万象归一」（由 gen_kl10.py 生成
  *   第二层 AES-128：S 盒/轮结构全标准（认骨架看 S 盒 63 7c 77 7b…），
  *     但 MixColumns 系数 {2,3} 对调为 {3,2}。
  * 密钥运行时派生：iv = sha256(<标记>|"iv")；aes_key = sha256(<标记>|"key")[:16]。
- * 真标记 UTF-16 码元藏匿（strings 盲区）；明文诱饵 Fatdog_ellipse 一字之差。
+ * 真标记 UTF-16 码元藏匿（strings 盲区）；明文诱饵 魑魅の錠ø 一字之差。
  */
 #include <string.h>
 #include <stdio.h>
@@ -386,7 +386,7 @@ static void m5_ark(unsigned char s[16], const unsigned char k[16]) {
     int i; for (i = 0; i < 16; i++) s[i] ^= k[i];
 }
 
-static void m5_key_expand(const unsigned char *key, unsigned char rk[11][16]) {
+static void m5_rk_expand(const unsigned char *key, unsigned char rk[11][16]) {
     int i, j;
     unsigned char t[4];
     memcpy(rk[0], key, 16);
@@ -533,7 +533,7 @@ static void m5_core_aes(const unsigned char dg32[32], char hex[65]) {
     unsigned char key[16], rk[11][16], ct[32];
     int i;
     m5_derive("|key", key, 16);
-    m5_key_expand(key, rk);
+    m5_rk_expand(key, rk);
     for (i = 0; i < 32; i += 16)
         m5_enc_block(dg32 + i, ct + i, rk);
     m5_hex_encode(ct, 32, hex);

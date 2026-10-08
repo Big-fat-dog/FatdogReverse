@@ -29,7 +29,7 @@ static const volatile jchar MARKER[] = {
 #define MARKER_LEN (sizeof(MARKER) / sizeof(jchar))
 
 /* 明文诱饵：strings 可直接看到一字之差 */
-static const char DECOY[] = "Fatdog_grim";
+static const char DECOY[] = "靐飝のø";
 
 static const char SALT[] = "|kkl4_tower";
 
@@ -184,24 +184,24 @@ extern "C" int kkl4_crc_check(void) {
 }
 
 /* ================= 密钥派生 + 静默投毒 ================= */
-static uint8_t g_key[32];
+static uint8_t g_pad[32];
 static bool g_ready = false;
 static bool g_poisoned = false;
 
-static const uint8_t *real_key() {
+static const uint8_t *real_seal() {
     if (!g_ready) {
         std::string tag;
         for (size_t i = 0; i < MARKER_LEN; i++) tag.push_back((char)(MARKER[i] & 0xFF));
         std::string input = tag + SALT;
-        sha256((const uint8_t *)input.data(), input.size(), g_key);
+        sha256((const uint8_t *)input.data(), input.size(), g_pad);
         g_ready = true;
     }
-    return g_key;
+    return g_pad;
 }
 
-static void poison_key() {
+static void poison_seal() {
     if (!g_poisoned) {
-        uint8_t *key = (uint8_t *)real_key();
+        uint8_t *key = (uint8_t *)real_seal();
         key[7] ^= 0x40;
         g_poisoned = true;
     }
@@ -216,7 +216,7 @@ static volatile uint32_t g_nonce = 0;
 static volatile int g_sealed = 0;
 
 static void poison_and_seal() {
-    poison_key();
+    poison_seal();
     g_sealed = 1;
 }
 
@@ -240,7 +240,7 @@ static std::string make_status(int crc_ok) {
              "  取数记账    : %s\n"
              "  native 回调 : %s\n"
              "  密钥状态    : %s\n"
-             "  明文可见    : Fatdog_grim（诱饵）",
+             "  明文可见    : 靐飝のø（诱饵）",
              crc_ok ? "通过" : "异常（patch/hook 已改变代码字节）",
              g_opened == 1 ? "已记账" : "未记账",
              g_signs == g_commits ? "无挂账" : (sign_pending() ? "待回调核账" : "异常"),
@@ -283,7 +283,7 @@ Java_com_fatdog_reverse_Kkl4Native_nativeSign(JNIEnv *env, jclass clazz,
     }
     char msg[96];
     snprintf(msg, sizeof(msg), "page=%d&ts=%lld", (int)page, (long long)ts);
-    const uint8_t *key = real_key();
+    const uint8_t *key = real_seal();
     uint8_t mac[32];
     hmac_sha256(key, 32, (const uint8_t *)msg, strlen(msg), mac);
     char hex[65];

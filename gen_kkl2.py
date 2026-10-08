@@ -7,11 +7,11 @@ gen_kkl2.py —— 「万剑冢」（KKL2）so 生成器 + 业务 DEX 加密烘�
 产出 app/jni/kkl2.cpp（libkkl2.so）：
   - 导出表只有 JNI_OnLoad，两个 native 方法经 RegisterNatives 动态绑定：
       nativeUnseal(byte[] enc) -> byte[]   解密 assets 里加密的业务 DEX
-      nativeDeriveKey()       -> byte[]   HMAC 密钥（真标记 UTF-16 藏匿派生）
+      nativeDeriveSeal()       -> byte[]   HMAC 密钥（真标记 UTF-16 藏匿派生）
   - 解密链（STL 教学）：std::string 两段拼 salt → 真标记派生 32B 密钥 dk →
     std::vector<uint8_t> + 流式 XOR（std::transform + lambda 捕获 idx）→
     偶数下标镜像交换还原（std::swap）。
-  - 真标记 Fatdog_tense（UTF-16 码元藏 .data）；诱饵 Fatdog_timid 明文躺
+  - 真标记 Fatdog_tense（UTF-16 码元藏 .data）；诱饵 yT4!pW8@kR2# 明文躺
     .rodata（strings 可见）——用它派生密钥解不开密文，学员先撞一堵墙。
 
 --bake 模式（构建期调用）：
@@ -30,7 +30,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 APP = os.path.join(HERE, 'app')
 
 MARKER = "Fatdog_tense"     # 真标记：参与 HMAC 密钥派生（so 内 UTF-16 藏匿）
-DECOY = "Fatdog_timid"      # 诱饵标记：明文可见，派生密钥解不开密文
+DECOY = "yT4!pW8@kR2#"      # 诱饵标记：明文可见，派生密钥解不开密文
 SALT = "|kkl2_swordfield"   # salt 拆两段藏 so：SALT_HEAD "|kkl2_" + SALT_TAIL "swordfield"
 ASSET_DIR = "kkl2"
 ASSET_REAL = "echoes_of_blades.bin"      # 加密后的真业务 DEX（剑冢深埋）
@@ -105,10 +105,10 @@ def gen_cpp() -> str:
  *   1) nativeUnseal(enc)   —— 流式 XOR + 镜像交换还原出明文 dex 字节，
  *                            由 Java 侧用 InMemoryDexClassLoader 内存加载
  *                            （不落盘，adb pull / 常规 dump 全部失效）。
- *   2) nativeDeriveKey()   —— 返回 HMAC-SHA256 密钥（32B）。密钥 = SHA-256(
+ *   2) nativeDeriveSeal()   —— 返回 HMAC-SHA256 密钥（32B）。密钥 = SHA-256(
  *                            真标记 Fatdog_tense + "|kkl2_swordfield")，
  *                            真标记以 UTF-16 码元藏在 .data（strings 哑火，
- *                            strings -el 才见）；明文 Fatdog_timid 是诱饵，
+ *                            strings -el 才见）；明文 yT4!pW8@kR2# 是诱饵，
  *                            用它派生的密钥解不开密文、验签 403。
  *
  * 解密链故意走 STL（教学点：容器逆向 / lambda 捕获 / std::swap）：
@@ -118,7 +118,7 @@ def gen_cpp() -> str:
  * 玩家需：① 认清 assets 里 classes_decoy.dex 是假壳 → 找到真密文 bin；
  *         ② 还原解密链（或 Frida hook nativeUnseal 出口抓明文 dex）；
  *         ③ dump/加载出 dex → 看到 GateKeeper2.sign(key,page,ts) 取数逻辑；
- *         ④ nativeDeriveKey 拿密钥 → HMAC 取数求和通关。
+ *         ④ nativeDeriveSeal 拿密钥 → HMAC 取数求和通关。
  */
 #include <jni.h>
 #include <stdint.h>
@@ -197,7 +197,7 @@ static void sha256(const uint8_t *m, size_t l, uint8_t o[32]) {
 }
 
 /* ================= 密钥派生：真标记(UTF-16 降 ASCII) + 两段 salt ================= */
-static std::vector<uint8_t> derive_key() {
+static std::vector<uint8_t> derive_seal() {
     std::string tag;
     for (size_t i = 0; i < sizeof(MARKER)/sizeof(jchar); i++) {
         tag.push_back((char)(MARKER[i] & 0xFF));      /* ASCII 码元 */
@@ -211,7 +211,7 @@ static std::vector<uint8_t> derive_key() {
 
 /* ================= 解密：keystream 流式 XOR + 镜像交换还原 ================= */
 static std::vector<uint8_t> unseal_bytes(const uint8_t *in, size_t n) {
-    std::vector<uint8_t> dk = derive_key();
+    std::vector<uint8_t> dk = derive_seal();
     /* 1) 偶数下标与镜像位交换还原（std::swap） */
     std::vector<uint8_t> v(in, in + n);
     for (size_t i = 0; i < n / 2; i++) {
@@ -247,8 +247,8 @@ static jbyteArray JNICALL nativeUnseal(JNIEnv *env, jclass, jbyteArray enc) {
     return out;
 }
 
-static jbyteArray JNICALL nativeDeriveKey(JNIEnv *env, jclass) {
-    std::vector<uint8_t> dk = derive_key();
+static jbyteArray JNICALL nativeDeriveSeal(JNIEnv *env, jclass) {
+    std::vector<uint8_t> dk = derive_seal();
     jbyteArray out = env->NewByteArray(32);
     if (out) {
         env->SetByteArrayRegion(out, 0, 32, reinterpret_cast<const jbyte *>(dk.data()));
@@ -258,7 +258,7 @@ static jbyteArray JNICALL nativeDeriveKey(JNIEnv *env, jclass) {
 
 static const JNINativeMethod METHODS[] = {
     {"nativeUnseal",    "([B)[B", (void *) &nativeUnseal},
-    {"nativeDeriveKey", "()[B",   (void *) &nativeDeriveKey},
+    {"nativeDeriveSeal", "()[B",   (void *) &nativeDeriveSeal},
 };
 
 JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void *reserved) {
@@ -317,7 +317,7 @@ def self_test():
     assert dec_dex(enc_dex(sample)) == sample, 'roundtrip failed'
     # 2) 派生密钥与 hashlib 一致
     assert derive_dk().hex() == hashlib.sha256((MARKER + SALT).encode()).hexdigest()
-    # 3) 诱饵派生 ≠ 真钥（学员用 Fatdog_timid 拼不出正确流）
+    # 3) 诱饵派生 ≠ 真钥（学员用 yT4!pW8@kR2# 拼不出正确流）
     decoy_dk = hashlib.sha256((DECOY + SALT).encode()).digest()
     assert decoy_dk != derive_dk()
     # 4) 数字对拍

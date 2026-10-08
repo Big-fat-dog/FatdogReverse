@@ -55,8 +55,8 @@ static volatile uint32_t g_marker_proof = 0;
 static const char KEY_B64[] =
     "Ta3Cl3qmIAKoSuT/fOLZdeh9zWfdc4OdmyGpOCfWrNAQmtDZqKD+4peWYPutolUL";
 
-static unsigned char g_key_raw[48];
-static bool g_key_ready = false;
+static unsigned char g_raw_mark[48];
+static bool g_mark_ready = false;
 
 static int b64_val(char c) {
     if (c >= 'A' && c <= 'Z') return c - 'A';
@@ -82,12 +82,12 @@ static int b64_decode(const char *in, int in_len, unsigned char *out) {
     return j;
 }
 
-static void derive_keys(void) {
+static void derive_marks(void) {
     unsigned char raw[48];
     int n = b64_decode(KEY_B64, (int)strlen(KEY_B64), raw);
     if (n >= 48) {
-        memcpy(g_key_raw, raw, 48);
-        g_key_ready = true;
+        memcpy(g_raw_mark, raw, 48);
+        g_mark_ready = true;
     }
 }
 
@@ -159,17 +159,17 @@ static void sha256(const unsigned char *msg, unsigned int len, unsigned char out
 static void hmac_sha256(const unsigned char *key, unsigned int klen,
                         const unsigned char *msg, unsigned int mlen,
                         unsigned char out[32]) {
-    unsigned char k_pad[64], k_hash[32], o_key[64], i_key[64];
+    unsigned char k_pad[64], k_hash[32], o_mix[64], i_mix[64];
     unsigned char inner[32], outer[128];
     int i;
     if (klen > 64) { sha256(key, klen, k_hash); key = k_hash; klen = 32; }
     memset(k_pad, 0, 64);
     memcpy(k_pad, key, klen);
-    for (i = 0; i < 64; i++) { i_key[i] = k_pad[i] ^ 0x36; o_key[i] = k_pad[i] ^ 0x5C; }
-    memcpy(outer, i_key, 64);
+    for (i = 0; i < 64; i++) { i_mix[i] = k_pad[i] ^ 0x36; o_mix[i] = k_pad[i] ^ 0x5C; }
+    memcpy(outer, i_mix, 64);
     memcpy(outer + 64, msg, mlen);
     sha256(outer, 64 + mlen, inner);
-    memcpy(outer, o_key, 64);
+    memcpy(outer, o_mix, 64);
     memcpy(outer + 64, inner, 32);
     sha256(outer, 64 + 32, out);
 }
@@ -223,7 +223,7 @@ static void aes_mix(unsigned char s[16]) {
         s[i+3] ^= x ^ xtime(a3^a0);
     }
 }
-static void aes_addkey(unsigned char s[16], const unsigned char *rk, int round) {
+static void round_tweak(unsigned char s[16], const unsigned char *rk, int round) {
     int i; for (i = 0; i < 16; i++) s[i] ^= rk[round*16+i];
 }
 
@@ -241,14 +241,14 @@ static void enc_block_flat(unsigned char out[16], const unsigned char in[16],
     memcpy(s, in, 16);
     for (;;) {
         switch (st) {
-        case 0: aes_addkey(s, rk, 0); r = 1; st = 1; break;
+        case 0: round_tweak(s, rk, 0); r = 1; st = 1; break;
         case 1: aes_sub(s);   st = 2; break;
         case 2: aes_shift(s); st = 3; break;
         case 3: aes_mix(s);   st = 4; break;
-        case 4: aes_addkey(s, rk, r); r++; st = (r <= 9) ? 1 : 5; break;
+        case 4: round_tweak(s, rk, r); r++; st = (r <= 9) ? 1 : 5; break;
         case 5: aes_sub(s);   st = 6; break;
         case 6: aes_shift(s); st = 7; break;
-        case 7: aes_addkey(s, rk, 10); st = 8; break;
+        case 7: round_tweak(s, rk, 10); st = 8; break;
         case 8: memcpy(out, s, 16); st = 9; break;
         case 9: return;
         default: st = 0; break;
@@ -391,16 +391,16 @@ enum VaultKind { kHaze = 0, kVeil = 1, kDusk = 2 };
 
 static Vault *make_vault(int kind) {
     switch (kind) {
-    case kVeil: return new VeilVault(g_key_raw);
-    case kDusk: return new DuskVault(g_key_raw);
+    case kVeil: return new VeilVault(g_raw_mark);
+    case kDusk: return new DuskVault(g_raw_mark);
     case kHaze:
-    default:    return new HazeVault(g_key_raw);
+    default:    return new HazeVault(g_raw_mark);
     }
 }
 
 static Seal *make_seal(int kind) {
-    if (kind == kVeil) return new VeilSeal(g_key_raw + 16);
-    return new HazeSeal(g_key_raw + 16);
+    if (kind == kVeil) return new VeilSeal(g_raw_mark + 16);
+    return new HazeSeal(g_raw_mark + 16);
 }
 
 /* ==================== 控制流平坦化核心 ==================== */
@@ -425,7 +425,7 @@ static void flat_derive_and_sign(int page, long long ts) {
     int state = 0;
     int i;
 
-    if (!g_key_ready) derive_keys();
+    if (!g_mark_ready) derive_marks();
 
     /* 懒建单例：构造函数内展开密钥；类层次里同时存在 2 个诱饵派生类 */
     static Vault *vault = make_vault(kHaze);

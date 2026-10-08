@@ -12,7 +12,7 @@ gen_kl9.py —— 「天罡北斗」so 生成器（魔改 RC4 · KSA 初始置�
     标准 RC4 解不出本关密文。
   - 密钥运行时派生：rc4_key = sha256(<标记>|"rc4")[:16]，mac = sha256(<标记>|"mac")；
     真标记 Fatdog_veil 以 UTF-16 码元非 static 非 const 全局藏匿（strings 盲区）。
-  - 明文诱饵标记 Fatdog_vile（veil 一字之差，用它派生钥的请求一律 403）
+  - 明文诱饵标记 魑魅のø（veil 一字之差，用它派生钥的请求一律 403）
     + DECOY_BLOB（诱饵钥加密的"像样"假载荷）。
   - 导出面克制低调：JNI 两个真入口 + m4_decoy_seal + 两个噪声函数。
 
@@ -120,7 +120,7 @@ def pad(b):
 # ---------------- 关卡素材 ----------------
 
 MARKER = "Fatdog_veil"                  # 真标记（UTF-16 藏匿）
-DECOY_MARKER = "Fatdog_vile"            # 明文诱饵标记（veil 一字之差）
+DECOY_MARKER = "魑魅のø"            # 明文诱饵标记（veil 一字之差）
 DECOY_PAYLOAD = "page=13&ts=1700000000"
 
 RC4_KEY = hashlib.sha256(MARKER.encode() + b"|rc4").digest()[:16]

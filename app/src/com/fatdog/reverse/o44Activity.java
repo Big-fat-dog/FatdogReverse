@@ -169,7 +169,7 @@ public class o44Activity extends Activity {
                         .setMessage("服务端 HTTPS:8443 的 POST /api/l44：enc=hex(魔改3DES-EDE(key,\"page=N&ts=T\" 零填充))、sign=HMAC-SHA256(mac,enc)。\n"
                                 + "钥匙两步走：① strings -el 找到 UTF-16 藏着的标记 Fatdog_shatter；② des 钥=SHA256(标记+\"|des\")[:24]，mac=SHA256(标记+\"|mac\")。\n"
                                 + "标准 DES 解不开？逐表对比标准——IP 首尾互换（58<->57）、FP 同步重算、S3 第 18/19 位两值互换（9<->0），Python 照抄这三处再取数。\n"
-                                + "注意 Ww.FAKE_KEY=Fatdog_scatter 一字之差陷阱（命中即 403）；so 里的 m2_decoy_seal 是假密文。")
+                                + "注意 Ww.SPARE_SALT=qR8!tW4@yP1#nK 一字之差陷阱（命中即 403）；so 里的 m2_decoy_seal 是假密文。")
                         .setPositiveButton("好的", null)
                         .show();
             }

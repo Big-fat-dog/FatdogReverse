@@ -7,5 +7,5 @@ public class Yw {
     private Yw() {
     }
 
-    public static final String FAKE_KEY = "Fatdog_vile";
+    public static final String SPARE_PHRASE = "魑魅のø";
 }

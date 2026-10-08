@@ -13,7 +13,7 @@
  *  ④ nativeCommit    : Java 收到一页后回调核账，闭合三点记账
  *
  * VMP 字节码由 tools/gen_kkl5_vm_program.py 生成，滚动 XOR 加密放在
- * kkl5_vm_program.h；真标记只作为 VM 立即数存在，诱饵 Fatdog_ascent
+ * kkl5_vm_program.h；真标记只作为 VM 立即数存在，诱饵 靐飝のжλ
  * 派生出的签名会被服务端 403。
  */
 #include <jni.h>
@@ -35,7 +35,7 @@ static const volatile jchar MARKER[] = {
     0x005F, 0x0061, 0x0073, 0x0063, 0x0065, 0x006E, 0x0064
 };
 #define MARKER_LEN (sizeof(MARKER) / sizeof(jchar))
-static const char DECOY[] = "Fatdog_ascent";
+static const char DECOY[] = "靐飝のжλ";
 
 /* ================= SHA-256 / HMAC ================= */
 static const uint32_t K256[64] = {
@@ -306,7 +306,7 @@ static bool kkl5_vm_run(const uint8_t *enc, size_t enc_len, VmResult &res) {
     if (nwords == 0) return false;
     std::vector<uint32_t> words(nwords, 0);
     for (size_t i = 0; i < enc_len; i++) {
-        uint8_t b = (uint8_t)(enc[i] ^ kKkl5VmRollingKey[i % KKL5_VM_KEY_LEN]);
+        uint8_t b = (uint8_t)(enc[i] ^ kKkl5VmRollingSeed[i % KKL5_VM_SEED_LEN]);
         words[i / 4] |= ((uint32_t)b) << ((i % 4) * 8);
     }
     memset(res.regs, 0, sizeof(res.regs));
@@ -350,7 +350,7 @@ done:
     return res.halted;
 }
 
-static bool kkl5_vm_key(const uint8_t *enc, size_t enc_len, int base_reg,
+static bool kkl5_vm_seed(const uint8_t *enc, size_t enc_len, int base_reg,
                         uint8_t *out, int nbytes) {
     VmResult r;
     if (!kkl5_vm_run(enc, enc_len, r)) return false;
@@ -366,8 +366,8 @@ static bool kkl5_vm_key(const uint8_t *enc, size_t enc_len, int base_reg,
 static volatile int g_opened = 0;
 static volatile int g_committed = 0;
 static volatile int g_poisoned = 0;
-static uint8_t g_aes_key[16];
-static uint8_t g_mac_key[32];
+static uint8_t g_mix_seed[16];
+static uint8_t g_trace_seed[32];
 
 static int kkl5_anti_debug(void) {
     int fd = open("/proc/self/status", O_RDONLY);
@@ -415,14 +415,14 @@ static int kkl5_anti_debug(void) {
     return 0;
 }
 
-static void kkl5_refresh_keys(void) {
+static void kkl5_refresh_seeds(void) {
     /* AES 主钥：VMP 程序 A（真标记 + |kkl5_cipher）解释执行得到 */
-    if (!kkl5_vm_key(kKkl5VmProgramEnc, sizeof(kKkl5VmProgramEnc), 1, g_aes_key, 16)) {
+    if (!kkl5_vm_seed(kKkl5VmProgramEnc, sizeof(kKkl5VmProgramEnc), 1, g_mix_seed, 16)) {
         g_poisoned = 1;
         return;
     }
     /* MAC 子钥：VMP 程序 B（真标记 + |kkl5_ascension）解释执行得到 32 字节 */
-    if (!kkl5_vm_key(kKkl5VmMacEnc, sizeof(kKkl5VmMacEnc), 1, g_mac_key, 32)) {
+    if (!kkl5_vm_seed(kKkl5VmMacEnc, sizeof(kKkl5VmMacEnc), 1, g_trace_seed, 32)) {
         g_poisoned = 1;
     }
 }
@@ -439,7 +439,7 @@ extern "C" __attribute__((noinline)) int kkl5_on_create_gate(void) {
         if (got != kKkl5VmExpectAes[i]) aes_ok = false;
     }
     if (!aes_ok) { g_poisoned = 1; return -5; }
-    kkl5_refresh_keys();
+    kkl5_refresh_seeds();
     return g_poisoned ? -6 : 0;
 }
 
@@ -455,7 +455,7 @@ static std::string jstr(JNIEnv *env, jstring s) {
 extern "C" JNIEXPORT jint JNICALL
 Java_com_fatdog_reverse_Kkl5Native_nativeOpen(JNIEnv *env, jclass) {
     if (kkl5_anti_debug() != 0) { g_poisoned = 1; return -2; }
-    kkl5_refresh_keys();
+    kkl5_refresh_seeds();
     if (g_poisoned) return -4;
     g_opened = 1;
     g_committed = 0;
@@ -466,7 +466,7 @@ extern "C" JNIEXPORT jstring JNICALL
 Java_com_fatdog_reverse_Kkl5Native_nativeOnCreate(JNIEnv *env, jclass, jobject) {
     int gate = kkl5_on_create_gate();
     if (gate != 0) {
-        kkl5_refresh_keys();
+        kkl5_refresh_seeds();
         char buf[96];
         snprintf(buf, sizeof(buf), "FAIL:onCreate VM gate %d", gate);
         return env->NewStringUTF(buf);
@@ -484,16 +484,16 @@ Java_com_fatdog_reverse_Kkl5Native_nativeSign(JNIEnv *env, jclass, jint page, jl
     /* IV: SHA256(page|ts|mac_key) 前 16 字节，确保每页上下文绑定 */
     uint8_t seed[64];
     int sl = snprintf((char *)seed, sizeof(seed), "%d|%lld|", page, (long long)ts);
-    memcpy(seed + sl, g_mac_key, 32);
+    memcpy(seed + sl, g_trace_seed, 32);
     uint8_t iv[16];
     sha256(seed, sl + 32, iv);
-    std::vector<uint8_t> ct = aes_cbc_encrypt(g_aes_key, iv, (const uint8_t *)payload, strlen(payload));
+    std::vector<uint8_t> ct = aes_cbc_encrypt(g_mix_seed, iv, (const uint8_t *)payload, strlen(payload));
     char *hex = (char *)malloc(ct.size() * 2 + 1);
     to_hex(ct.data(), (int)ct.size(), hex);
     std::string enc(hex);
     free(hex);
     uint8_t mac[32];
-    hmac_sha256(g_mac_key, 32, (const uint8_t *)enc.data(), enc.size(), mac);
+    hmac_sha256(g_trace_seed, 32, (const uint8_t *)enc.data(), enc.size(), mac);
     char machex[65];
     to_hex(mac, 32, machex);
     char out[1400];
@@ -536,7 +536,7 @@ Java_com_fatdog_reverse_Kkl5Native_nativeVerifyResponse(JNIEnv *env, jclass, jin
     snprintf(formed, sizeof(formed), "%d|%lld|", page, (long long)ts);
     std::string msg = std::string(formed) + ivs + "|" + ds;
     uint8_t mac[32];
-    hmac_sha256(g_mac_key, 32, (const uint8_t *)msg.data(), msg.size(), mac);
+    hmac_sha256(g_trace_seed, 32, (const uint8_t *)msg.data(), msg.size(), mac);
     char hex[65];
     to_hex(mac, 32, hex);
     return strcmp(hex, ss.c_str()) == 0 ? JNI_TRUE : JNI_FALSE;
@@ -550,7 +550,7 @@ Java_com_fatdog_reverse_Kkl5Native_nativeUnseal(JNIEnv *env, jclass, jbyteArray 
     std::vector<uint8_t> in((size_t)n);
     env->GetByteArrayRegion(sealed, 0, n, (jbyte *)in.data());
     std::vector<uint8_t> out;
-    if (!aes_cbc_decrypt(g_aes_key, in.data(), in.size(), out)) return NULL;
+    if (!aes_cbc_decrypt(g_mix_seed, in.data(), in.size(), out)) return NULL;
     jbyteArray ret = env->NewByteArray((jsize)out.size());
     env->SetByteArrayRegion(ret, 0, (jsize)out.size(), (const jbyte *)out.data());
     return ret;

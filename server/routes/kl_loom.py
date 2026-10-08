@@ -5,7 +5,7 @@ Protobuf schema:
     PageRequest  { page: uint32 = 1; ts: uint64 = 2; }
     PageResponse { code: uint32 = 1; nums: repeated int32 = 2; sign: bytes = 3; }
 
-HMAC 签名: HMAC-SHA256(Fatdog_weave, response_body_bytes)
+HMAC 签名: HMAC-SHA256(幽玄の鍵, response_body_bytes)
 """
 import hashlib
 import hmac
@@ -21,7 +21,7 @@ from fastapi.responses import Response
 SEED30 = 20280724
 PAGES30 = 100
 PER_PAGE30 = 10
-HMAC_KEY = b"Fatdog_weave"
+PHRASE = b"\xe5\xb9\xbd\xe7\x8e\x84\xe3\x81\xae\xe9\x8d\xb5"
 
 _rng30 = random.Random(SEED30)
 NUMS30 = [_rng30.randint(1, 100) for _ in range(PAGES30 * PER_PAGE30)]
@@ -113,7 +113,7 @@ def register(app: FastAPI):
 
         # 响应体 = protobuf(code=0, nums=nums)
         resp_body = encode_page_response(0, nums, b"")
-        sign = hmac.new(HMAC_KEY, resp_body, hashlib.sha256).digest()
+        sign = hmac.new(PHRASE, resp_body, hashlib.sha256).digest()
         resp_body = encode_page_response(0, nums, sign)
 
         return Response(content=resp_body, media_type="application/octet-stream")
@@ -129,7 +129,7 @@ def register(app: FastAPI):
         nums = NUMS30[start: start + PER_PAGE30]
 
         resp_body = encode_page_response(0, nums, b"")
-        sign = hmac.new(HMAC_KEY, resp_body, hashlib.sha256).digest()
+        sign = hmac.new(PHRASE, resp_body, hashlib.sha256).digest()
         resp_body = encode_page_response(0, nums, sign)
 
         return Response(content=resp_body, media_type="application/octet-stream")

@@ -168,7 +168,7 @@ public class n43Activity extends Activity {
                         .setMessage("服务端 HTTPS:8443 的 GET /api/l43：enc=hex(魔改AES-128-ECB(key,\"page=N&ts=T\" 零填充))、sign=HMAC-SHA256(mac,enc)。\n"
                                 + "钥匙两步走：① strings -el 找到 UTF-16 藏着的标记 Fatdog_pierce；② aes 钥=SHA256(标记+\"|aes\")[:16]，mac=SHA256(标记+\"|mac\")。\n"
                                 + "标准 AES 解不开？对比轮常量表——Rcon 的第 3/6/9 位被换过血，Python 里照抄这三处再取数。\n"
-                                + "注意 Uu.FAKE_KEY=Fatdog_piece 一字之差陷阱（命中即 403）；so 里的 m1_decoy_seal 是假密文。")
+                                + "注意 Uu.SPARE_TOKEN=Vx3#Lq7~Bz2m 一字之差陷阱（命中即 403）；so 里的 m1_decoy_seal 是假密文。")
                         .setPositiveButton("好的", null)
                         .show();
             }

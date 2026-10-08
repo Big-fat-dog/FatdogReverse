@@ -34,7 +34,7 @@ A = section.append
 A("")
 A("# ---------------- 关卡 44（KL7）裂魂之匣：魔改 DES（IP 首尾互换 + S3 换位 + FP 重算） ----------------")
 A("KEY44_MASTER = \"Fatdog_shatter\"")
-A("DECOY44_KEYS = [\"Fatdog_scatter\"]")
+A("DECOY44_KEYS = [\"qR8!tW4@yP1#nK\"]")
 A("PAGES44, PER_PAGE44, SEED44 = 100, 10, 20271115")
 A("_rng44 = random.Random(SEED44)")
 A("NUMS44 = [_rng44.randint(1, 100) for _ in range(PAGES44 * PER_PAGE44)]")

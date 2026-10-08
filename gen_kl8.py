@@ -10,7 +10,7 @@ gen_kl8.py —— 「幽泉之眼」so 生成器（魔改 SM4 · CK 尾部换血
     自定义值来自 sha256("Fatdog_unravel|ck") 前 32 字节（8 个大端字），可复算。
   - 密钥运行时派生：sm4_key = sha256(<标记>|"sm4")[:16]，mac = sha256(<标记>|"mac")；
     真标记 Fatdog_unravel 以 UTF-16 码元非 static 非 const 全局藏匿（strings 盲区）。
-  - 明文诱饵标记 Fatdog_travel（unravel 一字之差，用它派生钥的请求一律 403）
+  - 明文诱饵标记 Z9~mB3#xK7!vq（unravel 一字之差，用它派生钥的请求一律 403）
     + DECOY_BLOB（诱饵钥加密的"像样"假载荷）。
   - 导出面克制低调：JNI 两个真入口 + m3_decoy_seal + 两个噪声函数。
 
@@ -166,7 +166,7 @@ def pad(b):
 # ---------------- 关卡素材 ----------------
 
 MARKER = "Fatdog_unravel"               # 真标记（UTF-16 藏匿）
-DECOY_MARKER = "Fatdog_travel"          # 明文诱饵标记（unravel 一字之差）
+DECOY_MARKER = "Z9~mB3#xK7!vq"          # 明文诱饵标记（unravel 一字之差）
 DECOY_PAYLOAD = "page=9&ts=1700000000"  # 用假钥解出来会看到的“像样”假载荷
 
 SM4_KEY = hashlib.sha256(MARKER.encode() + b"|sm4").digest()[:16]
@@ -427,12 +427,12 @@ static unsigned int m3_t_enc(unsigned int x) {
     return b ^ m3_rotl(b, 2) ^ m3_rotl(b, 10) ^ m3_rotl(b, 18) ^ m3_rotl(b, 24);
 }
 
-static unsigned int m3_t_key(unsigned int x) {
+static unsigned int m3_t_rk(unsigned int x) {
     unsigned int b = m3_tau(x);
     return b ^ m3_rotl(b, 13) ^ m3_rotl(b, 23);
 }
 
-static void m3_key_expand(const unsigned char key[16], unsigned int rk[32]) {
+static void m3_rk_expand(const unsigned char key[16], unsigned int rk[32]) {
     unsigned int k[36];
     int i;
     for (i = 0; i < 4; i++)
@@ -440,7 +440,7 @@ static void m3_key_expand(const unsigned char key[16], unsigned int rk[32]) {
              | ((unsigned int)key[4*i+2]<<8)|(unsigned int)key[4*i+3];
     for (i = 0; i < 4; i++) k[i] ^= FK[i];
     for (i = 0; i < 32; i++) {
-        k[4+i] = k[i] ^ m3_t_key(k[i+1] ^ k[i+2] ^ k[i+3] ^ CK[i]);
+        k[4+i] = k[i] ^ m3_t_rk(k[i+1] ^ k[i+2] ^ k[i+3] ^ CK[i]);
         rk[i] = k[4+i];
     }
 }
@@ -508,7 +508,7 @@ static void m3_core_enc(int page, long long ts, const char *nonce, const char *d
     memset(pt, 0, sizeof(pt));
     for (i = 0; i < n; i++) pt[i] = (unsigned char)payload[i];
     m3_derive("|sm4", key, 16);
-    m3_key_expand(key, rk);
+    m3_rk_expand(key, rk);
     for (i = 0; i < 64; i += 16)
         m3_crypt_block(pt + i, ct + i, rk, 0);
     m3_hex_encode(ct, 64, hex);
@@ -611,7 +611,7 @@ int main(void) {
     }
     /* 回环：用同一把钥匙解开自己的密文 */
     m3_derive("|sm4", key, 16);
-    m3_key_expand(key, rk);
+    m3_rk_expand(key, rk);
     for (i = 0; i < 64; i += 16) {
         unsigned char ct[16];
         for (j = 0; j < 16; j++) {

@@ -91,7 +91,7 @@ static const jchar DECOY[] = {
 #define DECOY_LEN (sizeof(DECOY) / sizeof(jchar))
 
 /* ================= 常量数据 ================= */
-static const uint8_t XOR_KEY[8] = { __KEY__ };
+static const uint8_t XOR_PAD[8] = { __KEY__ };
 static const uint8_t POOL[40] = {
     __POOL__
 };
@@ -221,7 +221,7 @@ static void extract(const uint8_t *tab, uint8_t *enc) {
 /* XOR + 循环左移 3 位（与 Python 生成器互为镜像） */
 static void decrypt(uint8_t *out, const uint8_t *enc) {
     for (int i = 0; i < 32; i++) {
-        uint8_t v = enc[i] ^ XOR_KEY[i % 8];
+        uint8_t v = enc[i] ^ XOR_PAD[i % 8];
         out[i] = (uint8_t)((v << 3) | (v >> 5));
     }
 }

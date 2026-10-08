@@ -13,7 +13,7 @@
  *   ④ 线程：遍历 /proc/self/task 各线程 comm 文件，查 gum-js-loop / gmain / gdbus 等
  *
  * 标记（真）：Fatdog_quell — UTF-16 码元藏 .data。
- * 诱饵（假）：Fatdog_quiet — 一字之差。
+ * 诱饵（假）：mZ7~qB3#nV9! — 一字之差。
  */
 #include <jni.h>
 #include <stdint.h>
@@ -36,7 +36,7 @@ static const jchar MARKER[] = {
 };
 #define MARKER_LEN (sizeof(MARKER) / sizeof(jchar))
 
-static const char DECOY[] = "Fatdog_quiet";
+static const char DECOY[] = "mZ7~qB3#nV9!";
 
 /* ================= 服务端同款派生盐 ================= */
 static const char SALT[] = "|kkl3_valley";
@@ -123,20 +123,20 @@ static void to_hex(const uint8_t *in, int n, char *out) {
 }
 
 /* ================= 真密钥派生 ================= */
-static uint8_t g_key[32];
+static uint8_t g_pad[32];
 static bool g_ready = false;
 static volatile bool g_poisoned = false;
 static volatile int g_bits = 0;
 
-static const uint8_t *real_key() {
+static const uint8_t *real_seal() {
     if (!g_ready) {
         std::string tag;
         for (size_t i = 0; i < MARKER_LEN; i++) tag.push_back((char)(MARKER[i] & 0xFF));
         std::string input = tag + SALT;
-        sha256((const uint8_t *)input.data(), input.size(), g_key);
+        sha256((const uint8_t *)input.data(), input.size(), g_pad);
         g_ready = true;
     }
-    return g_key;
+    return g_pad;
 }
 
 /* ================= 四路哨兵 ================= */
@@ -227,7 +227,7 @@ static int run_sentinels(bool poison) {
     g_bits = bits;
     if (poison && bits != 0 && !g_poisoned) {
         /* 固定翻第 8 个密钥字节的第 7 位：服务端验签必然失败 */
-        uint8_t *key = (uint8_t *)real_key();
+        uint8_t *key = (uint8_t *)real_seal();
         key[7] ^= 0x40;
         g_poisoned = true;
     }
@@ -243,7 +243,7 @@ static std::string make_status(int bits) {
             "  27042 端口       : %s\n"
             "  frida 线程名     : %s\n"
             "  密钥状态         : %s\n"
-            "  明文可见         : Fatdog_quiet（诱饵）",
+            "  明文可见         : mZ7~qB3#nV9!（诱饵）",
             (bits & 1) ? "命中" : "安全",
             (bits & 2) ? "命中" : "安全",
             (bits & 4) ? "命中" : "安全",
@@ -270,7 +270,7 @@ Java_com_fatdog_reverse_Kkl3Native_nativeSign(JNIEnv *env, jclass clazz,
     run_sentinels(true);
     char msg[80];
     snprintf(msg, sizeof(msg), "page=%d&ts=%lld", (int)page, (long long)ts);
-    const uint8_t *key = real_key();
+    const uint8_t *key = real_seal();
     uint8_t mac[32];
     hmac_sha256(key, 32, (const uint8_t *)msg, strlen(msg), mac);
     char hex[65];

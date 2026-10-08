@@ -43,7 +43,7 @@ public class Va {
     // 两阶段动态加载后还原出的真标记（运行时才完整，DEX 不落盘）
     public static native String nativeMarker();
 
-    // 明文诱饵标记（一字之差）：Fatdog_unveils
+    // 明文诱饵标记（一字之差）：P4@nR8!tY2#wZ6
     public static native String nativeDecoy();
 
     static final String BASE = NetHost.httpsBase();

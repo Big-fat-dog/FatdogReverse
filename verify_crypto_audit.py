@@ -562,7 +562,7 @@ check("L53 S-box: 0x7B->0xE8", s53[0x7B] == 0xE8)
 # ─── KKL2: HMAC via JNI ───
 print("\n=== KKL2: HMAC via JNI ===")
 KEY_KKL2 = hashlib.sha256(b"Fatdog_tense|kkl2_swordfield").digest()
-# Client GateKeeper2.java derives key via nativeDeriveKey()
+# Client GateKeeper2.java derives key via nativeDeriveSeal()
 # Server: hmac.new(KEY_KKL2, msg, hashlib.sha256)
 check("KKL2 key derivation", KEY_KKL2 == hashlib.sha256(b"Fatdog_tense|kkl2_swordfield").digest())
 
@@ -578,9 +578,9 @@ check("KKL4 key derivation", KEY_KKL4 == hashlib.sha256(b"Fatdog_grit|kkl4_tower
 
 # ─── KL30: HMAC + Protobuf ───
 print("\n=== KL30: HMAC + Protobuf ===")
-KL30_HMAC_KEY = b"Fatdog_weave"
-# Client Ck.java HMAC_KEY = "Fatdog_weave".getBytes()
-client_kl30_key = "Fatdog_weave".encode()
+KL30_HMAC_KEY = b"\xe5\xb9\xbd\xe7\x8e\x84\xe3\x81\xae\xe9\x8d\xb5"
+# Client Ck.java PHRASE = "幽玄の鍵".getBytes()
+client_kl30_key = "幽玄の鍵".encode()
 check("KL30 HMAC key matches", KL30_HMAC_KEY == client_kl30_key)
 
 # ─── L43: HMAC signing ───

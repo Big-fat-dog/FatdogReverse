@@ -7,10 +7,10 @@
  *   1) nativeUnseal(enc)   —— 流式 XOR + 镜像交换还原出明文 dex 字节，
  *                            由 Java 侧用 InMemoryDexClassLoader 内存加载
  *                            （不落盘，adb pull / 常规 dump 全部失效）。
- *   2) nativeDeriveKey()   —— 返回 HMAC-SHA256 密钥（32B）。密钥 = SHA-256(
+ *   2) nativeDeriveSeal()   —— 返回 HMAC-SHA256 密钥（32B）。密钥 = SHA-256(
  *                            真标记 Fatdog_tense + "|kkl2_swordfield")，
  *                            真标记以 UTF-16 码元藏在 .data（strings 哑火，
- *                            strings -el 才见）；明文 Fatdog_timid 是诱饵，
+ *                            strings -el 才见）；明文 yT4!pW8@kR2# 是诱饵，
  *                            用它派生的密钥解不开密文、验签 403。
  *
  * 解密链故意走 STL（教学点：容器逆向 / lambda 捕获 / std::swap）：
@@ -20,7 +20,7 @@
  * 玩家需：① 认清 assets 里 classes_decoy.dex 是假壳 → 找到真密文 bin；
  *         ② 还原解密链（或 Frida hook nativeUnseal 出口抓明文 dex）；
  *         ③ dump/加载出 dex → 看到 GateKeeper2.sign(key,page,ts) 取数逻辑；
- *         ④ nativeDeriveKey 拿密钥 → HMAC 取数求和通关。
+ *         ④ nativeDeriveSeal 拿密钥 → HMAC 取数求和通关。
  */
 #include <jni.h>
 #include <stdint.h>
@@ -45,7 +45,7 @@ static const jchar MARKER[] = {
     0x0073,
     0x0065
 };
-static const char DECOY[] = "Fatdog_timid";     /* 明文诱饵：strings 可见 */
+static const char DECOY[] = "yT4!pW8@kR2#";     /* 明文诱饵：strings 可见 */
 
 /* ================= salt 两段拼装（std::string 教学点） ================= */
 static const char SALT_HEAD[] = "|kkl2_";
@@ -110,7 +110,7 @@ static void sha256(const uint8_t *m, size_t l, uint8_t o[32]) {
 }
 
 /* ================= 密钥派生：真标记(UTF-16 降 ASCII) + 两段 salt ================= */
-static std::vector<uint8_t> derive_key() {
+static std::vector<uint8_t> derive_seal() {
     std::string tag;
     for (size_t i = 0; i < sizeof(MARKER)/sizeof(jchar); i++) {
         tag.push_back((char)(MARKER[i] & 0xFF));      /* ASCII 码元 */
@@ -124,7 +124,7 @@ static std::vector<uint8_t> derive_key() {
 
 /* ================= 解密：keystream 流式 XOR + 镜像交换还原 ================= */
 static std::vector<uint8_t> unseal_bytes(const uint8_t *in, size_t n) {
-    std::vector<uint8_t> dk = derive_key();
+    std::vector<uint8_t> dk = derive_seal();
     /* 1) 偶数下标与镜像位交换还原（std::swap） */
     std::vector<uint8_t> v(in, in + n);
     for (size_t i = 0; i < n / 2; i++) {
@@ -160,8 +160,8 @@ static jbyteArray JNICALL nativeUnseal(JNIEnv *env, jclass, jbyteArray enc) {
     return out;
 }
 
-static jbyteArray JNICALL nativeDeriveKey(JNIEnv *env, jclass) {
-    std::vector<uint8_t> dk = derive_key();
+static jbyteArray JNICALL nativeDeriveSeal(JNIEnv *env, jclass) {
+    std::vector<uint8_t> dk = derive_seal();
     jbyteArray out = env->NewByteArray(32);
     if (out) {
         env->SetByteArrayRegion(out, 0, 32, reinterpret_cast<const jbyte *>(dk.data()));
@@ -171,7 +171,7 @@ static jbyteArray JNICALL nativeDeriveKey(JNIEnv *env, jclass) {
 
 static const JNINativeMethod METHODS[] = {
     {"nativeUnseal",    "([B)[B", (void *) &nativeUnseal},
-    {"nativeDeriveKey", "()[B",   (void *) &nativeDeriveKey},
+    {"nativeDeriveSeal", "()[B",   (void *) &nativeDeriveSeal},
 };
 
 JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void *reserved) {

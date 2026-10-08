@@ -55,14 +55,14 @@ for p in range(1, 101):
     total += sum(obj["nums"])
 print("[e2e] 100 pages ok, sum =", total)
 
-# 负例 1：近亲假钥 Fatdog_scatter 完整构造 -> 403
+# 负例 1：近亲假钥 qR8!tW4@yP1#nK 完整构造 -> 403
 ts = int(time.time())
-enc = g.ede_encrypt(hashlib.sha256(b"Fatdog_scatter|des").digest()[:24],
+enc = g.ede_encrypt(hashlib.sha256(b"qR8!tW4@yP1#nK|des").digest()[:24],
                     g.pad8(f"page=1&ts={ts}".encode())).hex()
-sign = hmac.new(hashlib.sha256(b"Fatdog_scatter|mac").digest(),
+sign = hmac.new(hashlib.sha256(b"qR8!tW4@yP1#nK|mac").digest(),
                 enc.encode(), hashlib.sha256).hexdigest()
 code, _ = post(1, ts, enc, sign)
-print("[e2e] decoy Fatdog_scatter ->", code, "(want 403)")
+print("[e2e] decoy qR8!tW4@yP1#nK ->", code, "(want 403)")
 
 # 负例 2：错签 -> nums []
 ts, enc, _ = make(1)

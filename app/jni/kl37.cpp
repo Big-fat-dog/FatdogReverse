@@ -31,7 +31,7 @@
 // ============================================================
 // AES-128（仅加密，ECB 模式 + PKCS#7）
 // ============================================================
-namespace aes_ns {
+namespace kappa_ns {
 
 static const uint8_t SBOX[256] = {
     0x63,0x7c,0x77,0x7b,0xf2,0x6b,0x6f,0xc5,0x30,0x01,0x67,0x2b,0xfe,0xd7,0xab,0x76,
@@ -125,12 +125,12 @@ static std::string ecbEncryptHex(const std::string& key16, const std::string& pl
     return out;
 }
 
-} // namespace aes_ns
+} // namespace kappa_ns
 
 // ============================================================
 // SHA-256（nativeAnswer：sha256(str(sum))[:8]）
 // ============================================================
-namespace sha256_ns {
+namespace omega_ns {
 static const uint32_t K[64] = {
     0x428a2f98,0x71374491,0xb5c0fbcf,0xe9b5dba5,0x3956c25b,0x59f111f1,0x923f82a4,0xab1c5ed5,
     0xd807aa98,0x12835b01,0x243185be,0x550c7dc3,0x72be5d74,0x80deb1fe,0x9bdc06a7,0xc19bf174,
@@ -190,12 +190,12 @@ static std::string hex_impl(Ctx& c) {
 static std::string digest_hex(const std::string& s) {
     Ctx c; update(c, reinterpret_cast<const uint8_t*>(s.data()), s.size()); return hex_impl(c);
 }
-} // namespace sha256_ns
+} // namespace omega_ns
 
 // ============================================================
 // 密钥：两段常量运行时拼接（volatile 防常量折叠，rule 35）
 // ============================================================
-namespace key_store {
+namespace anchor_store {
 // 密钥第 1 段（UTF-8 各字节 ^0x3C 藏匿）
 static const volatile uint8_t PART_A[] = {122,93,72,88,83,91,99};
 // 密钥第 2 段（UTF-8 各字节 ^0x3C 藏匿）
@@ -207,18 +207,18 @@ static std::string build() {
     for (size_t i = 0; i < sizeof(PART_B); i++) b += (char)(PART_B[i] ^ 0x3C);
     return a + b;
 }
-} // namespace key_store
+} // namespace anchor_store
 
 // 本关"签名"就是密文本身：enc = AES-128-ECB-PKCS7(key, "page=N&ts=T")
 static std::string build_enc(int page, long long ts) {
     char head[64];
     snprintf(head, sizeof(head), "page=%d&ts=%lld", page, ts);
-    return aes_ns::ecbEncryptHex(key_store::build(), std::string(head));
+    return kappa_ns::ecbEncryptHex(anchor_store::build(), std::string(head));
 }
 
 // nativeAnswer：sha256(str(1000 数和))[:8]，SEED_KL37 = 20280615
 static std::string build_answer() {
-    return sha256_ns::digest_hex(std::to_string(mt_rng::kl_server_sum(20280615))).substr(0, 8);
+    return omega_ns::digest_hex(std::to_string(mt_rng::kl_server_sum(20280615))).substr(0, 8);
 }
 
 // ============================================================
@@ -233,7 +233,7 @@ int main() {
     printf("expect            = 94fc20c9ca7fce633f5cb9c31954621b01de75946bfd097fa42ac6a9abe19cce\n");
     printf("answer(KL37)      = %s\n", build_answer().c_str());
     printf("expect            = 1a8c6e65\n");
-    printf("key               = %s\n", key_store::build().c_str());
+    printf("key               = %s\n", anchor_store::build().c_str());
     return 0;
 }
 
@@ -262,7 +262,7 @@ Java_com_fatdog_reverse_FlutterCore_nativeGetStatus(JNIEnv* env, jclass clz) {
     const uint8_t ptv[16] = {0x00,0x11,0x22,0x33,0x44,0x55,0x66,0x77,
                              0x88,0x99,0xaa,0xbb,0xcc,0xdd,0xee,0xff};
     std::string p(reinterpret_cast<const char*>(ptv), 16);
-    const bool ok = (aes_ns::ecbEncryptHex(k, p).substr(0, 32)
+    const bool ok = (kappa_ns::ecbEncryptHex(k, p).substr(0, 32)
                      == "69c4e0d86a7b0430d8cdb78070b4c55a");
     return env->NewStringUTF(ok ? "自检:通过" : "自检:异常");
 }

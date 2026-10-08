@@ -41,7 +41,7 @@
 // ============================================================
 // AES（128 / 256，加密 + 解密）+ GCM + CBC
 // ============================================================
-namespace aes_ns {
+namespace kappa_ns {
 
 static const uint8_t SBOX[256] = {
     0x63,0x7c,0x77,0x7b,0xf2,0x6b,0x6f,0xc5,0x30,0x01,0x67,0x2b,0xfe,0xd7,0xab,0x76,
@@ -256,12 +256,12 @@ static void gcmEncrypt(const uint8_t* key, int keybits, const uint8_t nonce[12],
     for (int i = 0; i < 16; i++) tag[i] = (uint8_t)(Y[i] ^ E0[i]);
 }
 
-} // namespace aes_ns
+} // namespace kappa_ns
 
 // ============================================================
 // MD5（RFC 1321）—— 本关的摘要原语
 // ============================================================
-namespace md5_ns {
+namespace zeta_ns {
 static inline uint32_t rotl(uint32_t x, int c) { return (x << c) | (x >> (32 - c)); }
 
 static const uint32_t K[64] = {
@@ -340,12 +340,12 @@ static std::string digest_hex(const std::string& in) {
     for (int i = 0; i < 16; i++) { s += H[out[i] >> 4]; s += H[out[i] & 0xF]; }
     return s;
 }
-} // namespace md5_ns
+} // namespace zeta_ns
 
 // ============================================================
 // SHA-256（密钥派生 + nativeAnswer）
 // ============================================================
-namespace sha256_ns {
+namespace omega_ns {
 static const uint32_t K[64] = {
     0x428a2f98,0x71374491,0xb5c0fbcf,0xe9b5dba5,0x3956c25b,0x59f111f1,0x923f82a4,0xab1c5ed5,
     0xd807aa98,0x12835b01,0x243185be,0x550c7dc3,0x72be5d74,0x80deb1fe,0x9bdc06a7,0xc19bf174,
@@ -406,12 +406,12 @@ static std::string digest_hex(const std::string& s) {
     for (int i = 0; i < 32; i++) { r += H[d[i] >> 4]; r += H[d[i] & 0xF]; }
     return r;
 }
-} // namespace sha256_ns
+} // namespace omega_ns
 
 // ============================================================
 // 主标记：优先从真实 libapp.so 对象池取；失败退镜像常量
 // ============================================================
-namespace key_store {
+namespace anchor_store {
 
 // 镜像兜底：主标记 UTF-8 各字节 ^0x55（volatile 防常量折叠，rule 35）
 static const volatile uint8_t MIRROR[] = {
@@ -492,16 +492,16 @@ static const std::string& master() {
 [[maybe_unused]] static bool from_payload() { master(); return g_from_payload; }
 
 // 请求钥（AES-256）与响应钥（AES-128）—— 两把不同的钥
-static void req_key(const std::string& m, uint8_t out[32]) {
-    sha256_ns::digest_raw(m + "|req", out);
+static void req_seed(const std::string& m, uint8_t out[32]) {
+    omega_ns::digest_raw(m + "|req", out);
 }
-static void resp_key(const std::string& m, uint8_t out[16]) {
+static void resp_seed(const std::string& m, uint8_t out[16]) {
     uint8_t full[32];
-    sha256_ns::digest_raw(m + "|resp", full);
+    omega_ns::digest_raw(m + "|resp", full);
     memcpy(out, full, 16);
 }
 
-} // namespace key_store
+} // namespace anchor_store
 
 // ============================================================
 // 加密 / 签名 / 响应解密
@@ -522,7 +522,7 @@ static void make_nonce(uint8_t nonce[12]) {
 }
 
 static std::string active_master() {
-    return key_store::master();
+    return anchor_store::master();
 }
 
 // 请求：enc = hex(nonce(12) || ct || tag(16))
@@ -532,13 +532,13 @@ static std::string build_enc(int page, long long ts) {
     std::string pt(head);
 
     uint8_t k[32];
-    key_store::req_key(active_master(), k);
+    anchor_store::req_seed(active_master(), k);
     uint8_t nonce[12];
     make_nonce(nonce);
 
     std::vector<uint8_t> ct(pt.size());
     uint8_t tag[16];
-    aes_ns::gcmEncrypt(k, 256, nonce, reinterpret_cast<const uint8_t*>(pt.data()),
+    kappa_ns::gcmEncrypt(k, 256, nonce, reinterpret_cast<const uint8_t*>(pt.data()),
                        pt.size(), ct.data(), tag);
 
     static const char* H = "0123456789abcdef";
@@ -553,7 +553,7 @@ static std::string build_enc(int page, long long ts) {
 static std::string build_sign(int page, long long ts, const std::string& enc) {
     char head[128];
     snprintf(head, sizeof(head), "page=%d&ts=%lld&enc=%s&k=", page, ts, enc.c_str());
-    return md5_ns::digest_hex(std::string(head) + active_master());
+    return zeta_ns::digest_hex(std::string(head) + active_master());
 }
 
 // 响应解密：**换一把钥**（AES-128-CBC，iv 前置）
@@ -572,8 +572,8 @@ static std::string decrypt_resp(const std::string& hexIn) {
         raw[i] = (uint8_t)((v1 << 4) | v2);
     }
     uint8_t k[16];
-    key_store::resp_key(active_master(), k);
-    std::string pt = aes_ns::cbcDecrypt(k, raw.data(), raw.data() + 16, raw.size() - 16);
+    anchor_store::resp_seed(active_master(), k);
+    std::string pt = kappa_ns::cbcDecrypt(k, raw.data(), raw.data() + 16, raw.size() - 16);
     // 去 PKCS#7
     if (!pt.empty()) {
         uint8_t pad = (uint8_t)pt.back();
@@ -584,7 +584,7 @@ static std::string decrypt_resp(const std::string& hexIn) {
 
 // nativeAnswer：sha256(str(1000 数和))[:8]，SEED_KL40 = 20280720
 static std::string build_answer() {
-    return sha256_ns::digest_hex(std::to_string(mt_rng::kl_server_sum(20280720))).substr(0, 8);
+    return omega_ns::digest_hex(std::to_string(mt_rng::kl_server_sum(20280720))).substr(0, 8);
 }
 
 // ============================================================
@@ -593,18 +593,18 @@ static std::string build_answer() {
 #ifdef KL40_HOST_TEST
 
 int main() {
-    printf("md5(abc)          = %s\n", md5_ns::digest_hex("abc").c_str());
+    printf("md5(abc)          = %s\n", zeta_ns::digest_hex("abc").c_str());
     printf("expect            = 900150983cd24fb0d6963f7d28e17f72\n");
-    printf("master            = %s (from %s)\n", key_store::master().c_str(),
-           key_store::from_payload() ? "payload" : "mirror");
+    printf("master            = %s (from %s)\n", anchor_store::master().c_str(),
+           anchor_store::from_payload() ? "payload" : "mirror");
     {
         uint8_t k[32];
-        key_store::req_key(key_store::master(), k);
+        anchor_store::req_seed(anchor_store::master(), k);
         printf("KREQ              = ");
         for (int i = 0; i < 32; i++) printf("%02x", k[i]);
         printf("\n expect           = 29242857cf181d625daae8382d884665f181e93300b765d8f6f4697d290ceb6e\n");
         uint8_t r[16];
-        key_store::resp_key(key_store::master(), r);
+        anchor_store::resp_seed(anchor_store::master(), r);
         printf("KRESP             = ");
         for (int i = 0; i < 16; i++) printf("%02x", r[i]);
         printf("\n expect           = 86eb74c2e8e5e1c3be77f62a6396e6ee\n");
@@ -664,7 +664,7 @@ Java_com_fatdog_reverse_FlutterMirror_nativeAnswer(JNIEnv* env, jclass clz) {
 JNIEXPORT jstring JNICALL
 Java_com_fatdog_reverse_FlutterMirror_nativeGetStatus(JNIEnv* env, jclass clz) {
     (void)clz;
-    const bool ok = (sha256_ns::digest_hex("abc")
+    const bool ok = (omega_ns::digest_hex("abc")
                      == "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
     return env->NewStringUTF(ok ? "自检:通过" : "自检:异常");
 }

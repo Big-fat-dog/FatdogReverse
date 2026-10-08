@@ -4,7 +4,7 @@
  * 考点（难度高于 KL53）：
  *  ① ★魔改 FLA：主签名函数不再是「标准 FLA」（真实块 → 预分发块），而是在
  *     真实块之间插入 1 个**无意义中间块**（真实块 → 中间块 → 分发器），
- *     并让状态变量**异或编码**（st ^ g_xor_key，key 是运行时不变量）。
+ *     并让状态变量**异或编码**（st ^ g_mask_seed，key 是运行时不变量）。
  *     → 直接破坏「真实块的前驱都是真实块 / 每个 case 末尾 MOV state,#imm」的强特征，
  *       依赖它的 D810 / JEB 通用去混淆脚本当场失效。
  *  ② 间接跳转（真实现）：真签名与 3 个同形假副本经**函数指针表**派发，表项用
@@ -30,7 +30,7 @@
  *   ⑥ Frida hook 跳转表入口观察实际目标
  *
  * 标记（真）：Fatdog_beast  — UTF-16 码元（static const，借 JNI_OnLoad 引用强制保留）。
- * 诱饵（假）：Fatdog_cage   — 一字之差陷阱（beast→cage）。
+ * 诱饵（假）：鸞鼇のø   — 一字之差陷阱（beast→cage）。
  */
 #include <jni.h>
 #include <stdint.h>
@@ -51,8 +51,8 @@ static const jchar DECOY[] = {
 static volatile uint32_t g_marker_proof = 0;
 
 /* ==================== 状态编码密钥（运行时不变量，静态不直白） ==================== */
-/* 主分发器与 JNI_OnLoad 都用 st ^ g_xor_key 解码状态 —— 令标准 FLA 形态匹配失效。 */
-static volatile uint32_t g_xor_key = 0x5A5A5A5Au;
+/* 主分发器与 JNI_OnLoad 都用 st ^ g_mask_seed 解码状态 —— 令标准 FLA 形态匹配失效。 */
+static volatile uint32_t g_mask_seed = 0x5A5A5A5Au;
 
 /* ==================== 魔改 Base64 藏钥 ==================== */
 /* 自定义码表（标准码表循环移位），标准 b64decode 解不出 */
@@ -61,8 +61,8 @@ static const char B64_TABLE[] =
 /* 16 字节 SM4 密钥的魔改 Base64 编码（24 字符） */
 static const char KEY_B64[] = "SYbLYjdSiX6t+pVClIr1/5==";
 
-static unsigned char g_sm4_key[16];
-static volatile int g_keys_ready = 0;
+static unsigned char g_sbox_seed[16];
+static volatile int g_marks_ready = 0;
 
 static int b64_val(char c) {
     int i;
@@ -81,10 +81,10 @@ static int b64_decode(const char *in, int in_len, unsigned char *out) {
     }
     return j;
 }
-static void derive_keys(void) {
+static void derive_marks(void) {
     unsigned char raw[16];
     int n = b64_decode(KEY_B64, (int)strlen(KEY_B64), raw);
-    if (n >= 16) { memcpy(g_sm4_key, raw, 16); g_keys_ready = 1; }
+    if (n >= 16) { memcpy(g_sbox_seed, raw, 16); g_marks_ready = 1; }
 }
 
 /* ==================== SHA-256 ==================== */
@@ -367,10 +367,10 @@ enum TransformKind { kBeast = 0, kCage = 1, kCoin = 2 };
 
 static Transform *make_transform(int kind) {
     switch (kind) {
-    case kCage: return new CageTransform(g_sm4_key);
-    case kCoin: return new CoinTransform(g_sm4_key);
+    case kCage: return new CageTransform(g_sbox_seed);
+    case kCoin: return new CoinTransform(g_sbox_seed);
     case kBeast:
-    default:    return new BeastTransform(g_sm4_key);
+    default:    return new BeastTransform(g_sbox_seed);
     }
 }
 
@@ -400,7 +400,7 @@ static void fake_guard_sign(int page, long long ts) {
     unsigned char dg[32];
     static const char *H = "0123456789abcdef";
     int i;
-    snprintf(sign_msg, sizeof(sign_msg), "Fatdog_cage|%d|%lld", page, ts);
+    snprintf(sign_msg, sizeof(sign_msg), "鸞鼇のø|%d|%lld", page, ts);
     sha256((const unsigned char *)sign_msg, (unsigned int)strlen(sign_msg), dg);
     for (i = 0; i < 32; i++) {
         B.sign_hex[2*i]   = H[dg[i] >> 4];
@@ -470,7 +470,7 @@ static void indirect_sign(int page, long long ts) {
 
 /* ==================== 主签名函数（★魔改 FLA：真实块 → 中间块链） ==================== */
 /*
- * 真实块 R0..R4 之间插入无意义中间块 M0..M2；状态变量用 g_xor_key 异或编码。
+ * 真实块 R0..R4 之间插入无意义中间块 M0..M2；状态变量用 g_mask_seed 异或编码。
  * 语义：拼消息 → 零填充 → 魔改 SM4 加密 → hex → 间接派发签名。
  */
 static void beast_sign(int page, long long ts) {
@@ -480,21 +480,21 @@ static void beast_sign(int page, long long ts) {
     int i;
     uint32_t st;
 
-    if (!g_keys_ready) derive_keys();
+    if (!g_marks_ready) derive_marks();
     if (!g_tf) { g_tf = make_transform(kBeast); }
     (void)g_tf->armed();
 
-    st = 0x100u ^ g_xor_key;
+    st = 0x100u ^ g_mask_seed;
     for (;;) {
-        uint32_t s = st ^ g_xor_key;
+        uint32_t s = st ^ g_mask_seed;
         switch (s) {
         /* ---------- 真实块 ---------- */
         case 0x100:  /* R0：拼消息 */
             snprintf(B.msg, sizeof(B.msg), "page=%d&ts=%lld", page, (long long)ts);
-            st = 0x200u ^ g_xor_key; break;          /* → 中间块 M0 */
+            st = 0x200u ^ g_mask_seed; break;          /* → 中间块 M0 */
         case 0x200:  /* M0：无意义中间块（破坏"真实块→预分发块"的固定模式） */
             { volatile uint32_t t = 0x9E37u; t = t * 3u + 1u; }
-            st = 0x101u ^ g_xor_key; break;
+            st = 0x101u ^ g_mask_seed; break;
         case 0x101:  /* R1：零填充到 32 */
             memset(B.plain, 0, 32);
             {
@@ -502,13 +502,13 @@ static void beast_sign(int page, long long ts) {
                 if (ml > 32) ml = 32;
                 memcpy(B.plain, B.msg, ml);
             }
-            st = 0x201u ^ g_xor_key; break;          /* → 中间块 M1 */
+            st = 0x201u ^ g_mask_seed; break;          /* → 中间块 M1 */
         case 0x201:  /* M1 */
             { volatile uint32_t t = 0x51EDu; t ^= t >> 7; }
-            st = 0x102u ^ g_xor_key; break;
+            st = 0x102u ^ g_mask_seed; break;
         case 0x102:  /* R2：魔改 SM4 加密（虚派发，内部走平坦化的 SM4 轮） */
             g_tf->apply(B.plain, 32, B.enc);
-            st = 0x103u ^ g_xor_key; break;          /* 直连 R3（规律打乱，非每块都走中间块） */
+            st = 0x103u ^ g_mask_seed; break;          /* 直连 R3（规律打乱，非每块都走中间块） */
         case 0x103:  /* R3：enc → hex（指令替换算索引：o = add_replaced(i, i) = 2i） */
             for (i = 0; i < 32; i++) {
                 uint32_t o = add_replaced((uint32_t)i, (uint32_t)i);
@@ -516,13 +516,13 @@ static void beast_sign(int page, long long ts) {
                 B.enc_hex[o+1] = H[B.enc[i] & 0xF];
             }
             B.enc_hex[64] = 0;
-            st = 0x202u ^ g_xor_key; break;          /* → 中间块 M2 */
+            st = 0x202u ^ g_mask_seed; break;          /* → 中间块 M2 */
         case 0x202:  /* M2 */
             { volatile uint32_t t = 0xABCDu; t = t ^ (t << 5); }
-            st = 0x104u ^ g_xor_key; break;
+            st = 0x104u ^ g_mask_seed; break;
         case 0x104:  /* R4：间接派发签名（加密跳转表） */
             indirect_sign(page, ts);
-            st = 0x105u ^ g_xor_key; break;
+            st = 0x105u ^ g_mask_seed; break;
         case 0x105:  /* 出口 */
             return;
 
@@ -534,9 +534,9 @@ static void beast_sign(int page, long long ts) {
             for (;;) { }
         case 0x3FD:  /* 无意义运算后跳回入口 */
             { volatile uint32_t t = 1u; t <<= 24; }
-            st = 0x100u ^ g_xor_key; break;
+            st = 0x100u ^ g_mask_seed; break;
         default:
-            st = 0x105u ^ g_xor_key; break;
+            st = 0x105u ^ g_mask_seed; break;
         }
     }
 }
@@ -561,22 +561,22 @@ Java_com_fatdog_reverse_BeastCore_nativeEnc(JNIEnv *env, jclass clazz,
 /* ==================== JNI_OnLoad（分发器：S 盒换值 + 密钥派生 + 跳转表 + 标记） ==================== */
 extern "C" JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void *reserved) {
     (void)vm; (void)reserved;
-    uint32_t st = 0x400u ^ g_xor_key;
+    uint32_t st = 0x400u ^ g_mask_seed;
     for (;;) {
-        uint32_t s = st ^ g_xor_key;
+        uint32_t s = st ^ g_mask_seed;
         switch (s) {
         case 0x400:  /* S 盒换值对①（0x3A↔0x7F） */
             init_sbox_pair(0);
-            st = 0x401u ^ g_xor_key; break;
+            st = 0x401u ^ g_mask_seed; break;
         case 0x401:  /* S 盒换值对②（0xB2↔0xE8）—— 换值总处数静态看不全 */
             init_sbox_pair(1);
-            st = 0x402u ^ g_xor_key; break;
+            st = 0x402u ^ g_mask_seed; break;
         case 0x402:  /* 密钥派生（魔改 Base64 解码）藏进状态机 */
-            if (!g_keys_ready) derive_keys();
-            st = 0x403u ^ g_xor_key; break;
+            if (!g_marks_ready) derive_marks();
+            st = 0x403u ^ g_mask_seed; break;
         case 0x403:  /* 跳转表封装（表项 XOR 加密） */
             if (!g_dispatch_ready) seal_dispatch_table();
-            st = 0x404u ^ g_xor_key; break;
+            st = 0x404u ^ g_mask_seed; break;
         case 0x404:  /* 标记留存：引用 MARKER/DECOY 防 gc-sections 删除 */
             {
                 uint32_t mp = 0x5A5A5A5Au;
@@ -585,12 +585,12 @@ extern "C" JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void *reserved) {
                 for (i = 0; i < DECOY_LEN;  i++) mp ^= ((uint32_t)DECOY[i]  << (i & 7));
                 g_marker_proof = mp;
             }
-            st = 0x405u ^ g_xor_key; break;
+            st = 0x405u ^ g_mask_seed; break;
         case 0x405: return JNI_VERSION_1_6;
         case 0x4FF:  /* 虚假块（恒不可达） */
             g_marker_proof = 0;
             return 0;
-        default: st = 0x405u ^ g_xor_key; break;
+        default: st = 0x405u ^ g_mask_seed; break;
         }
     }
 }

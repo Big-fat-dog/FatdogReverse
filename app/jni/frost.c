@@ -144,7 +144,7 @@ unsigned short MARK[14] = {
 };
 
 /* 明文诱饵标记：非 static 保证落盘，strings 一眼可见，一字之差 */
-const char DECOY_MARK[] = "Fatdog_scatter";
+const char DECOY_MARK[] = "qR8!tW4@yP1#nK";
 
 /* 假密文：用诱饵标记派生的钥加密的一段"像样"假载荷 */
 static const unsigned char DECOY_BLOB[24] = {
@@ -320,7 +320,7 @@ static void m2_bits_to_bytes(const unsigned char *bits, unsigned char *b) {
 }
 
 /* 子密钥编排：16 轮 48 位子密钥 */
-static void m2_key_schedule(const unsigned char *key8, unsigned char rks[16][48]) {
+static void m2_rk_schedule(const unsigned char *key8, unsigned char rks[16][48]) {
     unsigned char bits[64], pc1[56], c[28], d[28], cd[56];
     int r, i, j, s;
     m2_bytes_to_bits(key8, bits);
@@ -393,9 +393,9 @@ static void m2_ede_encrypt(const unsigned char key24[24],
     unsigned char k1[16][48], k2[16][48], k3[16][48];
     unsigned char a[8], b[8];
     int off;
-    m2_key_schedule(key24, k1);
-    m2_key_schedule(key24+8, k2);
-    m2_key_schedule(key24+16, k3);
+    m2_rk_schedule(key24, k1);
+    m2_rk_schedule(key24+8, k2);
+    m2_rk_schedule(key24+16, k3);
     for (off = 0; off + 8 <= len; off += 8) {
         m2_enc_block(data+off, a, k1);
         m2_dec_block(a, b, k2);
@@ -554,9 +554,9 @@ int main(void) {
             int lo = (c2<='9')?(c2-'0'):(c2-'a'+10);
             ct[j] = (unsigned char)((hi<<4)|lo);
         }
-        m2_key_schedule(key, k1);
-        m2_key_schedule(key+8, k2);
-        m2_key_schedule(key+16, k3);
+        m2_rk_schedule(key, k1);
+        m2_rk_schedule(key+8, k2);
+        m2_rk_schedule(key+16, k3);
         m2_dec_block(ct, mid1, k3);
         m2_enc_block(mid1, mid2, k2);
         m2_dec_block(mid2, back + i, k1);

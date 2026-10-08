@@ -168,7 +168,7 @@ public class q46Activity extends Activity {
                         .setMessage("服务端 HTTPS:8443 的 GET /api/l46：enc=hex(魔改RC4(key,\"page=N&ts=T\" 零填充))、sign=HMAC-SHA256(mac,enc)。\n"
                                 + "钥匙两步走：① strings -el 找到 UTF-16 藏着的标记 Fatdog_veil；② rc4 钥=SHA256(标记+\"|rc4\")[:16]，mac=SHA256(标记+\"|mac\")。\n"
                                 + "标准 RC4 解不开？两层魔改都要还原：KSA 初始 S 盒是查表加载的自定义置换；PRGA 输出后还有一层 16 字节循环 XOR 掩码（sha256(标记+\\\"|mask\\\")[:16]）。\n"
-                                + "注意 Yw.FAKE_KEY=Fatdog_vile 一字之差陷阱（命中即 403）；so 里的 m4_decoy_seal 是假密文。加和 49319。")
+                                + "注意 Yw.SPARE_PHRASE=魑魅のø 一字之差陷阱（命中即 403）；so 里的 m4_decoy_seal 是假密文。加和 49319。")
                                 .setPositiveButton("好的", null)
                         .show();
             }

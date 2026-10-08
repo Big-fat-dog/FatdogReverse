@@ -168,7 +168,7 @@ public class p45Activity extends Activity {
                         .setMessage("服务端 HTTPS:8443 的 GET /api/l45：enc=hex(魔改SM4-ECB(key,\"page=N&ts=T\" 零填充))、sign=HMAC-SHA256(mac,enc)。\n"
                                 + "钥匙两步走：① strings -el 找到 UTF-16 藏着的标记 Fatdog_unravel；② sm4 钥=SHA256(标记+\"|sm4\")[:16]，mac=SHA256(标记+\"|mac\")。\n"
                                 + "标准 SM4 解不开？对比轮常量表——CK 的第 24~31 位被换过血，Python 里照抄这 8 个值再取数。\n"
-                                + "注意 Xu.FAKE_KEY=Fatdog_travel 一字之差陷阱（命中即 403）；so 里的 m3_decoy_seal 是假密文。加和 51217。")
+                                + "注意 Xu.SPARE_SEED=Z9~mB3#xK7!vq 一字之差陷阱（命中即 403）；so 里的 m3_decoy_seal 是假密文。加和 51217。")
                                 .setPositiveButton("好的", null)
                         .show();
             }

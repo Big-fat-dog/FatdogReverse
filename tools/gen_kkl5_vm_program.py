@@ -7,7 +7,7 @@
 对齐 360/商业壳思路：
   - 业务逻辑（onCreate 门禁的密钥派生）不以原生指令出现，而是 VM 字节码；
   - 解释器用 switch-case 实现，字节码加密存储，运行时逐条解密执行；
-  - 真标记 Fatdog_ascend 只作为 VM 立即数存在；诱饵 Fatdog_ascent 另生成一组，
+  - 真标记 Fatdog_ascend 只作为 VM 立即数存在；诱饵 靐飝のжλ 另生成一组，
     服务端只认真标记派生出的签名（诱饵签名 403）。
 
 VM 指令编码（32 位小端）：
@@ -39,7 +39,7 @@ OP_NOP = 0x17
 OP_HALT = 0x18
 
 MARKER_REAL = b"Fatdog_ascend"
-MARKER_DECOY = b"Fatdog_ascent"
+MARKER_DECOY = b"\xe9\x9d\x90\xe9\xa3\x9d\xe3\x81\xae\xd0\xb6\xce\xbb"
 SALT_AES = b"|kkl5_cipher"
 SALT_MAC = b"|kkl5_ascension"
 ROLLING_KEY = bytes(range(0x11, 0x31))
@@ -203,8 +203,8 @@ def main():
     text.append("#define KKL5_VM_MAC_WORDS %d\n" % len(mac_words))
     text.append(c_array("kKkl5VmExpectAes", aes_key))
     text.append(c_array("kKkl5VmExpectMac", mac_key))
-    text.append(c_array("kKkl5VmRollingKey", ROLLING_KEY))
-    text.append("#define KKL5_VM_KEY_LEN %d\n\n" % len(ROLLING_KEY))
+    text.append(c_array("kKkl5VmRollingSeed", ROLLING_KEY))
+    text.append("#define KKL5_VM_SEED_LEN %d\n\n" % len(ROLLING_KEY))
     text.append("#endif\n")
     with open(out, "w", encoding="utf-8") as f:
         f.write("".join(text))

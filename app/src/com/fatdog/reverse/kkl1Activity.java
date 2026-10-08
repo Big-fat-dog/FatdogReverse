@@ -81,7 +81,7 @@ public class kkl1Activity extends Activity {
                                 + "① jadx：Kkl1Native 是 JNI 桥，nativeDecrypt/nativeSeed/nativeAnswer 全部在 libkkl1.so；\n"
                                 + "② IDA：找 CipherBase 的三个派生类（DecoyA/DecoyB/RealCipher），\n"
                                 + "    vtable 间接调用 table() 取抽取表——只有 RealCipher 返回真表；\n"
-                                + "③ 复刻：按真表从 POOL 回填 8 组（每组 4 字节）→ XOR_KEY 逐字节异或\n"
+                                + "③ 复刻：按真表从 POOL 回填 8 组（每组 4 字节）→ XOR_PAD 逐字节异或\n"
                                 + "    → 循环左移 3 位 → 明文第 10 字节起 8 位十进制即种子；\n"
                                 + "④ 答案：SHA-256(种子 4 字节大端) 的 hex。\n\n"
                                 + "Frida 路线：直接调 Kkl1Native.nativeAnswer() 拿答案。\n"

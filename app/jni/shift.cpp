@@ -10,8 +10,8 @@
  *     本版把三个解密例程都改写成 switch(state) 平坦化形态 —— 不再是「一眼看穿的
  *     for 循环 XOR」，静态分析要逐 case 还原才能拿到明文。
  *  ② 加密算法藏进虚函数类层次：
- *       Cipher（抽象基类）→ ShiftCipher（真身 AES-128-CBC）/ SwapCipher / DriftCipher（诱饵）
- *       Digest（抽象基类）→ ShiftDigest（真身 MD5）/ SwapDigest（诱饵）
+ *       Sigil（抽象基类）→ ShiftSigil（真身 AES-128-CBC）/ SwapSigil / DriftSigil（诱饵）
+ *       Tally（抽象基类）→ ShiftTally（真身 MD5）/ SwapTally（诱饵）
  *     调用点只有基类指针 + 虚派发（LDR X8,[X0]; LDR X9,[X8,#N]; BLR X9），
  *     需恢复 vtable 才能定位真派生类。RTTI 保留类名作线索（.rodata 的 _ZTI*）。
  *  ③ AES 轮函数本身被「轻度平坦化」：addkey/sub/shift/mix 分散进 switch 状态机。
@@ -29,7 +29,7 @@
  *   ① strings / 导出表找 datadiv_decode 特征 → hook 拿解密后明文
  *   ② unicorn / AndroidNativeEmu 模拟执行 .init_array 段，dump 解密后的 .data
  *   ③ Frida 在 JNI_OnLoad 后 dump 内存明文（或 hook 三个解密例程）
- *   ④ 恢复 ShiftCipher / ShiftDigest 的 vtable，排掉 Swap / Drift 诱饵
+ *   ④ 恢复 ShiftSigil / ShiftTally 的 vtable，排掉 Swap / Drift 诱饵
  *   ⑤ Python 复刻 AES-CBC + MD5 取数
  *
  * 标记（真）：Fatdog_shift  — 经字符串加密（XOR 0x5A），运行时解密。
@@ -100,7 +100,7 @@ static int b64_decode(const char *in, int in_len, unsigned char *out) {
 }
 
 /* ==================== 密钥 ==================== */
-static unsigned char g_aes_key[16];
+static unsigned char g_mix_seed[16];
 static unsigned char g_iv[16];
 
 /* ==================== 变体②：隐藏名解密函数（平坦化） ==================== */
@@ -158,11 +158,11 @@ static void decrypt_iv_runtime(void) {
     }
 }
 
-static void derive_keys(void) {
+static void derive_marks(void) {
     if (!g_mark_ready) datadiv_decode1234567890();
     if (!g_aes_ready) std__string___4921590060622252445();
     if (!g_iv_ready) decrypt_iv_runtime();
-    b64_decode(g_aes_b64, AES_B64_LEN, g_aes_key);
+    b64_decode(g_aes_b64, AES_B64_LEN, g_mix_seed);
     b64_decode(g_iv_b64, IV_B64_LEN, g_iv);
 }
 
@@ -279,7 +279,7 @@ static void aes_mix(unsigned char s[16]) {
         s[i+3] ^= x ^ xtime(a3^a0);
     }
 }
-static void aes_addkey(unsigned char s[16], const unsigned char *rk, int round) {
+static void round_tweak(unsigned char s[16], const unsigned char *rk, int round) {
     int i; for (i = 0; i < 16; i++) s[i] ^= rk[round*16+i];
 }
 
@@ -297,14 +297,14 @@ static void aes_block_flat(unsigned char out[16], const unsigned char in[16],
     memcpy(s, in, 16);
     for (;;) {
         switch (st) {
-        case 0: aes_addkey(s, rk, 0); r = 1; st = 1; break;
+        case 0: round_tweak(s, rk, 0); r = 1; st = 1; break;
         case 1: aes_sub(s);   st = 2; break;
         case 2: aes_shift(s); st = 3; break;
         case 3: aes_mix(s);   st = 4; break;
-        case 4: aes_addkey(s, rk, r); r++; st = (r <= 9) ? 1 : 5; break;
+        case 4: round_tweak(s, rk, r); r++; st = (r <= 9) ? 1 : 5; break;
         case 5: aes_sub(s);   st = 6; break;
         case 6: aes_shift(s); st = 7; break;
-        case 7: aes_addkey(s, rk, 10); st = 8; break;
+        case 7: round_tweak(s, rk, 10); st = 8; break;
         case 8: memcpy(out, s, 16); st = 9; break;
         case 9: return;
         default: st = 0; break;
@@ -315,15 +315,15 @@ static void aes_block_flat(unsigned char out[16], const unsigned char in[16],
 /* AES-128-CBC 加密（PKCS5 填充，输出 full+16 字节） */
 static void aes_cbc_enc_flat(const unsigned char *iv, const unsigned char *rk,
                              const unsigned char *plain, unsigned int len,
-                             unsigned char *cipher) {
+                             unsigned char *sigil) {
     unsigned char prev[16], block[16];
     unsigned int i, j, full;
     memcpy(prev, iv, 16);
     full = len / 16 * 16;
     for (i = 0; i < full; i += 16) {
         for (j = 0; j < 16; j++) block[j] = plain[i+j] ^ prev[j];
-        aes_block_flat(cipher + i, block, rk);
-        memcpy(prev, cipher + i, 16);
+        aes_block_flat(sigil + i, block, rk);
+        memcpy(prev, sigil + i, 16);
     }
     {
         unsigned char pad = (unsigned char)(16 - (len - full));
@@ -331,19 +331,19 @@ static void aes_cbc_enc_flat(const unsigned char *iv, const unsigned char *rk,
         for (j = full; j < len; j++) last[j - full] = plain[j];
         for (j = len - full; j < 16; j++) last[j] = pad;
         for (j = 0; j < 16; j++) block[j] = last[j] ^ prev[j];
-        aes_block_flat(cipher + full, block, rk);
+        aes_block_flat(sigil + full, block, rk);
     }
 }
 
 /* ==================== 面向对象：密钥容器 + 虚函数藏算法 ==================== */
 /*
- * Cipher：抽象密文容器。子类构造函数里展开/装填密钥，析构 secure_zero ——
+ * Sigil：抽象密文容器。子类构造函数里展开/装填密钥，析构 secure_zero ——
  * hook 析构函数即可反推密钥长度（16 字节）。
  */
-class Cipher {
+class Sigil {
 public:
-    Cipher() : ready_(false) { memset(key_, 0, 16); memset(iv_, 0, 16); }
-    virtual ~Cipher() { wipe(); }
+    Sigil() : ready_(false) { memset(key_, 0, 16); memset(iv_, 0, 16); }
+    virtual ~Sigil() { wipe(); }
     virtual const char *sigil() const = 0;                                  /* vtable 槽 1 */
     virtual void encrypt(const unsigned char *in, size_t n, unsigned char *out) const = 0; /* 槽 2 */
     bool ready() const { return ready_; }
@@ -364,7 +364,7 @@ protected:
 };
 
 /* 真身：AES-128-CBC + PKCS5。轮密钥只在构造函数里展开，静态看不见。 */
-class ShiftCipher : public Cipher {
+class ShiftSigil : public Sigil {
 public:
     void load(const unsigned char *k, const unsigned char *iv) {
         install(k, 16, iv, 16); expand();
@@ -399,7 +399,7 @@ private:
 };
 
 /* 诱饵①：AES-ECB（块模式错——忽略 IV，永远拿不到服务端可验的密文） */
-class SwapCipher : public Cipher {
+class SwapSigil : public Sigil {
 public:
     void load(const unsigned char *k, const unsigned char *iv) {
         install(k, 16, iv, 16); expand();
@@ -434,7 +434,7 @@ private:
 };
 
 /* 诱饵②：CBC 但 IV 恒为 0（IV 错——结构性相似、结果不同） */
-class DriftCipher : public Cipher {
+class DriftSigil : public Sigil {
 public:
     void load(const unsigned char *k, const unsigned char *iv) {
         install(k, 16, iv, 16); expand();
@@ -468,16 +468,16 @@ private:
     unsigned char rk_[176];
 };
 
-/* Digest：抽象摘要容器 */
-class Digest {
+/* Tally：抽象摘要容器 */
+class Tally {
 public:
-    virtual ~Digest() {}
+    virtual ~Tally() {}
     virtual const char *sigil() const = 0;
     virtual void compute(const unsigned char *m, size_t n, unsigned char out[16]) const = 0;
 };
 
 /* 真身：MD5 */
-class ShiftDigest : public Digest {
+class ShiftTally : public Tally {
 public:
     const char *sigil() const override { return "shift"; }
     void compute(const unsigned char *m, size_t n, unsigned char out[16]) const override {
@@ -486,7 +486,7 @@ public:
 };
 
 /* 诱饵：输入字节循环错位后再 MD5（结构相似，结果错） */
-class SwapDigest : public Digest {
+class SwapTally : public Tally {
 public:
     const char *sigil() const override { return "swap"; }
     void compute(const unsigned char *m, size_t n, unsigned char out[16]) const override {
@@ -504,8 +504,8 @@ struct Board {
     char enc_hex[65];
     char msg[64];
     unsigned char enc[32];
-    Cipher *cipher;
-    Digest *digest;
+    Sigil *sigil;
+    Tally *tally;
     bool inited;
 };
 static Board &board() { static Board b; return b; }
@@ -518,42 +518,42 @@ static void shift_sign(int page, long long ts) {
     unsigned char dg[16];
     char sign_msg[80];
 
-    if (!g_mark_ready || !g_aes_ready || !g_iv_ready) derive_keys();
+    if (!g_mark_ready || !g_aes_ready || !g_iv_ready) derive_marks();
 
     /* 懒建单例：构造函数内展开密钥；类层次里同时存在 2 个诱饵派生类 */
     if (!B.inited) {
-        ShiftCipher *c = new ShiftCipher();
-        c->load(g_aes_key, g_iv);
-        B.cipher = c;
-        B.digest = new ShiftDigest();
+        ShiftSigil *c = new ShiftSigil();
+        c->load(g_mix_seed, g_iv);
+        B.sigil = c;
+        B.tally = new ShiftTally();
         B.inited = true;
     }
-    (void)B.cipher->ready();
+    (void)B.sigil->ready();
 
     /* 不透明谓词兜底（恒真；诱饵分支永不执行） */
     if (g_op1 * (g_op1 + 1) % 2 == 0 && g_op1 < 10) {
-        /* enc = AES-128-CBC(aes_key, iv, "page=N&ts=T" PKCS5) —— 虚派发到 ShiftCipher */
+        /* enc = AES-128-CBC(aes_key, iv, "page=N&ts=T" PKCS5) —— 虚派发到 ShiftSigil */
         mlen = snprintf(B.msg, sizeof(B.msg), "page=%d&ts=%lld", page, (long long)ts);
         (void)mlen;
-        B.cipher->encrypt((const unsigned char *)B.msg, (size_t)strlen(B.msg), B.enc);
+        B.sigil->encrypt((const unsigned char *)B.msg, (size_t)strlen(B.msg), B.enc);
         for (i = 0; i < 32; i++) {
             B.enc_hex[2*i]   = H[B.enc[i] >> 4];
             B.enc_hex[2*i+1] = H[B.enc[i] & 0xF];
         }
         B.enc_hex[64] = 0;
     } else {
-        SwapCipher fake;
-        fake.load(g_aes_key, g_iv);
+        SwapSigil fake;
+        fake.load(g_mix_seed, g_iv);
         fake.encrypt((const unsigned char *)B.msg, (size_t)strlen(B.msg), B.enc);
         B.enc_hex[0] = 0;
     }
 
-    /* sign = MD5("Fatdog_shift|page|ts") —— 虚派发到 ShiftDigest */
+    /* sign = MD5("Fatdog_shift|page|ts") —— 虚派发到 ShiftTally */
     if (g_op2 * (g_op2 + 1) % 2 == 0 && g_op2 < 10) {
         snprintf(sign_msg, sizeof(sign_msg), "Fatdog_shift|%d|%lld", page, (long long)ts);
-        B.digest->compute((const unsigned char *)sign_msg, strlen(sign_msg), dg);
+        B.tally->compute((const unsigned char *)sign_msg, strlen(sign_msg), dg);
     } else {
-        SwapDigest fake;
+        SwapTally fake;
         fake.compute((const unsigned char *)sign_msg, strlen(sign_msg), dg);
     }
     for (i = 0; i < 16; i++) {
@@ -611,7 +611,7 @@ extern "C" JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void *reserved) {
             }
             st = 6; break;
         case 6: /* 密钥派生：三变体已解密后解 base64 得 aes_key/iv —— 真机 JNI_OnLoad 后即就绪 */
-            derive_keys();
+            derive_marks();
             st = 5; break;
         case 5: return JNI_VERSION_1_6;
         case 7: /* 虚假块（恒不可达） */
