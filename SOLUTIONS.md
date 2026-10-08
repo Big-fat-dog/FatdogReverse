@@ -2931,6 +2931,10 @@ print("总和:", total)                     # 50312
 
 **动态路线**：偏移 Hook `k35_sm4_ecb` / `k35_des3_ecb`（IDA 里顺着函数指针表找），onEnter 直接 hexdump 明文入参——比静态还原省事得多。注意前半文件的 `k35_fake_*` / `k35_junk_pad` 是无人调用的诱饵，Hook 它们永远不触发。
 
+> **⚠️ 实现坑（2026-10-08 修复，两处）**
+> 1. **漏了 `JNI_OnLoad`**：`libumbra.so` 必须在加载期调用 `k35_keys_init()` 派生三把钥匙。曾缺失这段，`k35_sm4_key`/`k35_des_key`/`k35_master` 恒为全零，e1/e2/sign 全算错 → 服务端一律返回 `nums:[]`（表现为"请求得到 200 但拿不到数字"）。对照：同组 `libwyvern.so`(L37) 有 `JNI_OnLoad` 调 `k37_keys_init()`，一直是好的。
+> 2. **SM4 密钥调度与数据状态共用一个数组**：`k35_sm4_block(blk, mk)` 曾把第二参数 `mk` 同时当"密钥基底"和"数据初始状态"用，`blk`（真正的数据）从未读入 → 输出只依赖密钥、明文不参与运算。已改为 `K[]`（密钥）与 `X[]`（数据）分离；NIST 向量 `key=pt=0123456789abcdeffedcba9876543210 → 681edf34d206965e86b3e94f536e4246` 现在逐字节对拍通过。**排查姿势**：宿主编 umbra.c 跑标准向量，比对着服务端 `_sm4_block`（服务端本来就是对的）。
+
 
 ---
 
@@ -2979,6 +2983,10 @@ print("总和:", total)                     # 49495
 ```
 
 **动态路线**：IDA 里顺着唯一导出入口看到指针表派发 → 底部 `k36_ecb` 就是 AES 本体（偏移 Hook 后 onEnter hexdump 入参直接看明文）。注意前半文件的 `k36_fake_*` 是无人调用的诱饵，Hook 它们永远不触发。
+
+> **⚠️ 实现坑（2026-10-08 修复，两处）**
+> 1. **漏了 `JNI_OnLoad`**：`libvigor.so` 必须在加载期调用 `k36_keys_init()`（解 Base64 得 AES 钥 + 派生 mac 钥）。曾缺失这段，`k36_aes_key`/`k36_mac` 恒为全零 → enc 与 sign 全错。（日志佐证：客户端 sign 恰等于 `HMAC-SHA256(0^32, enc)`。）
+> 2. **服务端诱饵钥类型不匹配**：`DECOY36_KEYS=[b"Fatdog_bluff"]` 是 `bytes`，而 `_l36_try` 曾假定 `master` 是 `str`（直接 `.encode()`）→ 玩家用诱饵钥探测时服务端崩 500（`'bytes' object has no attribute 'encode'`）。已把 `_l36_try`/`_l35_try` 改为 str/bytes 兼容，诱饵键现在正确返回 403 而非崩溃。
 
 **坑位提醒**：`Oo.FAKE_KEY = Fatdog_bluff` 是一字之差陷阱（命中即 403）；别把 Base64 当加密去"破解"——解码就够了。
 
@@ -5892,7 +5900,7 @@ flag `FLAG_18_KL37{iris_in_the_wind}`。真标记 `Fatdog_kite` / 诱饵 `Fatdog
 2. **pattern scan**：取校验函数**首 10+ 字节**，Frida 里 `Memory.scanSync(Module.findBaseAddress('libflutter.so'), size, '<hex>')` 定位，再 `Interceptor.attach(addr, {onLeave: r => r.replace(1)})` 强制放行；
 3. **reFlutter**：自动 patch 引擎让证书校验恒真，重打包 + `uber-apk-signer` 重签名。
 
-> ⚠️ Frida 一把梭会被本关的反调试抓到（见下），所以更稳的是**静态 patch** 或**纯 Python 复刻**。
+> ⚠️ 本关**没有反调试**（2026-10 移除，侧重点只在证书固定）——Frida 只需 hook 掉 pin 校验即可取数；最稳的仍是**静态 patch** 或**纯 Python 复刻**。
 
 **三、本关的实际落地（把 BoringSSL 那一层用伴生 so 代替）**
 
@@ -5919,20 +5927,16 @@ flag `FLAG_18_KL37{iris_in_the_wind}`。真标记 `Fatdog_kite` / 诱饵 `Fatdog
 
 **密钥在载荷里**：`libapp.so` 对象池里的哨兵是整串 `FDK38|Fatdog_haze|END`（`strings` 就能看到；KL38 的难处不在密钥隐藏，而在证书固定）。伴生 so 的读钥顺序同 KL36：**先从 libapp.so 对象池搜 `FDK38|` 取钥，读不到才退镜像常量**。
 
-**五、反调试（评分制，不是单点定罪）**
+**五、反调试：本关无（2026-10 移除）**
 
-三个信号各记 1 分，**≥2 分**才判定"被注入"，判定成立即**静默换用诱饵钥**（`Fatdog_fog`）出密文与摘要，服务端解密/验签自然不认 → 403：
+KL38 的侧重点只在**证书固定（BoringSSL pinning）**。伴生 so 原有的评分制反调试（TracerPid / maps / 端口 / 线程名 ≥2 分判定、"命中即静默换诱饵钥"）已于 2026-10 **整体移除**——`libflutternet.so` 不再做任何 Frida/ptrace 检测，绕过 pin 后直接用真钥取数即可。
 
-1. `/proc/self/status` 的 `TracerPid` 非 0；
-2. `/proc/self/maps` 含 `frida` / `gadget` / `gum-js` / `linjector`；
-3. 线程名含 `gum-js-loop` / `pool-frida` / `linjector`（**只用 frida 专属名**，`gmain`/`gdbus` 这类通用名不计，避免误报）。
-
-> 之所以用评分制：KL19/KL28 的教训——部分 ROM 的 seccomp 会让单点检测直接误判，把正常玩家锁死。
+> 服务端仍保留诱饵钥判定：诱饵 `Fatdog_fog` 与真钥 `Fatdog_haze` 只差后三字母，用错即 403（这是"错误钥反馈"，与反调试无关）。
 
 **六、绕过路线（三条）**
 
 **路线 A：纯复刻（最干净，不碰 App）**
-从 `libapp.so` 拿主密钥 → 按上表算 `enc`/`sign` → 自己发请求 → 求和提交。App 里的 pin 校验与反调试都绕过了。
+从 `libapp.so` 拿主密钥 → 按上表算 `enc`/`sign` → 自己发请求 → 求和提交。App 侧唯一的关卡（pin 校验）也一并跳过。
 
 **路线 B：Frida 绕过 pinning（App 内取数）**
 ```javascript
@@ -5942,12 +5946,11 @@ Java.perform(function () {
   FN.nativeCheckPin.implementation = function (der) { return true; };
 });
 ```
-> 只用这一条会被反调试抓到（maps + 线程名 ≥2 分）→ 密文被换成诱饵钥 → 403。
-> 所以还要把检测压掉：`Interceptor.attach(Module.findExportByName('libflutternet.so', ...))`
-> 或直接 hook 掉 `nativeEnc`/`nativeSign` 返回自己算的值（那就等价于路线 A 了）。
+> 本关**无反调试**：hook 掉 pin 校验后即可直接取数，无需压制任何检测。
+> 也可以进一步 hook `nativeEnc`/`nativeSign` 直接返回自算值（等价于路线 A）。
 
 **路线 C：静态 patch 之后重打包**
-把 `libflutternet.so` 里 `pin_store::verify` 改成恒 `1`、`guard::tripped` 改成恒 `0`，
+把 `libflutternet.so` 里 `pin_store::verify` 改成恒 `1`（本关**仅此一处**需改，已无 `guard`），
 `uber-apk-signer` 重签名后安装。
 
 **七、Python 复刻脚本（路线 A，可直接跑）**
@@ -5993,7 +5996,7 @@ print(total)
 **八、坑位提醒**
 
 - **pin 锁的是线上证书**，训练环境自签必然不匹配——App 里点"取数"必然报 `pin: certificate mismatch`，这是**设计如此**，不是环境坏了；
-- 绕过 pinning 后若仍 403，看界面上的「算法自检」——**检测评分 ≥2/2** 说明被反调试抓到，密文已被换成诱饵钥；
+- 绕过 pinning 后若仍 403，说明**用错了钥**（`Fatdog_fog` 是诱饵、真钥是 `Fatdog_haze`），服务端对诱饵钥直接 403。本关已**无反调试**，"被检出投毒"这条路径不存在了；
 - 诱饵 `Fatdog_fog` 与真钥只差后三个字母（`haze` → `fog`），用错即 403；
 - IV 是**随机**的且**前置**在密文里，别拿固定 IV 去乘服务端算出的密文；
 - 答案同样是 `sha256(str(sum))` 前 8 位 hex，`sum` 为 1000 个数之和。
@@ -6162,7 +6165,7 @@ print(total)
 
 - **识别 / 快照还原**：Blutter（`pp.txt` 对象池 + `asm/` 符号化汇编）；
 - **BoringSSL pinning**：本关仍只信任项目自签 CA，抓包同其余 HTTPS 关（Charles 导入 `certs/ca.crt` + `ca.key`）；
-- **反调试**：评分制（`TracerPid` / maps 的 frida 特征 / frida 专属线程名，各 1 分，**≥2 才判定**），判定成立即静默改用诱饵钥 `Fatdog_echo` → 服务端 403。
+- **反调试：本关无（2026-10 移除）**——KL40 已无 Frida/ptrace 检测与投毒；诱饵钥 `Fatdog_echo` 仅作为服务端的错误钥判定（用错即 403，属"错误钥反馈"而非反调试）。
 
 **六、坑位提醒**
 
@@ -6177,7 +6180,7 @@ print(total)
 
 ```text
 apktool d FatdogReverse.apk -o out
-# 改 librig.so：把 guard::tripped 改成恒 0（或直接把 nativeDecryptRsp 的钥换掉）
+# 改 librig.so：直接 patch nativeDecryptRsp 的响应解密（本关已无 guard）
 apktool b out -o rebuilt.apk
 zipalign -f 4 rebuilt.apk aligned.apk
 apksigner sign --ks keystore/debug.keystore --ks-key-alias androiddebugkey \

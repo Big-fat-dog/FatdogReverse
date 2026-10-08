@@ -192,6 +192,14 @@ static void k35_keys_init(void) {
       memcpy(k35_des_key, d, 24); }
 }
 
+/* so 加载期（System.loadLibrary）派生三把钥匙——缺此则 k35_sm4_key/k35_des_key/k35_master
+ * 恒为全零，enc 与 sign 全部算错、请求一律被拒（历史上的 L35 就是这样打不通的）。 */
+JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void *reserved) {
+    (void) vm; (void) reserved;
+    k35_keys_init();
+    return JNI_VERSION_1_6;
+}
+
 static const unsigned char K35_SM4_SBOX[256] = {
         0xd6, 0x90, 0xe9, 0xfe, 0xcc, 0xe1, 0x3d, 0xb7, 0x16, 0xb6, 0x14, 0xc2, 0x28, 0xfb, 0x2c, 0x05,
         0x2b, 0x67, 0x9a, 0x76, 0x2a, 0xbe, 0x04, 0xc3, 0xaa, 0x44, 0x13, 0x26, 0x49, 0x86, 0x06, 0x99,
@@ -231,22 +239,30 @@ static unsigned int k35_sm4_Lenc(unsigned int b){ return b ^ k35_rotl(b,2) ^ k35
 static unsigned int k35_sm4_Lkey(unsigned int b){ return b ^ k35_rotl(b,13) ^ k35_rotl(b,23); }
 
 static void k35_sm4_block(unsigned char blk[16], const unsigned char mk[16]) {
-    unsigned int X[36], rk[32], tmp;
+    /* blk = 数据块（in/out）；mk = 16 字节密钥。
+     * 密钥调度（K[]）与数据轮状态（X[]）必须分开存放——曾把同一个数组既当密钥又当
+     * 明文状态，导致数据从未参与运算、结果只依赖密钥（NIST 向量对不上）。 */
+    unsigned int X[36], K[36], rk[32], tmp;
     int i, j;
-    for (j = 0; j < 4; j++) {
-        X[j] = ((unsigned int)mk[j*4] << 24) | ((unsigned int)mk[j*4+1] << 16)
+    for (j = 0; j < 4; j++) {                       /* 密钥扩展：K[0..3] = MK ^ FK */
+        K[j] = ((unsigned int)mk[j*4] << 24) | ((unsigned int)mk[j*4+1] << 16)
              | ((unsigned int)mk[j*4+2] << 8) |  (unsigned int)mk[j*4+3];
-        X[j] ^= K35_SM4_FK[j];
+        K[j] ^= K35_SM4_FK[j];
     }
-    for (i = 0; i < 32; i++) {
-        tmp = X[i+1] ^ X[i+2] ^ X[i+3] ^ K35_SM4_CK[i];
-        rk[i] = X[i] ^ k35_sm4_Lkey(k35_sm4_tau(tmp));
+    for (i = 0; i < 32; i++) {                      /* K[i+4] = K[i] ^ L'(tau(K[i+1..3] ^ CK[i])) */
+        tmp = K[i+1] ^ K[i+2] ^ K[i+3] ^ K35_SM4_CK[i];
+        K[i+4] = K[i] ^ k35_sm4_Lkey(k35_sm4_tau(tmp));
+        rk[i]  = K[i+4];
     }
-    for (i = 0; i < 32; i++) {
+    for (j = 0; j < 4; j++) {                       /* 数据初始状态（不含 FK） */
+        X[j] = ((unsigned int)blk[j*4] << 24) | ((unsigned int)blk[j*4+1] << 16)
+             | ((unsigned int)blk[j*4+2] << 8) |  (unsigned int)blk[j*4+3];
+    }
+    for (i = 0; i < 32; i++) {                      /* 32 轮 */
         tmp = X[i+1] ^ X[i+2] ^ X[i+3] ^ rk[i];
         X[i+4] = X[i] ^ k35_sm4_Lenc(k35_sm4_tau(tmp));
     }
-    for (j = 0; j < 4; j++) {
+    for (j = 0; j < 4; j++) {                       /* 反序输出 X35..X32 */
         unsigned int w = X[35 - j];
         blk[j*4]   = (unsigned char)(w >> 24);
         blk[j*4+1] = (unsigned char)(w >> 16);

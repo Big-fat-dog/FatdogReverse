@@ -53,7 +53,7 @@ public class moonActivity extends Activity {
         tv.setGravity(Gravity.CENTER);
         box.addView(tv, Ui.wrap(4));
 
-        // 只读自检：只报密码原语与两瓣来源，不吐密钥、不判胜
+        // 只读自检：仅显示实现是否完好（中性，不报算法/分片/符号/密钥来源、不判胜）
         guard = new TextView(this);
         guard.setText("算法自检：—");
         guard.setGravity(Gravity.CENTER);

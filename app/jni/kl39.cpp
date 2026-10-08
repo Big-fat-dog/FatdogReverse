@@ -357,19 +357,19 @@ static const std::string& frag_dart() {
     if (locate_payload(path) && read_tag_from_payload(path, frag) && frag.size() >= FRAG_DART_LEN) {
         g_dart = frag.substr(0, FRAG_DART_LEN);
         g_from_payload = true;
-        LOGI("KL39 FRAG_DART taken from Flutter payload object pool");
+        LOGI("KL39 frag: source=primary");
     } else {
         std::string m;
         for (size_t i = 0; i < sizeof(MIRROR_DART); i++) m += (char)(MIRROR_DART[i] ^ 0x42);
         g_dart = m;
         g_from_payload = false;
-        LOGI("KL39 payload unavailable, using mirror FRAG_DART");
+        LOGI("KL39 frag: source=fallback");
     }
     g_ready = true;
     return g_dart;
 }
 
-static bool from_payload() { frag_dart(); return g_from_payload; }
+[[maybe_unused]] static bool from_payload() { frag_dart(); return g_from_payload; }
 
 // 本 so 持有的那一瓣
 static std::string frag_c() {
@@ -488,16 +488,13 @@ Java_com_fatdog_reverse_FlutterFFI_nativeAnswer(JNIEnv* env, jclass clz) {
     return env->NewStringUTF(build_answer().c_str());
 }
 
-// 只读自检：只报密码原语、两瓣来源与自检结果，不含密钥明文、不判胜
+// 只读自检：仅报告实现是否完好（不报算法/分片/符号/密钥来源、不判胜）
 JNIEXPORT jstring JNICALL
 Java_com_fatdog_reverse_FlutterFFI_nativeGetStatus(JNIEnv* env, jclass clz) {
     (void)clz;
-    char buf[220];
-    snprintf(buf, sizeof(buf),
-             "密码原语:MD5 + AES-128-ECB | 密钥分片:载荷%dB + native%zuB | FRAG_DART:%s | FFI:fd_moon_enc",
-             (int)key_store::FRAG_DART_LEN, sizeof(key_store::FRAG_C),
-             key_store::from_payload() ? "命中" : "镜像兜底");
-    return env->NewStringUTF(buf);
+    const bool ok = (sha256_ns::digest_hex("abc")
+                     == "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
+    return env->NewStringUTF(ok ? "自检:通过" : "自检:异常");
 }
 
 } // extern "C"

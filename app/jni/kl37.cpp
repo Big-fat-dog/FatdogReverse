@@ -196,16 +196,16 @@ static std::string digest_hex(const std::string& s) {
 // 密钥：两段常量运行时拼接（volatile 防常量折叠，rule 35）
 // ============================================================
 namespace key_store {
-// PART_A = "Fatdog_" ^0x3C
+// 密钥第 1 段（UTF-8 各字节 ^0x3C 藏匿）
 static const volatile uint8_t PART_A[] = {122,93,72,88,83,91,99};
-// PART_B = "kite" ^0x3C
+// 密钥第 2 段（UTF-8 各字节 ^0x3C 藏匿）
 static const volatile uint8_t PART_B[] = {87,85,72,89};
 
 static std::string build() {
     std::string a, b;
     for (size_t i = 0; i < sizeof(PART_A); i++) a += (char)(PART_A[i] ^ 0x3C);
     for (size_t i = 0; i < sizeof(PART_B); i++) b += (char)(PART_B[i] ^ 0x3C);
-    return a + b;   // "Fatdog_kite"
+    return a + b;
 }
 } // namespace key_store
 
@@ -253,21 +253,18 @@ Java_com_fatdog_reverse_FlutterCore_nativeAnswer(JNIEnv* env, jclass clz) {
     return env->NewStringUTF(build_answer().c_str());
 }
 
-// 只读自检：只报算法口径与摘要自检，不含密钥明文、不判胜
+// 只读自检：仅报告实现是否完好（不报算法/载荷/密钥来源、不判胜）
 JNIEXPORT jstring JNICALL
 Java_com_fatdog_reverse_FlutterCore_nativeGetStatus(JNIEnv* env, jclass clz) {
     (void)clz;
-    // AES-128 已知向量自检（FIPS-197）：key=000102...0f, pt=00112233445566778899aabbccddeeff
-    //   → 69c4e0d86a7b0430d8cdb78070b4c55a
+    // 标准测试向量自检（原语不在此明示）：key=0x00..0x0f, pt=0011223344556677...
     std::string k; for (int i = 0; i < 16; i++) k += (char)i;
     const uint8_t ptv[16] = {0x00,0x11,0x22,0x33,0x44,0x55,0x66,0x77,
                              0x88,0x99,0xaa,0xbb,0xcc,0xdd,0xee,0xff};
     std::string p(reinterpret_cast<const char*>(ptv), 16);
-    std::string hex = aes_ns::ecbEncryptHex(k, p).substr(0, 32);
-    const bool ok = (hex == "69c4e0d86a7b0430d8cdb78070b4c55a");
-    char buf[128];
-    snprintf(buf, sizeof(buf), "密码原语:AES-128-ECB 自检:%s 载荷:已混淆", ok ? "通过" : "异常");
-    return env->NewStringUTF(buf);
+    const bool ok = (aes_ns::ecbEncryptHex(k, p).substr(0, 32)
+                     == "69c4e0d86a7b0430d8cdb78070b4c55a");
+    return env->NewStringUTF(ok ? "自检:通过" : "自检:异常");
 }
 
 } // extern "C"

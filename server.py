@@ -448,8 +448,9 @@ def _aes128_ecb_decrypt(key16: bytes, data: bytes) -> bytes:
     return c.decrypt(data)
 
 
-def _l36_try(master: str, page: int, ts: int, enc: str, sign: str) -> bool:
-    mk = master.encode()
+def _l36_try(master, page: int, ts: int, enc: str, sign: str) -> bool:
+    # master 可能是 str（主钥字面量）或 bytes（DECOY36_KEYS）——统一成 bytes，避免 AttributeError
+    mk = master.encode() if isinstance(master, str) else bytes(master)
     akey = hashlib.sha256(mk + b"|key").digest()[:16]
     mack = hashlib.sha256(mk + b"|mac").digest()
     if not hmac.compare_digest(sign, hmac.new(mack, enc.encode(), hashlib.sha256).hexdigest()):
@@ -1718,8 +1719,9 @@ def _l35_sm4_decrypt_raw(key16: bytes, data: bytes) -> bytes:
     return bytes(out)
 
 
-def _l35_try(master: str, page: int, ts: int, e1: str, e2: str, sign: str) -> bool:
-    mk = master.encode()
+def _l35_try(master, page: int, ts: int, e1: str, e2: str, sign: str) -> bool:
+    # 同 _l36_try：兼容 str 主钥与 bytes 诱饵钥
+    mk = master.encode() if isinstance(master, str) else bytes(master)
     smk = hashlib.sha256(mk + b"|sm4").digest()[:16]
     dsk = hashlib.sha256(mk + b"|3des").digest()[:24]
     if not hmac.compare_digest(sign, hmac.new(mk, (e1 + "|" + e2).encode(), hashlib.sha256).hexdigest()):

@@ -53,9 +53,9 @@ public class scrollActivity extends Activity {
         tv.setGravity(Gravity.CENTER);
         box.addView(tv, Ui.wrap(4));
 
-        // 只读自检：只显示摘要自检与载荷/镜像状态，不吐密钥、不判胜
+        // 只读自检：仅显示实现是否完好（中性，不报算法/载荷/密钥来源、不判胜）
         guard = new TextView(this);
-        guard.setText("载荷自检：—");
+        guard.setText("算法自检：—");
         guard.setGravity(Gravity.CENTER);
         guard.setTextSize(12);
         guard.setTypeface(android.graphics.Typeface.MONOSPACE);
@@ -222,9 +222,9 @@ public class scrollActivity extends Activity {
 
     private void refreshGuard() {
         try {
-            guard.setText("载荷自检：" + FlutterBridge.nativeGetStatus());
+            guard.setText("算法自检：" + FlutterBridge.nativeGetStatus());
         } catch (Throwable t) {
-            guard.setText("载荷自检：不可用");
+            guard.setText("算法自检：不可用");
         }
     }
 

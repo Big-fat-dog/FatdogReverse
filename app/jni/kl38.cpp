@@ -35,10 +35,6 @@
 
 #ifndef KL38_HOST_TEST
 #include <unistd.h>
-#include <dirent.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <arpa/inet.h>
 #endif
 
 #ifdef ANDROID
@@ -314,28 +310,20 @@ static const std::string& get() {
     if (locate_payload(path) && read_tag_from_payload(path, key)) {
         g_key = key;
         g_from_payload = true;
-        LOGI("KL38 key taken from Flutter payload object pool");
+        LOGI("KL38 key: source=primary");
     } else {
         std::string m;
         m.reserve(sizeof(MIRROR));
         for (size_t i = 0; i < sizeof(MIRROR); i++) m += (char)(MIRROR[i] ^ 0x3C);
         g_key = m;
         g_from_payload = false;
-        LOGI("KL38 payload unavailable, using mirror key");
+        LOGI("KL38 key: source=fallback");
     }
     g_ready = true;
     return g_key;
 }
 
-static bool from_payload() { get(); return g_from_payload; }
-
-// 诱饵主密钥（仅用于"被检出"时静默投毒，服务端会回 403）
-static std::string decoy_master() {
-    static const volatile uint8_t D[] = {122,93,72,88,83,91,99,90,83,91};
-    std::string s;
-    for (size_t i = 0; i < sizeof(D); i++) s += (char)(D[i] ^ 0x3C);
-    return s;
-}
+[[maybe_unused]] static bool from_payload() { get(); return g_from_payload; }
 
 } // namespace key_store
 
@@ -366,106 +354,6 @@ static bool verify(const uint8_t* der, size_t len) {
 } // namespace pin_store
 
 // ============================================================
-// 反调试：评分制（>=2 才判定，防单点误报 —— KL19/KL28 教训）
-// ============================================================
-namespace guard {
-static const int THRESHOLD = 2;
-static int g_score = -1;
-
-static int score_ptrace() {
-#ifdef __linux__
-    FILE* f = fopen("/proc/self/status", "r");
-    if (!f) return 0;
-    char line[256];
-    while (fgets(line, sizeof(line), f)) {
-        if (strncmp(line, "TracerPid:", 10) == 0) {
-            long pid = strtol(line + 10, nullptr, 10);
-            fclose(f);
-            return pid != 0 ? 1 : 0;   // 只认"真实非零 tracer"
-        }
-    }
-    fclose(f);
-#endif
-    return 0;
-}
-
-static int score_maps() {
-#ifdef __linux__
-    FILE* f = fopen("/proc/self/maps", "r");
-    if (!f) return 0;
-    char line[512];
-    while (fgets(line, sizeof(line), f)) {
-        if (strstr(line, "frida") || strstr(line, "gadget") ||
-            strstr(line, "gum-js") || strstr(line, "linjector")) {
-            fclose(f);
-            return 1;
-        }
-    }
-    fclose(f);
-#endif
-    return 0;
-}
-
-static int score_port() {
-#ifdef __linux__
-    for (int port = 27042; port <= 27044; port++) {
-        int fd = socket(AF_INET, SOCK_STREAM, 0);
-        if (fd < 0) continue;
-        struct sockaddr_in addr;
-        memset(&addr, 0, sizeof(addr));
-        addr.sin_family = AF_INET;
-        addr.sin_port = htons((uint16_t)port);
-        inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
-        int r = connect(fd, (struct sockaddr*)&addr, sizeof(addr));
-        close(fd);
-        if (r == 0) return 1;
-    }
-#endif
-    return 0;
-}
-
-static int score_threads() {
-#ifdef __linux__
-    char path[64];
-    snprintf(path, sizeof(path), "/proc/%d/task", getpid());
-    DIR* d = opendir(path);
-    if (!d) return 0;
-    struct dirent* de;
-    int hit = 0;
-    while ((de = readdir(d)) != nullptr) {
-        if (de->d_name[0] == '.') continue;
-        char cp[128];
-        snprintf(cp, sizeof(cp), "/proc/%d/task/%s/comm", getpid(), de->d_name);
-        FILE* f = fopen(cp, "r");
-        if (!f) continue;
-        char name[64];
-        if (fgets(name, sizeof(name), f)) {
-            // 只认 frida 专属线程名（gmain/gdbus 等 GLib 通用名不计，防误报）
-            if (strstr(name, "gum-js-loop") || strstr(name, "pool-frida") ||
-                strstr(name, "linjector")) { hit = 1; }
-        }
-        fclose(f);
-        if (hit) break;
-    }
-    closedir(d);
-    return hit;
-#else
-    return 0;
-#endif
-}
-
-static int compute() {
-    if (g_score >= 0) return g_score;
-    int s = score_ptrace() + score_maps() + score_port() + score_threads();
-    g_score = s;
-    if (s >= THRESHOLD) LOGI("KL38 guard tripped (score=%d)", s);
-    return s;
-}
-
-static bool tripped() { return compute() >= THRESHOLD; }
-} // namespace guard
-
-// ============================================================
 // 加密 + 签名
 // ============================================================
 
@@ -485,9 +373,9 @@ static void make_iv(uint8_t iv[16]) {
 #endif
 }
 
-// 当前使用的主密钥：被检出时改用诱饵钥（静默投毒）
+// 当前使用的主密钥
 static std::string active_master() {
-    return guard::tripped() ? key_store::decoy_master() : key_store::get();
+    return key_store::get();
 }
 
 static std::string build_enc(int page, long long ts) {
@@ -533,7 +421,6 @@ int main() {
     printf("expect            = 5c8a0ad4\n");
     printf("master            = %s (from %s)\n", key_store::get().c_str(),
            key_store::from_payload() ? "payload" : "mirror");
-    printf("guard score       = %d (tripped=%d)\n", guard::compute(), (int)guard::tripped());
     // 证书固定对拍：pin 对应的明文 → true；任意其它 DER → false
     {
         const char* prod = "fatdog://prod/leaf/2026";
@@ -593,17 +480,13 @@ Java_com_fatdog_reverse_FlutterNet_nativeAnswer(JNIEnv* env, jclass clz) {
     return env->NewStringUTF(build_answer().c_str());
 }
 
-// 只读自检：只报算法口径、证书固定与检测评分，不含密钥明文、不判胜
+// 只读自检：仅报告实现是否完好（不报算法/证书/评分/密钥来源、不判胜）
 JNIEXPORT jstring JNICALL
 Java_com_fatdog_reverse_FlutterNet_nativeGetStatus(JNIEnv* env, jclass clz) {
     (void)clz;
-    int score = guard::compute();
-    char buf[220];
-    snprintf(buf, sizeof(buf),
-             "密码原语:AES-128-CBC + SHA-256 | 证书固定:SHA-256 pin | 载荷:%s | 检测评分:%d/%d",
-             key_store::from_payload() ? "命中" : "镜像兜底",
-             score, guard::THRESHOLD);
-    return env->NewStringUTF(buf);
+    const bool ok = (sha256_ns::digest_hex("abc")
+                     == "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
+    return env->NewStringUTF(ok ? "自检:通过" : "自检:异常");
 }
 
 } // extern "C"

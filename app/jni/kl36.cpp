@@ -273,20 +273,20 @@ static const std::string& get() {
     if (locate_payload(path) && read_tag_from_payload(path, key)) {
         g_key = key;
         g_from_payload = true;
-        LOGI("KL36 key taken from Flutter payload object pool");
+        LOGI("KL36 key: source=primary");
     } else {
         std::string m;
         m.reserve(sizeof(MIRROR));
         for (size_t i = 0; i < sizeof(MIRROR); i++) m += (char)(MIRROR[i] ^ 0x3C);
         g_key = m;
         g_from_payload = false;
-        LOGI("KL36 payload unavailable, using mirror key");
+        LOGI("KL36 key: source=fallback");
     }
     g_ready = true;
     return g_key;
 }
 
-static bool from_payload() { get(); return g_from_payload; }
+[[maybe_unused]] static bool from_payload() { get(); return g_from_payload; }
 
 } // namespace key_store
 
@@ -340,17 +340,12 @@ Java_com_fatdog_reverse_FlutterBridge_nativeAnswer(JNIEnv* env, jclass clz) {
     return env->NewStringUTF(build_answer().c_str());
 }
 
-// 只读自检：只报告密钥来源与 MD5 自检，不含密钥明文、不判胜
+// 只读自检：仅报告实现是否完好（不报算法/载荷/密钥来源、不判胜）
 JNIEXPORT jstring JNICALL
 Java_com_fatdog_reverse_FlutterBridge_nativeGetStatus(JNIEnv* env, jclass clz) {
     (void)clz;
     const bool ok = (md5_ns::digest("abc") == "900150983cd24fb0d6963f7d28e17f72");
-    char buf[160];
-    snprintf(buf, sizeof(buf), "摘要自检:%s 载荷:%s 镜像:%s",
-             ok ? "通过" : "异常",
-             key_store::from_payload() ? "命中" : "未命中",
-             key_store::from_payload() ? "未用" : "已用");
-    return env->NewStringUTF(buf);
+    return env->NewStringUTF(ok ? "自检:通过" : "自检:异常");
 }
 
 } // extern "C"
