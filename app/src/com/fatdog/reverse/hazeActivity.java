@@ -30,6 +30,7 @@ public class hazeActivity extends Activity {
     private TextView status;
     private TextView guard;
     private TextView pinView;
+    private TextView envView;
     private final TextView[] cells = new TextView[10];
     private LinearLayout pageBar;
     private int currentPage = 1;
@@ -50,7 +51,7 @@ public class hazeActivity extends Activity {
         TextView tv = new TextView(this);
         tv.setText("网络层的雾比别处更浓——这里不走别人的路。\n"
                 + "门口的灯只认一张脸，来客对不上就被挡在雾外。\n"
-                + "雾散之后，数字才肯现身。");
+                + "雾外还常有听风之人——雾散之后，数字才肯现身。");
         tv.setGravity(Gravity.CENTER);
         box.addView(tv, Ui.wrap(4));
 
@@ -71,6 +72,15 @@ public class hazeActivity extends Activity {
         pinView.setTypeface(android.graphics.Typeface.MONOSPACE);
         pinView.setTextColor(ThemeKit.muted(ThemeKit.isDark(this)));
         box.addView(pinView, Ui.wrap(6));
+
+        // 雾候：抓包环境相位（只读展示，不点破手段、不判胜）
+        envView = new TextView(this);
+        envView.setText("雾候：—");
+        envView.setGravity(Gravity.CENTER);
+        envView.setTextSize(12);
+        envView.setTypeface(android.graphics.Typeface.MONOSPACE);
+        envView.setTextColor(ThemeKit.muted(ThemeKit.isDark(this)));
+        box.addView(envView, Ui.wrap(6));
 
         Button refresh = new Button(this);
         refresh.setText("刷新自检");
@@ -198,7 +208,9 @@ public class hazeActivity extends Activity {
                                 + "想让门开，先得让守门的眼睛闭上（记下那张脸的用处）。\n\n"
                                 + "雾里还藏着听风的人：一旦察觉有人附身窥探，\n"
                                 + "递出去的密文就会悄悄换一副样子，对面的账房自然不认。\n"
-                                + "把密文的做法弄明白，自己备一份，也不必再问门开不开。")
+                                + "把密文的做法弄明白，自己备一份，也不必再问门开不开。\n\n"
+                                + "还有：雾外常有听风之人守在岔路口。若把信使引到那些立在明处的驿站（系统代理），\n"
+                                + "信会被悄悄换掉——让信使走自己的门，或先让听风的人闭嘴。")
                         .setPositiveButton("好的", null)
                         .show();
             }
@@ -224,6 +236,7 @@ public class hazeActivity extends Activity {
             }
         });
 
+        try { FlutterNet.nativeEnvNote(Gloom.scan(this)); } catch (Throwable ignored) {}
         refreshGuard();
         loadPage(1);
     }
@@ -238,6 +251,12 @@ public class hazeActivity extends Activity {
             pinView.setText("门上认的脸：" + FlutterNet.nativeGetPin() + "…");
         } catch (Throwable t) {
             pinView.setText("门上认的脸：不可用");
+        }
+        try {
+            int ph = FlutterNet.nativeEnvPhase();
+            envView.setText("雾候：" + (ph == 2 ? "有异" : ph == 1 ? "清净" : "—"));
+        } catch (Throwable t) {
+            envView.setText("雾候：不可用");
         }
     }
 

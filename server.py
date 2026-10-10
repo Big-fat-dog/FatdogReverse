@@ -2270,10 +2270,34 @@ def api_l27(page: int = Form(...), ts: int = Form(...), enc: str = Form(...), si
     return {"d": aes_enc(KEY27_AES_RSP, body.encode()).hex()}
 
 
-# ---------------- 关卡 KKL2：万剑冢（真 DEX 内存加载 · 服务端只验 HMAC） ----------------
-# HMAC 密钥 = SHA-256("Fatdog_tense" + "|kkl2_swordfield")，与 libkkl2.so nativeDeriveSeal()
-# 派生一致；真标记在 so 里藏 UTF-16（strings 哑火），明文诱饵 yT4!pW8@kR2# 验签 403。
-KEY_KKL2 = hashlib.sha256(b"Fatdog_tense|kkl2_swordfield").digest()
+# ---------------- 关卡 KKL1：玄冥渊（DEX 整体加密 · 落盘加载 · 服务端只验 MD5） ----------------
+# 签名钥 = MD5("Fatdog_hallow" + "|kkl1_abyss")，与 libkkl1.so nativeDeriveSeal() 派生一致；
+# 真标记在 so 里藏 UTF-16（strings 哑火），明文诱饵 Fatdog_hollow 验签 403。
+# 签名 = md5(hex(seal) + "page=N&ts=T")（古典摘要构造，非 HMAC）。
+KEY_KKL1 = hashlib.md5(b"Fatdog_hallow|kkl1_abyss").digest()
+PAGES_KKL1, PER_PAGE_KKL1, SEED_KKL1 = 100, 10, 20260902
+_rng_kkl1 = random.Random(SEED_KKL1)
+NUMS_KKL1 = [_rng_kkl1.randint(1, 100) for _ in range(PAGES_KKL1 * PER_PAGE_KKL1)]
+KKL1_SUM = sum(NUMS_KKL1)
+KKL1_SUM_HASH = hashlib.md5(str(KKL1_SUM).encode()).hexdigest()
+
+
+@app.get("/api/kkl1")
+def api_kkl1(page: int = Query(...), ts: int = Query(...), sign: str = Query(...)):
+    _check_page(page, PAGES_KKL1)
+    _check_ts(ts)
+    expected = hashlib.md5((KEY_KKL1.hex() + f"page={page}&ts={ts}").encode()).hexdigest()
+    if not hmac.compare_digest(sign, expected):
+        raise HTTPException(status_code=403, detail="sign invalid")
+    idx = (page - 1) * PER_PAGE_KKL1
+    return {"page": page, "nums": NUMS_KKL1[idx:idx + PER_PAGE_KKL1]}
+
+
+# ---------------- 关卡 KKL2：万剑冢（二代壳 · DEX 整体加密 · 内存加载 · AES-128-CBC + MD5） ----------------
+# seal = MD5("Fatdog_tense" + "|kkl2_swordfield")（16B），与 libkkl2.so nativeDeriveSeal()
+# 派生一致（同一 MD5 也当业务 DEX 的 AES-128 key）；真标记在 so 里藏 UTF-16（strings 哑火），
+# 明文诱饵 yT4!pW8@kR2# 验签 403。取数签名 = MD5(hex(seal) + "page=N&ts=T")，本关不用 HMAC。
+KEY_KKL2 = hashlib.md5(b"Fatdog_tense|kkl2_swordfield").digest()
 PAGES_KKL2, PER_PAGE_KKL2, SEED_KKL2 = 100, 10, 20260909
 _rng_kkl2 = random.Random(SEED_KKL2)
 NUMS_KKL2 = [_rng_kkl2.randint(1, 100) for _ in range(PAGES_KKL2 * PER_PAGE_KKL2)]
@@ -2283,45 +2307,208 @@ NUMS_KKL2 = [_rng_kkl2.randint(1, 100) for _ in range(PAGES_KKL2 * PER_PAGE_KKL2
 def api_kkl2(page: int = Query(...), ts: int = Query(...), sign: str = Query(...)):
     _check_page(page, PAGES_KKL2)
     _check_ts(ts)
-    if not hmac.compare_digest(sign, hmac.new(KEY_KKL2, f"page={page}&ts={ts}".encode(), hashlib.sha256).hexdigest()):
+    if not hmac.compare_digest(sign, hashlib.md5((KEY_KKL2.hex() + f"page={page}&ts={ts}").encode()).hexdigest()):
         raise HTTPException(status_code=403, detail="sign invalid")
     idx = (page - 1) * PER_PAGE_KKL2
     return {"page": page, "nums": NUMS_KKL2[idx:idx + PER_PAGE_KKL2]}
 
 
-# ---------------- 关卡 KKL3：断魂谷（四路哨兵命中即静默投毒 · 服务端只验 HMAC） ----------------
-# HMAC 密钥 = SHA-256("Fatdog_quell" + "|kkl3_valley")，与 libkkl3.so real_seal() 派生一致；
-# 真标记在 so 里藏 UTF-16（strings 哑火），明文诱饵 mZ7~qB3#nV9! 验签 403。
-KEY_KKL3 = hashlib.sha256(b"Fatdog_quell|kkl3_valley").digest()
+# ---------------- 关卡 KKL3：断魂谷（VMP 派生主钥 + 国密 SM4-ECB · 服务端解 enc + MD5 验签） ----------------
+# 主钥 = VM(Fatdog_quell + "|kkl3_valley")，由 liblattice.so 的寄存器虚拟机解释执行字节码得出；
+# 真标记只以（滚动异或加密后的）VM 立即数形式存在，明文诱饵 mZ7~qB3#nV9! 派生出的主钥验签 403。
+KEY_KKL3 = bytes.fromhex("099e5c5fb3c42780cb700a338d0ac7cb")   # 16B，与 gen_kkl3.py 自测逐字节一致
 PAGES_KKL3, PER_PAGE_KKL3, SEED_KKL3 = 100, 10, 20260916
 _rng_kkl3 = random.Random(SEED_KKL3)
 NUMS_KKL3 = [_rng_kkl3.randint(1, 100) for _ in range(PAGES_KKL3 * PER_PAGE_KKL3)]
 
+# 纯 Python SM4（ECB 解密），与 gen_kkl3.py 的实现逐字节对齐；CK 常量用公式现算。
+_KKL3_SBOX = bytes.fromhex(
+    "d690e9fecce13db716b614c228fb2c052b679a762abe04c3aa441326498606999c4250f491ef987a33540b43edcfac62"
+    "e4b31ca9c908e89580df94fa758f3fa64707a7fcf37317ba83593c19e6854fa8686b81b27164da8bf8eb0f4b70569d35"
+    "1e240e5e6358d1a225227c3b01217887d40046579fd327524c3602e7a0c4c89eeabf8ad240c738b5a3f7f2cef96115a1"
+    "e0ae5da49b341a55ad933230f58cb1e31df6e22e8266ca60c02923ab0d534e6fd5db3745defd8e2f03ff6a726d6c5b51"
+    "8d1baf92bbddbc7f11d95c411f105ad80ac13188a5cd7bbd2d74d012b8e5b4b08969974a0c96777e65b9f109c56ec684"
+    "18f07dec3adc4d2079ee5f3ed7cb3948"
+)
+_KKL3_FK = (0xa3b1bac6, 0x56aa3350, 0x677d9197, 0xb27022dc)
 
+
+def _kkl3_rotl(x, n):
+    x &= 0xFFFFFFFF
+    return ((x << n) | (x >> (32 - n))) & 0xFFFFFFFF
+
+
+def _kkl3_ck(i):
+    b = [((4 * i + j) * 7) & 0xFF for j in range(4)]
+    return (b[0] << 24) | (b[1] << 16) | (b[2] << 8) | b[3]
+
+
+def _kkl3_tau(x):
+    s = _KKL3_SBOX
+    return ((s[(x >> 24) & 0xFF] << 24) | (s[(x >> 16) & 0xFF] << 16)
+            | (s[(x >> 8) & 0xFF] << 8) | s[x & 0xFF])
+
+
+def _kkl3_t(x):
+    b = _kkl3_tau(x)
+    return b ^ _kkl3_rotl(b, 2) ^ _kkl3_rotl(b, 10) ^ _kkl3_rotl(b, 18) ^ _kkl3_rotl(b, 24)
+
+
+def _kkl3_tp(x):
+    b = _kkl3_tau(x)
+    return b ^ _kkl3_rotl(b, 13) ^ _kkl3_rotl(b, 23)
+
+
+def _kkl3_sm4_dec(key, data):
+    """SM4-ECB 解密 + 去 PKCS#7；失败返回 None。"""
+    if not data or len(data) % 16:
+        return None
+    k = [int.from_bytes(key[i * 4:i * 4 + 4], 'big') ^ _KKL3_FK[i] for i in range(4)]
+    rk = []
+    for i in range(32):
+        nk = k[0] ^ _kkl3_tp(k[1] ^ k[2] ^ k[3] ^ _kkl3_ck(i))
+        rk.append(nk)
+        k = [k[1], k[2], k[3], nk]
+    rk.reverse()
+    out = bytearray()
+    for off in range(0, len(data), 16):
+        x = [int.from_bytes(data[off + i * 4:off + i * 4 + 4], 'big') for i in range(4)]
+        for i in range(32):
+            nx = x[0] ^ _kkl3_t(x[1] ^ x[2] ^ x[3] ^ rk[i])
+            x = [x[1], x[2], x[3], nx]
+        for v in (x[3], x[2], x[1], x[0]):
+            out += (v & 0xFFFFFFFF).to_bytes(4, 'big')
+    pad = out[-1]
+    if pad == 0 or pad > 16 or out[-pad:] != bytes([pad]) * pad:
+        return None
+    return bytes(out[:-pad])
+
+
+# 注意：本关签名是**纯 MD5 摘要**（不是 HMAC）；下面的 hmac.compare_digest 仅作定长比较工具。
+# 注意：本关签名是**纯 MD5 摘要**（不是 HMAC）；下面的 hmac.compare_digest 仅作定长比较工具。
 @app.get("/api/kkl3")
-def api_kkl3(page: int = Query(...), ts: int = Query(...), sign: str = Query(...)):
+def api_kkl3(page: int = Query(...), ts: int = Query(...), enc: str = Query(...), sign: str = Query(...)):
     _check_page(page, PAGES_KKL3)
     _check_ts(ts)
-    if not hmac.compare_digest(sign, hmac.new(KEY_KKL3, f"page={page}&ts={ts}".encode(), hashlib.sha256).hexdigest()):
+    if not hmac.compare_digest(sign, hashlib.md5((KEY_KKL3.hex() + enc).encode()).hexdigest()):
         raise HTTPException(status_code=403, detail="sign invalid")
+    try:
+        ct = bytes.fromhex(enc)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="enc not hex")
+    if _kkl3_sm4_dec(KEY_KKL3, ct) != f"page={page}&ts={ts}".encode():
+        raise HTTPException(status_code=403, detail="payload mismatch")
     idx = (page - 1) * PER_PAGE_KKL3
     return {"page": page, "nums": NUMS_KKL3[idx:idx + PER_PAGE_KKL3]}
 
 
-# ---------------- 关卡 KKL4：锁妖塔（代码段 CRC 自校验 + 三点记账 · 服务端只验 HMAC） ----------------
-# HMAC 密钥 = SHA-256("Fatdog_grit" + "|kkl4_tower")，与 libkkl4.so real_seal() 派生一致；
-# 真标记在 so 里藏 UTF-16（strings 哑火），明文诱饵 靐飝のø 验签 403。
-KEY_KKL4 = hashlib.sha256(b"Fatdog_grit|kkl4_tower").digest()
+# ---------------- 关卡 KKL4：锁妖塔（VMP 栈式虚拟机派生主钥 · AES-128-CTR + MD5） ----------------
+# 主钥 32B = VM(真标记 Fatdog_dread ‖ "|kkl4_tower")，真标记藏 UTF-16（strings 哑火）；
+# 明文诱饵 Fatdog_dream 仅末位一字之差，派生出的主钥本关不认（403）。签名是纯 MD5，不是 HMAC。
+KEY_KKL4 = bytes.fromhex("e14f94c2e58e36bfae2a020e0dbef1f363b9964663a3b09a1c2389ad1cb03d08")  # 32B：key[16] + iv[16]
 PAGES_KKL4, PER_PAGE_KKL4, SEED_KKL4 = 100, 10, 20260923
 _rng_kkl4 = random.Random(SEED_KKL4)
 NUMS_KKL4 = [_rng_kkl4.randint(1, 100) for _ in range(PAGES_KKL4 * PER_PAGE_KKL4)]
 
+# 纯 Python AES-128（CTR 解密），与 gen_kkl4.py / libcavern.so 逐字节对齐；S 盒按 FIPS-197 硬编码。
+_KKL4_AES_SBOX = bytes.fromhex(
+    "637c777bf26b6fc53001672bfed7ab76ca82c97dfa5947f0add4a2af9ca472c0"
+    "b7fd9326363ff7cc34a5e5f171d8311504c723c31896059a071280e2eb27b275"
+    "09832c1a1b6e5aa0523bd6b329e32f8453d100ed20fcb15b6acbbe394a4c58cf"
+    "d0efaafb434d338545f9027f503c9fa851a3408f929d38f5bcb6da2110fff3d2"
+    "cd0c13ec5f974417c4a77e3d645d197360814fdc222a908846eeb814de5e0bdb"
+    "e0323a0a4906245cc2d3ac629195e479e7c8376d8dd54ea96c56f4ea657aae08"
+    "ba78252e1ca6b4c6e8dd741f4bbd8b8a703eb5664803f60e613557b986c11d9e"
+    "e1f8981169d98e949b1e87e9ce5528df8ca1890dbfe6426841992d0fb054bb16"
+)
+
+
+def _kkl4_xtime(a):
+    a <<= 1
+    return (a ^ 0x11b) & 0xFF if a & 0x100 else a & 0xFF
+
+
+def _kkl4_gmul(a, b):
+    p = 0
+    for _ in range(8):
+        if b & 1:
+            p ^= a
+        a = _kkl4_xtime(a)
+        b >>= 1
+    return p & 0xFF
+
+
+def _kkl4_expand(key):
+    w = list(key)
+    rcon = 1
+    for i in range(4, 44):
+        t = w[(i - 1) * 4:(i - 1) * 4 + 4]
+        if i % 4 == 0:
+            t = t[1:] + t[:1]
+            t = [_KKL4_AES_SBOX[x] for x in t]
+            t[0] ^= rcon
+            rcon = _kkl4_xtime(rcon)
+        w += [w[(i - 4) * 4 + j] ^ t[j] for j in range(4)]
+    return w
+
+
+def _kkl4_shift_rows(st):
+    out = [0] * 16
+    for c in range(4):
+        for r in range(4):
+            out[c * 4 + r] = st[((c + r) % 4) * 4 + r]
+    return out
+
+
+def _kkl4_mix_columns(st):
+    out = [0] * 16
+    m = [2, 3, 1, 1]
+    for c in range(4):
+        col = st[c * 4:c * 4 + 4]
+        for r in range(4):
+            out[c * 4 + r] = (_kkl4_gmul(col[0], m[(0 - r) % 4]) ^ _kkl4_gmul(col[1], m[(1 - r) % 4])
+                              ^ _kkl4_gmul(col[2], m[(2 - r) % 4]) ^ _kkl4_gmul(col[3], m[(3 - r) % 4]))
+    return out
+
+
+def _kkl4_aes_block(block, w):
+    st = [block[i] ^ w[i] for i in range(16)]
+    for rnd in range(1, 10):
+        st = [_KKL4_AES_SBOX[x] for x in st]
+        st = _kkl4_shift_rows(st)
+        st = _kkl4_mix_columns(st)
+        st = [st[i] ^ w[rnd * 16 + i] for i in range(16)]
+    st = [_KKL4_AES_SBOX[x] for x in st]
+    st = _kkl4_shift_rows(st)
+    return bytes(st[i] ^ w[160 + i] for i in range(16))
+
+
+def _kkl4_aes_ctr(key, iv, data):
+    """AES-128-CTR（加解密同构）；计数器块 = iv[0:12] + (iv[12:16] + 块号)大端。"""
+    w = _kkl4_expand(key)
+    base = int.from_bytes(iv[12:16], 'big')
+    out = bytearray()
+    for j, off in enumerate(range(0, len(data), 16)):
+        ctr = iv[0:12] + ((base + j) & 0xFFFFFFFF).to_bytes(4, 'big')
+        ks = _kkl4_aes_block(ctr, w)
+        blk = data[off:off + 16]
+        out += bytes(a ^ b for a, b in zip(blk, ks))
+    return bytes(out)
+
+
+# 注意：本关签名是**纯 MD5 摘要**（不是 HMAC）；下面的 hmac.compare_digest 仅作定长比较工具。
 @app.get("/api/kkl4")
-def api_kkl4(page: int = Query(...), ts: int = Query(...), sign: str = Query(...)):
+def api_kkl4(page: int = Query(...), ts: int = Query(...), enc: str = Query(...), sign: str = Query(...)):
     _check_page(page, PAGES_KKL4)
     _check_ts(ts)
-    if not hmac.compare_digest(sign, hmac.new(KEY_KKL4, f"page={page}&ts={ts}".encode(), hashlib.sha256).hexdigest()):
+    if not hmac.compare_digest(sign, hashlib.md5((KEY_KKL4.hex() + enc).encode()).hexdigest()):
         raise HTTPException(status_code=403, detail="sign invalid")
+    try:
+        ct = bytes.fromhex(enc)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="enc not hex")
+    if _kkl4_aes_ctr(KEY_KKL4[:16], KEY_KKL4[16:], ct) != f"page={page}&ts={ts}".encode():
+        raise HTTPException(status_code=403, detail="payload mismatch")
     idx = (page - 1) * PER_PAGE_KKL4
     return {"page": page, "nums": NUMS_KKL4[idx:idx + PER_PAGE_KKL4]}
 
@@ -2881,46 +3068,89 @@ def api_l53(page: int = Form(...), ts: int = Form(...),
     return {"d": encrypted.hex()}
 
 
-# ---------------- 关卡 KKL5：诛仙台（VMP + AES-128-CBC + 三点记账 · 服务端只验复合签名） ----------------
-# HMAC 密钥 = SHA-256("Fatdog_ascend" + "|kkl5_ascension")，由 libkkl5.so 的 VMP 解释器派生；
-# 真标记 Fatdog_ascend UTF-16 藏于 VM 字节码内存，明文诱饵 靐飝のжλ 派生密钥验签 403。
-# enc = hex(IV(16) || AES-128-CBC(key_aes, PKCS7("page=N&ts=T")))；sign = HMAC(mac_key, enc)。
-# 响应先签后密：iv/d 为另一把 AES 密钥的 CBC 密文，sign 覆盖 f"{page}|{ts}|{iv}|{d}"。
-KEY_KKL5_AES = bytes.fromhex("6a3315b12737d2b16d2ed50ddf8d4852")
-KEY_KKL5_MAC = hashlib.sha256(KEY_KKL5_AES + b"|kkl5_ascension").digest()
-KEY_KKL5_RSP = hashlib.sha256(b"Fatdog_ascend|kkl5_response").digest()[:16]
+# ---------------- 关卡 KKL5：诛仙台（VMP 内存机派生主钥 · SM4-CBC 内层 + AES-128-CTR 外层复合 + MD5） ----------------
+# 主钥 32B = VM(真标记 Fatdog_ascend ‖ "|kkl5_altar")，真标记藏 UTF-16（strings 哑火）；
+# 明文诱饵 Fatdog_ascent 仅末位一字之差，派生出的主钥本关不认（403）。签名是纯 MD5，不是 HMAC。
+#   sm4_key = seed[0:16]，aes_key = seed[16:32]，sm4_iv = md5(seed + "|sm4")[:16]
+#   enc = hex( aes_iv(16) ‖ AES-CTR(aes_key, aes_iv, SM4-CBC(sm4_key, sm4_iv, PKCS7("page=N&ts=T"))) )
+KEY_KKL5_SEED = bytes.fromhex("49a38ec7d22c252a5781b6fdbabc9827ec743b64adc05b1b3cf1d1ad04741322")  # 32B：sm4_key + aes_key
 PAGES_KKL5, PER_PAGE_KKL5, SEED_KKL5 = 100, 10, 20260930
 _rng_kkl5 = random.Random(SEED_KKL5)
 NUMS_KKL5 = [_rng_kkl5.randint(1, 100) for _ in range(PAGES_KKL5 * PER_PAGE_KKL5)]
-KKL5_SUM = sum(NUMS_KKL5)
-KKL5_SUM_HASH = hashlib.sha256(str(KKL5_SUM).encode()).hexdigest()
 
 
-@app.post("/api/kkl5")
-async def api_kkl5(page: int = Form(...), ts: int = Form(...), enc: str = Form(...), sign: str = Form(...)):
+def _kkl5_sm4_cbc_enc(key, iv, data):
+    """SM4-CBC 加密 + PKCS#7（复用本文件的 _sm4_keys/_sm4_block）。"""
+    padlen = 16 - (len(data) % 16)
+    padded = data + bytes([padlen]) * padlen
+    rk = _sm4_keys(key)
+    out = bytearray()
+    prev = iv
+    for off in range(0, len(padded), 16):
+        blk = bytes(a ^ b for a, b in zip(padded[off:off + 16], prev))
+        cb = bytearray(16)
+        _sm4_block(blk, 0, cb, 0, rk)
+        prev = bytes(cb)
+        out += prev
+    return bytes(out)
+
+
+def _kkl5_sm4_cbc_dec(key, iv, data):
+    """SM4-CBC 解密 + 去 PKCS#7；填充非法返回 None。"""
+    if len(data) == 0 or len(data) % 16:
+        return None
+    rk = _sm4_keys(key)[::-1]
+    out = bytearray(len(data))
+    prev = iv
+    for off in range(0, len(data), 16):
+        blk = bytearray(16)
+        _sm4_block(data, off, blk, 0, rk)
+        out[off:off + 16] = bytes(a ^ b for a, b in zip(blk, prev))
+        prev = data[off:off + 16]
+    pad = out[-1]
+    if pad == 0 or pad > 16 or out[-pad:] != bytes([pad]) * pad:
+        return None
+    return bytes(out[:-pad])
+
+
+def _kkl5_seal(seed, plain):
+    sm4_key, aes_key = seed[:16], seed[16:]
+    sm4_iv = hashlib.md5(seed + b"|sm4").digest()[:16]
+    aes_iv = hashlib.md5(seed + b"|aes").digest()[:16]
+    inner = _kkl5_sm4_cbc_enc(sm4_key, sm4_iv, plain)
+    return aes_iv + _kkl4_aes_ctr(aes_key, aes_iv, inner)
+
+
+def _kkl5_unseal(seed, blob):
+    if len(blob) < 32 or (len(blob) - 16) % 16:
+        return None
+    sm4_key, aes_key = seed[:16], seed[16:]
+    sm4_iv = hashlib.md5(seed + b"|sm4").digest()[:16]
+    aes_iv, outer = blob[:16], blob[16:]
+    inner = _kkl4_aes_ctr(aes_key, aes_iv, outer)
+    return _kkl5_sm4_cbc_dec(sm4_key, sm4_iv, inner)
+
+
+# 注意：本关签名是**纯 MD5 摘要**（不是 HMAC）；下面的 hmac.compare_digest 仅作定长比较工具。
+@app.get("/api/kkl5")
+def api_kkl5(page: int = Query(...), ts: int = Query(...), enc: str = Query(...), sign: str = Query(...)):
     _check_page(page, PAGES_KKL5)
     _check_ts(ts)
     if len(enc) < 32 or (len(enc) % 2) != 0:
         raise HTTPException(status_code=403, detail="enc malformed")
-    if not hmac.compare_digest(sign, hmac.new(KEY_KKL5_MAC, enc.encode(), hashlib.sha256).hexdigest()):
+    if not hmac.compare_digest(sign, hashlib.md5((KEY_KKL5_SEED.hex() + enc).encode()).hexdigest()):
         raise HTTPException(status_code=403, detail="sign invalid")
     try:
-        raw = bytes.fromhex(enc)
-        iv, ct = raw[:16], raw[16:]
-        if len(ct) == 0 or (len(ct) % 16) != 0:
-            raise ValueError("bad block size")
-        plain = unpad(_AES.new(KEY_KKL5_AES, _AES.MODE_CBC, iv).decrypt(ct), 16).decode()
-    except Exception:
+        blob = bytes.fromhex(enc)
+    except ValueError:
         raise HTTPException(status_code=403, detail="enc invalid")
-    if plain != f"page={page}&ts={ts}":
+    plain = _kkl5_unseal(KEY_KKL5_SEED, blob)
+    if plain is None or plain.decode("utf-8", "ignore") != f"page={page}&ts={ts}":
         raise HTTPException(status_code=403, detail="payload mismatch")
     idx = (page - 1) * PER_PAGE_KKL5
     body = json.dumps({"page": page, "nums": NUMS_KKL5[idx:idx + PER_PAGE_KKL5]}, separators=(",", ":"))
-    rsp_iv = hashlib.sha256(f"{page}|{ts}|{KEY_KKL5_RSP.hex()}".encode()).digest()[:16]
-    rsp_ct = _AES.new(KEY_KKL5_RSP, _AES.MODE_CBC, rsp_iv).encrypt(pad(body.encode(), 16))
-    rsp_iv_hex, rsp_d = rsp_iv.hex(), rsp_ct.hex()
-    rsp_sign = hmac.new(KEY_KKL5_MAC, f"{page}|{ts}|{rsp_iv_hex}|{rsp_d}".encode(), hashlib.sha256).hexdigest()
-    return {"iv": rsp_iv_hex, "d": rsp_d, "sign": rsp_sign}
+    rsp = _kkl5_seal(KEY_KKL5_SEED, body.encode())
+    return {"page": page, "d": rsp.hex()}
 
 
 # ---------------- 关卡 KL36（碧落天）云中锦书：真实 Flutter 载荷 · Dart AOT 快照对象池 ----------
@@ -3153,6 +3383,60 @@ def api_kl40(page: int = Form(...), ts: int = Form(...),
         return {"d": (iv + ct).hex()}
     for dk in DECOY_KL40:
         if _kl40_try(dk, page, ts, enc, sign):
+            raise HTTPException(status_code=403, detail="sign invalid")
+    return {"page": page, "nums": []}
+
+
+# ---------------- 关卡 KL40b（碧落天）镜中之障：引擎层证书校验 / reFlutter 等价 ----------
+# 口径（流密码 + 摘要，无 HMAC）：
+#   kstream = SHA256("<主标记>|rc4")           （32 字节 RC4 密钥）
+#   enc     = hex(RC4(kstream, "page=N&ts=T")) （流密码，长度不变）
+#   sign    = md5(enc + "<主标记>")            （普通 MD5）
+# 注：客户端把**主标记以 base64 承载**（真实载荷/镜像里只出现 base64 串，本地解码还原）；
+#     服务端持有明文钥，故验签口径不变。
+KEY_KL40B = b"Fatdog_prism"
+DECOY_KL40B = [b"Fatdog_prisma"]
+PAGES_KL40B, PER_PAGE_KL40B, SEED_KL40B = 100, 10, 20281001
+_rng_kl40b = random.Random(SEED_KL40B)
+NUMS_KL40B = [_rng_kl40b.randint(1, 100) for _ in range(PAGES_KL40B * PER_PAGE_KL40B)]
+KL40B_SUM = sum(NUMS_KL40B)
+KL40B_SUM_HASH = hashlib.sha256(str(KL40B_SUM).encode()).hexdigest()
+
+
+def _kl40b_stream_key(master):
+    return hashlib.sha256(master + b"|rc4").digest()
+
+
+def _kl40b_sign(master, enc):
+    return hashlib.md5(enc.encode() + master).hexdigest()
+
+
+def _kl40b_try(master, page, ts, enc, sign):
+    if not hmac.compare_digest(sign, _kl40b_sign(master, enc)):
+        return False
+    try:
+        raw = bytes.fromhex(enc)
+    except ValueError:
+        return False
+    if not raw or len(raw) > 512:
+        return False
+    pt = _rc4_53(_kl40b_stream_key(master), raw)
+    try:
+        return pt.decode("utf-8") == f"page={page}&ts={ts}"
+    except UnicodeDecodeError:
+        return False
+
+
+@app.get("/api/kl40b")
+def api_kl40b(page: int = Query(...), ts: int = Query(...),
+              enc: str = Query(...), sign: str = Query(...)):
+    _check_page(page, PAGES_KL40B)
+    _check_ts(ts)
+    if _kl40b_try(KEY_KL40B, page, ts, enc, sign):
+        idx = (page - 1) * PER_PAGE_KL40B
+        return {"page": page, "nums": NUMS_KL40B[idx:idx + PER_PAGE_KL40B]}
+    for dk in DECOY_KL40B:
+        if _kl40b_try(dk, page, ts, enc, sign):
             raise HTTPException(status_code=403, detail="sign invalid")
     return {"page": page, "nums": []}
 
@@ -4005,10 +4289,10 @@ if __name__ == "__main__":
           f"L21={sum(NUMS21)} L22={sum(NUMS22)} L24={sum(NUMS24)} L25={sum(NUMS25)} L26={sum(NUMS26)} L27={sum(NUMS27)} "
           f"L28={sum(NUMS28)} L29={sum(NUMS29)} L30={sum(NUMS30)} L31={sum(NUMS31)} L32={sum(NUMS32)} L33={sum(NUMS33)} L34={sum(NUMS34)} L35={sum(NUMS35)} L36={sum(NUMS36)} L37={sum(NUMS37)} "
           f"KL6={sum(NUMS_KL6)} KL7={sum(NUMS_KL7)} KL8={sum(NUMS_KL8)} KL9={sum(NUMS_KL9)} KL10={sum(NUMS_KL10)} "
-          f"KKL2={sum(NUMS_KKL2)} KKL3={sum(NUMS_KKL3)} KKL4={sum(NUMS_KKL4)} "
+          f"KKL1={sum(NUMS_KKL1)} KKL2={sum(NUMS_KKL2)} KKL3={sum(NUMS_KKL3)} KKL4={sum(NUMS_KKL4)} "
           f"L43={sum(NUMS43)} L44={sum(NUMS44)} L45={sum(NUMS45)} L46={sum(NUMS46)} L47={sum(NUMS47)} "
           f"L48={sum(NUMS48)} L49={sum(NUMS49)} L50={sum(NUMS50)} L51={sum(NUMS51)} L52={sum(NUMS52)} L53={sum(NUMS53)} "
-          f"KL36={KL36_SUM} KL37={KL37_SUM} KL38={KL38_SUM} KL39={KL39_SUM} KL40={KL40_SUM} KL41={KL41_SUM} KL42={KL42_SUM} KL43={KL43_SUM} KL44={KL44_SUM} KL45={KL45_SUM} KL51={KL51_SUM} KL52={KL52_SUM} KL53={KL53_SUM} KL54={KL54_SUM} KL55={KL55_SUM}")
+          f"KL36={KL36_SUM} KL37={KL37_SUM} KL38={KL38_SUM} KL39={KL39_SUM} KL40={KL40_SUM} KL40b={KL40B_SUM} KL41={KL41_SUM} KL42={KL42_SUM} KL43={KL43_SUM} KL44={KL44_SUM} KL45={KL45_SUM} KL51={KL51_SUM} KL52={KL52_SUM} KL53={KL53_SUM} KL54={KL54_SUM} KL55={KL55_SUM}")
     http_cfg = uvicorn.Config(app, host=HOST, port=PORT_HTTP, log_level="info")
     threading.Thread(target=uvicorn.Server(http_cfg).run, daemon=True).start()
     https_cfg = uvicorn.Config(app, host=HOST, port=PORT_HTTPS,

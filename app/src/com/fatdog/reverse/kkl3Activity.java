@@ -25,11 +25,12 @@ import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.Response;
 
-// 太玄之初 KKL3 · 断魂谷（★★★，服务端取数）。
-// libkkl3.so 的四路哨兵只做一件事：命中后把取数 HMAC 密钥翻 1 bit，
-// 服务端 /api/kkl3 持续 403。数字仍只在本地服务端，检测按钮不通关。
+// 太玄之初 KKL3 · 断魂谷（★★★★，服务端取数）。
+// 谷里没有壳可脱：它把"派生主钥"这件事搬进了一台自造的寄存器虚拟机，
+// 五个 so 串成一条链，少一个都取不回数；完整性守卫一旦命中，
+// 主钥被污染，服务端全程静默拒绝——它不会告诉你失败在哪一步。
 public class kkl3Activity extends Activity {
-    static final String SUM_HASH = "5b675c4a63fbc84ebc0478f244d3c63093d57d6a1eca7df8618dbf1485c92fd7";
+    static final String SUM_HASH = "e5b2b969f92ce208b531c252d9ccacc5";
     static final int PAGES = 100;
     static final int PER_PAGE = 10;
 
@@ -56,19 +57,18 @@ public class kkl3Activity extends Activity {
         root.setPadding(Ui.dp(16), Ui.dp(20), Ui.dp(16), Ui.dp(12));
 
         TextView tv = new TextView(this);
-        tv.setText("KKL3 · 断魂谷（★★★）\n\n"
-                + "libkkl3.so 四路哨兵守着取数签名：\n"
-                + "  ① ptrace/TracerPid\n"
-                + "  ② maps 加载特征（frida/gadget/librun）\n"
-                + "  ③ 27042 端口探测\n"
-                + "  ④ frida 线程名指纹\n\n"
-                + "任一命中，签名密钥立即翻 1 bit——\n"
-                + "服务端验签 403，数据仍在服务端。");
+        tv.setText("KKL3 · 断魂谷（★★★★）\n\n"
+                + "谷底无光。数字都在服务端，取数要过一道门。\n"
+                + "门后是一台自造的虚拟机——注册表里有它的全部指令，\n"
+                + "而钥匙从不出现在明文里。\n\n"
+                + "五个 so 首尾相扣：缺一环，门不开；\n"
+                + "沾了调试的痕迹，取回的数是废的。\n\n"
+                + "取满 100 页（每页 10 个数），求和后取摘要提交。");
         tv.setGravity(Gravity.CENTER);
         root.addView(tv, Ui.wrap(6));
 
         status = new TextView(this);
-        status.setText("点击「哨兵自检」查看状态，翻页即触发真实签名。");
+        status.setText("翻页即取数。可先点「环境自检」看看门是否开着。");
         status.setTextColor(Color.LTGRAY);
         status.setTypeface(Typeface.MONOSPACE);
         status.setTextSize(12);
@@ -76,7 +76,7 @@ public class kkl3Activity extends Activity {
         root.addView(status, Ui.fullWidth(6));
 
         Button scanBtn = new Button(this);
-        scanBtn.setText("哨兵自检");
+        scanBtn.setText("环境自检");
         Ui.styleButton(scanBtn);
         scanBtn.setOnClickListener(new View.OnClickListener() {
             @Override public void onClick(View v) {
@@ -145,7 +145,7 @@ public class kkl3Activity extends Activity {
         root.addView(navRow, Ui.fullWidth(10));
 
         final EditText ansIn = new EditText(this);
-        ansIn.setHint("输入总和 sha256（64 位 hex）");
+        ansIn.setHint("输入总和 md5（32 位 hex）");
         ansIn.setTextColor(Color.WHITE);
         ansIn.setTypeface(Typeface.MONOSPACE);
         ansIn.setBackgroundColor(0x33FFFFFF);
@@ -167,7 +167,7 @@ public class kkl3Activity extends Activity {
                     Celebration.show(kkl3Activity.this, "FLAG_18_KKL3{valley_of_the_sentinel}");
                     PassLog.mark(kkl3Activity.this, "KKL3");
                 } else {
-                    Toast.makeText(kkl3Activity.this, "加和不对，先取回全部 100 页。", Toast.LENGTH_SHORT).show();
+                    Toast.makeText(kkl3Activity.this, "摘要不对，先把 100 页都取回来。", Toast.LENGTH_SHORT).show();
                 }
             }
         });
@@ -180,13 +180,13 @@ public class kkl3Activity extends Activity {
             @Override public void onClick(View v) {
                 new AlertDialog.Builder(kkl3Activity.this)
                         .setTitle("提示")
-                        .setMessage("断魂谷要拆的是「签名前哨兵」，不是结果判断：\n\n"
-                                + "① 正常无调试器/Frida 时，四路都应安全，翻页可取数；\n"
-                                + "② 任一命中后密钥会被翻位，服务端静默 403；\n"
-                                + "③ 绕法分两类：patch/hook 让哨兵不命中，或静态还原真标记\n"
-                                + "   派生 HMAC 后绕开 so 直接取数；\n"
-                                + "④ 真标记藏 UTF-16，明文诱饵一字之差。\n\n"
-                                + "取证注意：真机关在 nativeSign，不是自检按钮。")
+                        .setMessage("断魂谷的钥匙从不出现在明文里：\n\n"
+                                + "① lib/ 下五个 so 是一套编队，先摸清谁在算、谁在守；\n"
+                                + "② 主钥只以虚拟机指令的形式存在，静态段里看不到它；\n"
+                                + "③ 环境一旦可疑，服务端会静默拒绝，不会报错给你看；\n"
+                                + "④ 两个标记一真一假，拼写只差一点，仔细比对。\n\n"
+                                + "取证方向：把取数跑通的每一步摸清楚，或者干脆在干净环境里\n"
+                                + "把派生链整条复刻出来——答案只有数字之和的摘要。")
                         .setPositiveButton("知道了", null)
                         .show();
             }
@@ -209,8 +209,15 @@ public class kkl3Activity extends Activity {
             @Override public void run() {
                 try {
                     final long ts = System.currentTimeMillis() / 1000;
-                    final String sign = Kkl3Native.nativeSign(page, ts);
-                    final String url = base + "/api/kkl3?page=" + page + "&ts=" + ts + "&sign=" + sign;
+                    final String token = Kkl3Native.nativeSign(page, ts);
+                    final int bar = token == null ? -1 : token.indexOf('|');
+                    if (bar <= 0) {
+                        throw new IllegalStateException("取数内核未就绪（五 so 缺一或主钥已被污染）");
+                    }
+                    final String enc = token.substring(0, bar);
+                    final String sign = token.substring(bar + 1);
+                    final String url = base + "/api/kkl3?page=" + page + "&ts=" + ts
+                            + "&enc=" + enc + "&sign=" + sign;
                     Request req = new Request.Builder().url(url)
                             .header("User-Agent", "Fatdog/1.0 (Android)")
                             .get().build();
@@ -219,7 +226,7 @@ public class kkl3Activity extends Activity {
                     try {
                         if (!resp.isSuccessful()) {
                             throw new IllegalStateException("HTTP " + resp.code()
-                                    + "（哨兵命中或标记用错，密钥可能已被投毒）");
+                                    + "（门没开：内核不齐、标记用错，或环境已被标记可疑）");
                         }
                         JSONObject jo = new JSONObject(resp.body().string());
                         JSONArray arr = jo.getJSONArray("nums");
@@ -235,14 +242,14 @@ public class kkl3Activity extends Activity {
                             render(nums);
                             renderNav(page);
                             status.setText("第 " + page + "/" + PAGES + " 页已取，"
-                                    + nums.length + " 个数（密钥正常）");
+                                    + nums.length + " 个数（门开着）");
                         }
                     });
                 } catch (final Throwable t) {
                     runOnUiThread(new Runnable() {
                         @Override public void run() {
                             loading = false;
-                            status.setText("请求失败: " + t + "\n可重试，也可「哨兵自检」看状态。");
+                            status.setText("请求失败: " + t + "\n可重试，也可「环境自检」看状态。");
                         }
                     });
                 }

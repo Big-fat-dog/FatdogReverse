@@ -24,6 +24,7 @@ import 'package:crypto/crypto.dart';
 import 'package:flutter/material.dart';
 
 import 'aes.dart';
+import 'rc4.dart';
 
 // ============================ KL36 ============================
 
@@ -66,12 +67,13 @@ String buildKiteDecoyEnc(int page, int ts) =>
     aes128EcbPkcs7Hex(kKiteDecoy.codeUnits, 'page=$page&ts=$ts');
 
 // ============================ KL38 ============================
-// 本关考点在**证书固定绕过**，密钥不再拆分，直接作为字符串字面量放在业务代码里；
+// 本关考点在**证书固定绕过**；密钥以 **base64 承载**——对象池里只出现 base64 串，
+// 明文钥在读取处解码还原，避免 strings 直读拿到主密钥。
 // AES 密钥由主密钥派生：SHA256("<主密钥>|aes") 的前 16 字节。
 
-const String kHazeTag = 'FDK38|Fatdog_haze|END';
-const String kHazeKey = 'Fatdog_haze';
-const String kHazeDecoy = 'Fatdog_fog';
+const String kHazeTag = 'FDK38|RmF0ZG9nX2hhemU=|END';
+final String kHazeKey = utf8.decode(base64.decode('RmF0ZG9nX2hhemU='));
+final String kHazeDecoy = utf8.decode(base64.decode('RmF0ZG9nX2ZvZw=='));
 
 /// 演示用固定 IV（真实运行时 IV 由 native 侧随机生成并前置在密文之前）
 const List<int> kHazeIv = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
@@ -168,6 +170,35 @@ String buildMirrorDecoyEnc(int page, int ts) => aesGcmEncryptHex(
     kMirrorNonce,
     'page=$page&ts=$ts');
 
+// ============================ KL40b ============================
+// 补卷：考的是"引擎换了张脸"，不是算法叠加。
+// 请求用 RC4 流密码封（钥 = SHA-256(标记 || "|rc4")）、签名用普通 MD5（非 HMAC）。
+// 与 KL40 的区别：无 GCM、无换钥；唯一的门槛在**引擎层证书校验桩**——
+// 引擎（BoringSSL）里那段固定链检查被 reFlutter 等价 patch 抹平后，才能读到本关真数据。
+// 密钥以 **base64 承载**：对象池里只出现 base64 串，明文钥在读取处解码还原。
+
+const String kPrismTag = 'FDK4B|RmF0ZG9nX3ByaXNt|END';
+final String kPrismKey = utf8.decode(base64.decode('RmF0ZG9nX3ByaXNt'));
+final String kPrismDecoy = utf8.decode(base64.decode('RmF0ZG9nX3ByaXNtYQ=='));
+
+/// 请求钥：SHA-256(标记 || "|rc4") —— 与 native `anchor_store` 同口径
+List<int> prismStreamKey() =>
+    sha256.convert(utf8.encode('$kPrismKey|rc4')).bytes;
+
+/// 请求加密：RC4 流密码，输出小写 hex
+String buildPrismEnc(int page, int ts) =>
+    rc4Hex(prismStreamKey(), 'page=$page&ts=$ts');
+
+/// 签名：普通 MD5(enc || 标记)（非 HMAC，与 KL40 同款摘要）
+String buildPrismSign(String enc) =>
+    md5.convert(utf8.encode('$enc$kPrismKey')).toString();
+
+/// 诱饵钥的加密结果（仅对照：服务端会 403）
+String buildPrismDecoyEnc(int page, int ts) {
+  final List<int> k = sha256.convert(utf8.encode('$kPrismDecoy|rc4')).bytes;
+  return rc4Hex(k, 'page=$page&ts=$ts');
+}
+
 /// 探针自检：显式引用**全部**哨兵/密钥/诱饵常量，避免被 AOT 树摇；
 /// 同时确认两条签名/加密链路可用（debugPrint 在 release 下不输出，但实参会被求值）。
 String _probeSelfCheck() {
@@ -184,13 +215,18 @@ String _probeSelfCheck() {
   final String e40 = buildMirrorEnc(1, 1787013761);
   final String g40 = buildMirrorSign(1, 1787013761, e40);
   final String d40 = buildMirrorDecoyEnc(1, 1787013761);
+  final String e4b = buildPrismEnc(1, 1787013761);
+  final String g4b = buildPrismSign(e4b);
+  final String d4b = buildPrismDecoyEnc(1, 1787013761);
   final String tag = '$kBundleTag|$kKiteTag|$kKiteP1|${kKiteP2Codes.length}|'
       '$kKiteDecoy|$kHazeTag|$kHazeDecoy|${kHazeIv.length}|'
       '$kMoonTag|$kMoonDecoyP1|$kMoonDecoyP2|$kMirrorTag|$kMirrorDecoy|'
-      '${kMirrorNonce.length}|${mirrorRespKey().length}';
+      '${kMirrorNonce.length}|${mirrorRespKey().length}|'
+      '$kPrismTag|$kPrismDecoy|${prismStreamKey().length}';
   debugPrint('probe tag=$tag s36=$s36 d36=$d36 e37=$e37 d37=$d37 e38=$e38 g38=$g38 d38=$d38 '
-      'm39=$m39 f39=$f39 frag39=$frag39 e40=$e40 g40=$g40 d40=$d40');
-  return '$tag|$s36|$d36|$e37|$d37|$e38|$g38|$d38|$m39|$f39|$frag39|$e40|$g40|$d40';
+      'm39=$m39 f39=$f39 frag39=$frag39 e40=$e40 g40=$g40 d40=$d40 '
+      'e4b=$e4b g4b=$g4b d4b=$d4b');
+  return '$tag|$s36|$d36|$e37|$d37|$e38|$g38|$d38|$m39|$f39|$frag39|$e40|$g40|$d40|$e4b|$g4b|$d4b';
 }
 
 void main() => runApp(const ProbeApp());

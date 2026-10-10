@@ -167,6 +167,16 @@ final class PastLifePage {
         }
         addRange(ctx, col, "天地秘境", 0xFF00BFA5, "KL", 1, 55,
                 new HashSet<Integer>(Arrays.asList(31, 32, 33, 34, 35)));
+        /* 碧落天补充关：KL40b（镜中之障）——单格，保持 4 列布局 */
+        {
+            LinearLayout extraRow = new LinearLayout(ctx);
+            extraRow.setOrientation(LinearLayout.HORIZONTAL);
+            LinearLayout.LayoutParams cp = new LinearLayout.LayoutParams(0, dp(ctx, 46), 1f);
+            cp.setMargins(dp(ctx, 2), dp(ctx, 2), dp(ctx, 2), dp(ctx, 2));
+            extraRow.addView(buildCell(ctx, "KL40b"), cp);
+            col.addView(extraRow, new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+        }
         addRange(ctx, col, "太玄之初", 0xFFB37FEB, "KKL", 1, 5);
 
         scroll.addView(col);

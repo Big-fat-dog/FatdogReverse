@@ -7,6 +7,7 @@
     <uses-sdk android:minSdkVersion="21" android:targetSdkVersion="34" />
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
     <application
         android:name=".FatdogApp"
@@ -148,6 +149,7 @@
         <activity android:name=".hazeActivity" android:exported="false" />
         <activity android:name=".moonActivity" android:exported="false" />
         <activity android:name=".reflectActivity" android:exported="false" />
+        <activity android:name=".prismActivity" android:exported="false" />
 
         <!-- 天地秘境须弥界 KL41 -->
         <activity android:name=".surfActivity" android:exported="false" />

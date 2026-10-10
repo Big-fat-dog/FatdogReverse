@@ -6,8 +6,6 @@ import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Bundle;
-import android.os.Handler;
-import android.os.Looper;
 import android.view.Gravity;
 import android.view.View;
 import android.widget.Button;
@@ -23,32 +21,27 @@ import org.json.JSONObject;
 
 import java.util.concurrent.TimeUnit;
 
-import okhttp3.FormBody;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
-import okhttp3.RequestBody;
 import okhttp3.Response;
 
-/**
- * KKL5 · 诛仙台。
- *
- * onCreate 被"抽成 native"：关键门禁不在 Java 里，而是 libkkl5.so 的 VM
- * 字节码解释执行（对齐 360 加固 native onCreate 还原）。Java 侧只负责
- * 构建可交互的视图、调用 nativeSign 拿 AES-128-CBC + HMAC 的取数签名、
- * 再把服务端返回的密文交给 native 解。
- */
+// 太玄之初 KKL5 · 诛仙台（★★★★★ 收官卷，服务端取数）。
+// 这里的机关不是壳，是一台自造的虚拟机：它一步步把钥匙从标记里算出来，
+// 指令密文按前一条自反馈加密——解得开第 N 条，才有第 N+1 条。
+// 取数走两层加密复合（内层分组 + 外层流式）叠一层摘要签名；五个 so 缺一不可。
+// 完整性守卫一旦命中，主钥被静默污染，服务端全程不给你报错。
 public class kkl5Activity extends Activity {
-    private static final int PAGES = 100;
-    private static final String SUM_HASH = "5c1f9a36a76360acdb86b6859da42f3ea7abe57ba5f5d836066039885f619924";
+    static final String SUM_HASH = "206125c6e7523ba7c0301144ac24eea9";
+    static final int PAGES = 100;
+    static final int PER_PAGE = 10;
 
-    private final TextView[] cells = new TextView[10];
     private TextView status;
+    private final TextView[] cells = new TextView[10];
     private LinearLayout pageBar;
     private EditText ansIn;
     private int currentPage = 1;
     private boolean loading = false;
-    private boolean onCreateOk = false;
-    private int answered = 0;
+    private boolean gateOk = false;
     private String base;
     private OkHttpClient client;
 
@@ -68,15 +61,18 @@ public class kkl5Activity extends Activity {
 
         TextView tv = new TextView(this);
         tv.setText("KKL5 · 诛仙台（★★★★★）\n\n"
-                + "外壳把本页的 onCreate 抽成 native：\n"
-                + "  · onCreate 门禁由 VM 字节码解释执行\n"
-                + "  · 取数走分组加密 + 散列签名复合防线\n"
-                + "  · 翻页触发 open → sign → commit 三点记账\n\n"
-                + "数据只在服务端；VM 字节码、密钥、判胜都不在 Java 里。");
+                + "这一页的 onCreate 被整个抽成了 native：\n"
+                + "门禁不在 Java 里，而在自造虚拟机逐条解开的密文指令里。\n"
+                + "虚拟机一步步算出的那把钥匙，又去喂两层加密复合——\n"
+                + "内层分组、外层流式，再叠一层摘要签名。\n\n"
+                + "五个 so 首尾相扣：缺一环，钥匙算不出；\n"
+                + "环境被标记可疑，取回的数是废的。\n\n"
+                + "取满 100 页（每页 10 个数），求和后取摘要提交。");
         tv.setGravity(Gravity.CENTER);
         root.addView(tv, Ui.wrap(6));
 
         status = new TextView(this);
+        status.setText("正在跑 onCreate 门禁…");
         status.setTextColor(Color.LTGRAY);
         status.setTypeface(Typeface.MONOSPACE);
         status.setTextSize(12);
@@ -84,7 +80,7 @@ public class kkl5Activity extends Activity {
         root.addView(status, Ui.fullWidth(6));
 
         Button scanBtn = new Button(this);
-        scanBtn.setText("守卫自检");
+        scanBtn.setText("环境自检");
         Ui.styleButton(scanBtn);
         scanBtn.setOnClickListener(new View.OnClickListener() {
             @Override public void onClick(View v) {
@@ -93,6 +89,7 @@ public class kkl5Activity extends Activity {
         });
         root.addView(scanBtn, Ui.wrap(10));
 
+        // 数字网格：5 列 x 2 行
         GridLayout grid = new GridLayout(this);
         grid.setColumnCount(5);
         grid.setRowCount(2);
@@ -119,18 +116,20 @@ public class kkl5Activity extends Activity {
         }
         root.addView(grid, Ui.fullWidth(12));
 
+        // 分页
         LinearLayout navRow = new LinearLayout(this);
         navRow.setOrientation(LinearLayout.HORIZONTAL);
         navRow.setGravity(Gravity.CENTER_VERTICAL);
         Button prev = new Button(this);
         prev.setText("◀ 上一页");
         Ui.styleButton(prev);
+        navRow.addView(prev, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
         prev.setOnClickListener(new View.OnClickListener() {
             @Override public void onClick(View v) {
                 if (!loading && currentPage > 1) loadPage(currentPage - 1);
             }
         });
-        navRow.addView(prev);
         HorizontalScrollView hsv = new HorizontalScrollView(this);
         hsv.setHorizontalScrollBarEnabled(false);
         pageBar = new LinearLayout(this);
@@ -140,16 +139,17 @@ public class kkl5Activity extends Activity {
         Button next = new Button(this);
         next.setText("下一页 ▶");
         Ui.styleButton(next);
+        navRow.addView(next, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
         next.setOnClickListener(new View.OnClickListener() {
             @Override public void onClick(View v) {
                 if (!loading && currentPage < PAGES) loadPage(currentPage + 1);
             }
         });
-        navRow.addView(next);
         root.addView(navRow, Ui.fullWidth(10));
 
         ansIn = new EditText(this);
-        ansIn.setHint("输入总和 sha256（64 位 hex）");
+        ansIn.setHint("输入总和摘要（32 位 hex）");
         ansIn.setTextColor(Color.WHITE);
         ansIn.setTypeface(Typeface.MONOSPACE);
         ansIn.setBackgroundColor(0x33FFFFFF);
@@ -185,11 +185,13 @@ public class kkl5Activity extends Activity {
                 new AlertDialog.Builder(kkl5Activity.this)
                         .setTitle("提示")
                         .setMessage("诛仙台是收官卷：\n\n"
-                                + "① onCreate 被抽成 native，关键判断在 VM 字节码里逐条解释执行；\n"
-                                + "② 取数签名是 AES-128-CBC + HMAC 复合结构，密钥由标记派生；\n"
-                                + "③ VM 字节码是滚动 XOR 加密的，静态看不到明文指令；\n"
-                                + "④ 两个标记中有一个是诱饵，仔细对比拼写差异；\n"
-                                + "⑤ 自检按钮只读，不判胜——真机关在翻页取数链路。")
+                                + "① onCreate 被抽成 native，关键判断在自造虚拟机的密文指令里；\n"
+                                + "② 这台虚拟机的指令按前一条自反馈加密，静态段看不到明文指令；\n"
+                                + "③ 取数是两层加密复合 + 一层摘要签名，密钥由标记派生；\n"
+                                + "④ 两个标记一真一假，拼写只差一点，仔细比对；\n"
+                                + "⑤ 自检按钮只读，不判胜——真机关在取数链路。\n\n"
+                                + "取证方向：把取数跑通的每一步摸清楚，或在干净环境里把\n"
+                                + "派生链整条复刻出来——答案只有数字之和的摘要。")
                         .setPositiveButton("知道了", null)
                         .show();
             }
@@ -202,10 +204,10 @@ public class kkl5Activity extends Activity {
 
         // onCreate 抽取：先让 native VMP 跑门禁，再决定是否放行取数。
         final String gate = Kkl5Native.nativeOnCreate(this);
-        onCreateOk = gate != null && gate.startsWith("OK");
-        if (onCreateOk) {
-            String dexInfo = loadBusinessDex();
-            status.setText("onCreate VM 门禁通过，" + dexInfo + "，准备取数。");
+        gateOk = gate != null && gate.startsWith("OK");
+        if (gateOk) {
+            final String dexInfo = loadBusinessDex();
+            status.setText("onCreate 门禁通过，" + dexInfo + "，准备取数。");
             loadPage(1);
         } else {
             status.setText("门禁未通过：" + gate + "\nso 可能被 patch / 环境被 hook。");
@@ -242,75 +244,62 @@ public class kkl5Activity extends Activity {
         is.close();
         return bos.toByteArray();
     }
-        private void loadPage(final int page) {
-        if (loading || !onCreateOk) return;
+
+    private void loadPage(final int page) {
+        if (loading || !gateOk) return;
         loading = true;
-        status.setText("正在请求第 " + page + " 页…");
+        runOnUiThread(new Runnable() {
+            @Override public void run() { status.setText("正在请求第 " + page + " 页…"); }
+        });
         new Thread(new Runnable() {
             @Override public void run() {
                 try {
                     final long ts = System.currentTimeMillis() / 1000;
-                    String signed = Kkl5Native.nativeSign(page, ts);
-                    if (signed == null || signed.indexOf('|') < 0) {
-                        throw new IllegalStateException("native 签名被守卫拒绝");
+                    final String token = Kkl5Native.nativeSign(page, ts);
+                    final int bar = token == null ? -1 : token.indexOf('|');
+                    if (bar <= 0) {
+                        throw new IllegalStateException("取数内核未就绪（五 so 缺一或主钥已被污染）");
                     }
-                    String enc = signed.substring(0, signed.indexOf('|'));
-                    String sign = signed.substring(signed.indexOf('|') + 1);
-                    RequestBody body = new FormBody.Builder()
-                            .add("page", String.valueOf(page))
-                            .add("ts", String.valueOf(ts))
-                            .add("enc", enc)
-                            .add("sign", sign)
-                            .build();
-                    Request req = new Request.Builder().url(base + "/api/kkl5")
+                    final String enc = token.substring(0, bar);
+                    final String sign = token.substring(bar + 1);
+                    final String url = base + "/api/kkl5?page=" + page + "&ts=" + ts
+                            + "&enc=" + enc + "&sign=" + sign;
+                    Request req = new Request.Builder().url(url)
                             .header("User-Agent", "Fatdog/1.0 (Android)")
-                            .post(body).build();
+                            .get().build();
                     Response resp = client.newCall(req).execute();
                     final int[] nums;
                     try {
-                        String payload;
                         if (!resp.isSuccessful()) {
                             throw new IllegalStateException("HTTP " + resp.code()
-                                    + "（守卫触发或密钥被投毒）");
+                                    + "（门没开：内核不齐、标记用错，或环境已被标记可疑）");
                         }
                         JSONObject jo = new JSONObject(resp.body().string());
-                        String ivHex = jo.getString("iv");
-                        String dHex = jo.getString("d");
-                        String rspSign = jo.getString("sign");
-                        // 响应 HMAC 验签：加密字节被篡改则立即拒绝
-                        if (!Kkl5Native.nativeVerifyResponse(page, ts, ivHex, dHex, rspSign)) {
-                            throw new IllegalStateException("响应签名校验失败");
-                        }
-                        byte[] sealed = hexToBytes(ivHex + dHex);
+                        byte[] sealed = hexToBytes(jo.getString("d"));
                         byte[] plain = Kkl5Native.nativeUnseal(sealed);
                         if (plain == null) throw new IllegalStateException("响应解密失败");
-                        payload = new String(plain, "UTF-8");
-                        JSONObject pageObj = new JSONObject(payload);
+                        JSONObject pageObj = new JSONObject(new String(plain, "UTF-8"));
                         JSONArray arr = pageObj.getJSONArray("nums");
                         nums = new int[arr.length()];
                         for (int i = 0; i < arr.length(); i++) nums[i] = arr.getInt(i);
                     } finally {
                         resp.close();
                     }
-                    final int commit = Kkl5Native.nativeCommit(page, nums.length);
                     runOnUiThread(new Runnable() {
                         @Override public void run() {
                             loading = false;
                             currentPage = page;
                             render(nums);
                             renderNav(page);
-                            answered = Math.max(answered, page);
                             status.setText("第 " + page + "/" + PAGES + " 页已取，"
-                                    + nums.length + " 个数"
-                                    + (commit == 0 ? "（记账闭合）" : "（核账失败 " + commit + "）"));
+                                    + nums.length + " 个数（门开着）");
                         }
                     });
                 } catch (final Throwable t) {
-                    Kkl5Native.nativeRollback();
                     runOnUiThread(new Runnable() {
                         @Override public void run() {
                             loading = false;
-                            status.setText("请求失败: " + t + "\n已撤销挂账，可重试。");
+                            status.setText("请求失败: " + t + "\n可重试，也可「环境自检」看状态。");
                         }
                     });
                 }
@@ -346,19 +335,16 @@ public class kkl5Activity extends Activity {
             g.setShape(GradientDrawable.RECTANGLE);
             g.setCornerRadius(Ui.dp(14));
             boolean sel = (p == page);
-            g.setColor(sel ? 0xFFFB7299 : 0x33222222);
+            g.setColor(sel ? 0xFFFB7299 : (ThemeKit.isDark(this) ? 0xFF2A2A33 : 0xFFF1F1F4));
             chip.setBackground(g);
-            chip.setTextColor(sel ? Color.WHITE : 0xFFCCCCCC);
+            chip.setTextColor(sel ? 0xFFFFFFFF : (ThemeKit.isDark(this) ? 0xFFD8D8E0 : 0xFF3A3A42));
             chip.setOnClickListener(new View.OnClickListener() {
                 @Override public void onClick(View v) {
-                    if (!loading) loadPage(fp);
+                    if (!loading && fp != currentPage) loadPage(fp);
                 }
             });
-            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.WRAP_CONTENT,
-                    LinearLayout.LayoutParams.WRAP_CONTENT);
-            lp.setMargins(Ui.dp(2), 0, Ui.dp(2), 0);
-            pageBar.addView(chip, lp);
+            pageBar.addView(chip, new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
         }
     }
 

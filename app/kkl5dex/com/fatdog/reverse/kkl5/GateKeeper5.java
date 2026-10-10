@@ -3,8 +3,8 @@ package com.fatdog.reverse.kkl5;
 /**
  * 诛仙台 · 业务真身（KKL5）。
  *
- * 本类不进主 classes.dex：构建期被 AES-128-CBC 加密埋进
- * assets/kkl5/ascension_altar.bin，运行时由 libkkl5.so 的 nativeUnseal()
+ * 本类不进主 classes.dex：构建期被复合加密（内层分组 + 外层流式）埋进
+ * assets/kkl5/ascension_altar.bin，运行时由 libspindle.so 的 nativeUnseal()
  * 解密后经 InMemoryDexClassLoader 内存加载。密钥由 onCreate VM 门禁派生。
  */
 public final class GateKeeper5 {

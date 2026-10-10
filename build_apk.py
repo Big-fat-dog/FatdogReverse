@@ -29,6 +29,49 @@ KEYSTORE = os.path.join(HERE, 'keystore', 'debug.keystore')
 LIB_JAR_NAMES = ('okhttp-4.12.0.jar', 'okio-jvm-3.6.0.jar', 'kotlin-stdlib-1.8.22.jar', 'annotations.jar')
 
 
+# 碧落天真实 Flutter 产物回填 ----------------------------------------------------
+# tools/build_flutter_artifacts.py 会把 libapp.so / libflutter.so 抽进 app/libs/，
+# 但 ndk-build 的 clean-installed-binaries 目标会 `rm libs/<abi>/*` 清空整个目录
+# （防打包陈旧模块），会连带把它们冲掉。故必须在 ndk-build **之后**从 Flutter
+# 构建暂存 APK 重新抽取，否则最终 APK 里没有真实产物、碧落天只能走镜像兜底。
+def _flutter_stage_apk():
+    la = os.environ.get('LOCALAPPDATA') or os.path.expanduser('~')
+    stage = os.environ.get('FLUTTER_BUILD_DIR') or os.path.join(la, 'fatdog_flutter_build')
+    return os.path.join(stage, 'build', 'app', 'outputs', 'flutter-apk', 'app-release.apk')
+
+
+def inject_flutter_libs(app_dir):
+    apk = _flutter_stage_apk()
+    abi = 'arm64-v8a'
+    if not os.path.isfile(apk):
+        print('提示: 未找到 Flutter 产物 APK（%s）' % apk)
+        print('      碧落天 KL36-40/KL40b 将走镜像兜底常量；如需真实产物先跑:')
+        print('      python tools/build_flutter_artifacts.py')
+        return
+    out = os.path.join(app_dir, 'libs', abi)
+    os.makedirs(out, exist_ok=True)
+    got = []
+    try:
+        with zipfile.ZipFile(apk) as z:
+            names = set(z.namelist())
+            for so in ('libapp.so', 'libflutter.so'):
+                ent = 'lib/%s/%s' % (abi, so)
+                if ent not in names:
+                    print('警告: Flutter 产物 APK 缺少 %s，跳过' % ent)
+                    continue
+                dst = os.path.join(out, so)
+                with z.open(ent) as src, open(dst, 'wb') as fp:
+                    shutil.copyfileobj(src, fp)
+                got.append((so, os.path.getsize(dst)))
+    except Exception as e:
+        print('警告: 回填 Flutter 产物失败：%r' % (e,))
+        return
+    for so, size in got:
+        print('Flutter 产物回填: libs/%s/%s (%.1f MB)' % (abi, so, size / 1048576.0))
+    if not got:
+        print('提示: 未回填任何 Flutter 产物 so。')
+
+
 def find_sdk():
     for k in ('ANDROID_SDK_ROOT', 'ANDROID_HOME'):
         v = os.environ.get(k)
@@ -146,6 +189,28 @@ def main():
     shutil.rmtree(BUILD, ignore_errors=True)
     os.makedirs(os.path.join(BUILD, 'classes'))
 
+    # 0a) KKL1 玄冥渊：业务 DEX 独立编译（源码在 app/kkl1dex，不进主 dex）
+    #     + gen_kkl1.py 整体加密烘焙 assets（必须在 aapt2 link -A assets 之前完成）。
+    kkl1_src = os.path.join(APP, 'kkl1dex')
+    if os.path.isdir(kkl1_src):
+        k1_cls = os.path.join(BUILD, 'kkl1dex', 'classes')
+        k1_dex_dir = os.path.join(BUILD, 'kkl1dex', 'dex')
+        os.makedirs(k1_cls, exist_ok=True)
+        os.makedirs(k1_dex_dir, exist_ok=True)
+        k1_java = sorted(glob.glob(os.path.join(kkl1_src, '**', '*.java'), recursive=True))
+        run([javac, '-encoding', 'UTF-8', '-source', '8', '-target', '8',
+             '-bootclasspath', android_jar, '-d', k1_cls] + k1_java)
+        k1_jar = os.path.join(BUILD, 'kkl1dex', 'classes.jar')
+        with zipfile.ZipFile(k1_jar, 'w', zipfile.ZIP_DEFLATED) as zj:
+            for cf in sorted(glob.glob(os.path.join(k1_cls, '**', '*.class'), recursive=True)):
+                zj.write(cf, os.path.relpath(cf, k1_cls).replace('\\', '/'))
+        run([d8, '--release', '--min-api', '21', '--output', k1_dex_dir, k1_jar])
+        k1_dex = os.path.join(k1_dex_dir, 'classes.dex')
+        if os.path.isfile(k1_dex):
+            run([sys.executable, os.path.join(HERE, 'gen_kkl1.py'), '--bake', k1_dex])
+        else:
+            print('警告: 未找到 kkl1 业务 dex 输出: ' + k1_dex)
+
     # 0b) KKL2 万剑冢：业务 DEX 独立编译（源码在 app/kkl2dex，不进主 dex）
     #     + gen_kkl2.py 加密烘焙 assets（必须在 aapt2 link -A assets 之前完成）。
     kkl2_src = os.path.join(APP, 'kkl2dex')
@@ -169,7 +234,8 @@ def main():
             print('警告: 未找到 kkl2 业务 dex 输出: ' + k2_dex)
 
     # 0c) KKL5 诛仙台：业务 DEX 独立编译（源码在 app/kkl5dex，不进主 dex）
-    #     + gen_kkl5.py 用 AES-128-CBC 加密烘焙 assets（必须在 aapt2 link -A assets 之前完成）。
+    #     + gen_kkl5.py 用复合算法（内层 SM4-CBC / 外层 AES-128-CTR）加密烘焙
+    #     assets/kkl5/ascension_altar.bin（必须在 aapt2 link -A assets 之前完成）。
     kkl5_src = os.path.join(APP, 'kkl5dex')
     if os.path.isdir(kkl5_src):
         k5_cls = os.path.join(BUILD, 'kkl5dex', 'classes')
@@ -271,17 +337,8 @@ def main():
                 except subprocess.CalledProcessError:
                     if attempt == 2:
                         raise
-            # KKL4 libkkl4 真实代码窗口 CRC：四组导出符号烘焙 → 重编 → 校验
-            gen_kkl4 = os.path.join(HERE, 'tools', 'gen_kkl4_crc_baseline.py')
-            for attempt in range(3):
-                run([sys.executable, gen_kkl4])
-                run([ndk_build, '-C', APP])
-                try:
-                    run([sys.executable, gen_kkl4, '--verify'])
-                    break
-                except subprocess.CalledProcessError:
-                    if attempt == 2:
-                        raise
+            # 4b) 回填 Flutter 真实产物：ndk-build 会清空 libs/<abi>/*，须在其后重抽。
+            inject_flutter_libs(APP)
             for abi in ('arm64-v8a', 'armeabi-v7a'):
                 for so in sorted(glob.glob(os.path.join(APP, 'libs', abi, '*.so'))):
                     libs.setdefault(abi, []).append(so)

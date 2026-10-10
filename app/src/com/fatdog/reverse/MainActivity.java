@@ -702,13 +702,13 @@ public class MainActivity extends Activity {
             }
         } else if (kunlunCat == 6) {
             /* 碧落天：KL36 起 */
-            String[] names = {"云中锦书", "风中鸢尾", "雾里观花", "月下独酌", "星河倒影"};
-            int[] klNums = {36, 37, 38, 39, 40};
+            String[] names = {"云中锦书", "风中鸢尾", "雾里观花", "月下独酌", "星河倒影", "镜中之障"};
+            String[] ids = {"KL36", "KL37", "KL38", "KL39", "KL40", "KL40b"};
             for (int i = 0; i < names.length; i++) {
-                final int kl = klNums[i];
-                boolean open = PassLog.isDone(this, "KL" + kl);
+                final String lid = ids[i];
+                boolean open = PassLog.isDone(this, lid);
                 Button b = new Button(this);
-                b.setText("KL" + kl + " · " + names[i] + (open ? " ✔" : ""));
+                b.setText(lid + " · " + names[i] + (open ? " ✔" : ""));
                 b.setEnabled(true);
                 b.setAlpha(b.isEnabled() ? 1f : 0.55f);
                 Ui.styleButton(b);
@@ -716,7 +716,7 @@ public class MainActivity extends Activity {
                         LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
                 lp.topMargin = Ui.dp(12);
                 list.addView(b, lp);
-                final Class<?> target = kl == 36 ? scrollActivity.class : kl == 37 ? kiteActivity.class : kl == 38 ? hazeActivity.class : kl == 39 ? moonActivity.class : reflectActivity.class;
+                final Class<?> target = "KL36".equals(lid) ? scrollActivity.class : "KL37".equals(lid) ? kiteActivity.class : "KL38".equals(lid) ? hazeActivity.class : "KL39".equals(lid) ? moonActivity.class : "KL40".equals(lid) ? reflectActivity.class : prismActivity.class;
                 b.setOnClickListener(new View.OnClickListener() {
                     @Override public void onClick(View v) {
                         startActivity(new Intent(MainActivity.this, target));

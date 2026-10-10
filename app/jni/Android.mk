@@ -345,6 +345,14 @@ LOCAL_CPPFLAGS := -std=c++17 -fexceptions -frtti
 LOCAL_LDLIBS := -llog
 include $(BUILD_SHARED_LIBRARY)
 
+# KL40b
+include $(CLEAR_VARS)
+LOCAL_MODULE := prism
+LOCAL_SRC_FILES := kl40b.cpp
+LOCAL_CPPFLAGS := -std=c++17 -fexceptions -frtti
+LOCAL_LDLIBS := -llog
+include $(BUILD_SHARED_LIBRARY)
+
 # KKL1
 include $(CLEAR_VARS)
 LOCAL_MODULE := kkl1
@@ -361,28 +369,91 @@ LOCAL_CPPFLAGS := -std=c++17 -fexceptions -frtti
 LOCAL_LDLIBS := -llog
 include $(BUILD_SHARED_LIBRARY)
 
-# KKL3
+# KKL3 断魂谷 —— 五 so 编队（门面 beacon + 内核 lattice/basalt/ingot/harbor，缺一不可）
 include $(CLEAR_VARS)
-LOCAL_MODULE := kkl3
-LOCAL_SRC_FILES := kkl3.cpp
+LOCAL_MODULE := beacon
+LOCAL_SRC_FILES := beacon.cpp
 LOCAL_CPPFLAGS := -std=c++17 -fexceptions -frtti
-LOCAL_LDLIBS := -llog
+LOCAL_LDLIBS := -llog -ldl
 include $(BUILD_SHARED_LIBRARY)
 
-# KKL4
 include $(CLEAR_VARS)
-LOCAL_MODULE := kkl4
-LOCAL_SRC_FILES := kkl4.cpp kkl4_baseline.c
+LOCAL_MODULE := lattice
+LOCAL_SRC_FILES := lattice.cpp
 LOCAL_CPPFLAGS := -std=c++17 -fexceptions -frtti
-LOCAL_LDLIBS := -llog
 include $(BUILD_SHARED_LIBRARY)
 
-# KKL5
 include $(CLEAR_VARS)
-LOCAL_MODULE := kkl5
-LOCAL_SRC_FILES := kkl5.cpp
+LOCAL_MODULE := basalt
+LOCAL_SRC_FILES := basalt.cpp
+include $(BUILD_SHARED_LIBRARY)
+
+include $(CLEAR_VARS)
+LOCAL_MODULE := ingot
+LOCAL_SRC_FILES := ingot.cpp
+include $(BUILD_SHARED_LIBRARY)
+
+include $(CLEAR_VARS)
+LOCAL_MODULE := harbor
+LOCAL_SRC_FILES := harbor.cpp
+include $(BUILD_SHARED_LIBRARY)
+
+# KKL4 锁妖塔 —— 五 so 编队（门面 citadel + 内核 obsidian/cavern/tundra/prowl，缺一不可）
+include $(CLEAR_VARS)
+LOCAL_MODULE := citadel
+LOCAL_SRC_FILES := citadel.cpp
 LOCAL_CPPFLAGS := -std=c++17 -fexceptions -frtti
-LOCAL_LDLIBS := -llog
+LOCAL_LDLIBS := -llog -ldl
+include $(BUILD_SHARED_LIBRARY)
+
+include $(CLEAR_VARS)
+LOCAL_MODULE := obsidian
+LOCAL_SRC_FILES := obsidian.cpp
+LOCAL_CPPFLAGS := -std=c++17 -fexceptions -frtti
+include $(BUILD_SHARED_LIBRARY)
+
+include $(CLEAR_VARS)
+LOCAL_MODULE := cavern
+LOCAL_SRC_FILES := cavern.cpp
+include $(BUILD_SHARED_LIBRARY)
+
+include $(CLEAR_VARS)
+LOCAL_MODULE := tundra
+LOCAL_SRC_FILES := tundra.cpp
+include $(BUILD_SHARED_LIBRARY)
+
+include $(CLEAR_VARS)
+LOCAL_MODULE := prowl
+LOCAL_SRC_FILES := prowl.cpp
+include $(BUILD_SHARED_LIBRARY)
+
+# KKL5 诛仙台 —— 五 so 编队（门面 spindle + 内核 vellum/nimbus/tallow/wraith，缺一不可）
+include $(CLEAR_VARS)
+LOCAL_MODULE := spindle
+LOCAL_SRC_FILES := spindle.cpp
+LOCAL_CPPFLAGS := -std=c++17 -fexceptions -frtti
+LOCAL_LDLIBS := -llog -ldl
+include $(BUILD_SHARED_LIBRARY)
+
+include $(CLEAR_VARS)
+LOCAL_MODULE := vellum
+LOCAL_SRC_FILES := vellum.cpp
+LOCAL_CPPFLAGS := -std=c++17 -fexceptions -frtti
+include $(BUILD_SHARED_LIBRARY)
+
+include $(CLEAR_VARS)
+LOCAL_MODULE := nimbus
+LOCAL_SRC_FILES := nimbus.cpp
+include $(BUILD_SHARED_LIBRARY)
+
+include $(CLEAR_VARS)
+LOCAL_MODULE := tallow
+LOCAL_SRC_FILES := tallow.cpp
+include $(BUILD_SHARED_LIBRARY)
+
+include $(CLEAR_VARS)
+LOCAL_MODULE := wraith
+LOCAL_SRC_FILES := wraith.cpp
 include $(BUILD_SHARED_LIBRARY)
 
 # L48 —— 10 个 so（1 真 + 9 干扰，名字不体现关卡号）

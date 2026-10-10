@@ -1,9 +1,9 @@
 # FatdogReverse
 
-**Android 逆向工程实战靶场 · 109 关 · 本地离线 · 答案可复现**
+**Android 逆向工程实战靶场 · 110 关 · 本地离线 · 答案可复现**
 
 ![Platform](https://img.shields.io/badge/Platform-Android%205%2B-3DDC84)
-![Levels](https://img.shields.io/badge/Levels-109-blue)
+![Levels](https://img.shields.io/badge/Levels-110-blue)
 ![Build](https://img.shields.io/badge/Build-No%20Gradle-orange)
 ![Server](https://img.shields.io/badge/Server-FastAPI-009688)
 ![Tools](https://img.shields.io/badge/Tools-Frida%20%7C%20jadx%20%7C%20IDA%20%7C%20apktool-lightgrey)
@@ -48,14 +48,15 @@ FatdogReverse 是一套**完全离线运行**的 Android 逆向工程练习靶�
 
 ## 关卡总览
 
-当前共 **109 关**，分为主流程与天地秘境两大块。
+当前共 **110 关**，分为主流程与天地秘境两大块。
 
 | 编号 | 数量 | 内容 |
 |---|---:|---|
 | `L1-L53` | 53 关 | 主流程，按大厅分类推进 |
 | `KL1-KL55` | 50 关 | 天地秘境（`KL31-KL35` 规划中，暂未开放） |
 | `KKL1-KKL5` | 5 关 | 太玄之初追加卷（C++ 壳零件与 VMP 签名链） |
-| **合计** | **109 关** | |
+| `KL40b` | 1 关 | 碧落天追加卷（Flutter 引擎证书校验桩对抗） |
+| **合计** | **110 关** | |
 
 ### 主流程 `L1-L53`
 
@@ -73,7 +74,7 @@ FatdogReverse 是一套**完全离线运行**的 Android 逆向工程练习靶�
 
 > 其中 `L6` 没有入口按钮，藏在 `AndroidManifest.xml` 里，需要自己找。
 
-### 天地秘境 `KL1-KL55` / `KKL1-KKL5`
+### 天地秘境 `KL1-KL55` / `KKL1-KKL5` / `KL40b`
 
 完成全部主流程关卡后解锁；也可以在门禁处输入密令 `Fatdog` 直接进入。
 
@@ -83,10 +84,11 @@ FatdogReverse 是一套**完全离线运行**的 Android 逆向工程练习靶�
 | 流沙河 | `KL6-KL10` | 5 | 魔改 AES / DES / SM4 / RC4 / SHA-256 五连关 |
 | 幽冥海 | `KL11-KL15` | 5 | SO Patch 对抗：静态 patch、动态 patch、反 patch、多 SO 交叉验证 |
 | 太玄之初 | `KL16-KL20` | 5 | 加固壳分代脱壳：一代壳、二代壳（类抽取 / 方法抽取）、三代壳 |
-| 太玄之初追加卷 | `KKL1-KKL5` | 5 | C++ 壳零件、DEX 内存加载、反检测、CRC、VMP 签名链 |
+| 太玄之初追加卷 | `KKL1-KKL5` | 5 | 二代壳（DEX 整体加密 · 落盘 / 内存加载；RC4 / AES-CBC + MD5）、VMP（**每关五 so 编队**、SM4-ECB + MD5） |
 | 扶桑树 | `KL21-KL28` | 8 | Frida 检测与反检测：端口、fd、maps、auxv、ptrace、时序 |
 | 天机阁 | `KL29-KL30` | 2 | 自定义 TLV 与 Protobuf 二进制协议逆向 |
-| 碧落天 | `KL36-KL40` | 5 | Flutter/Dart 真机逆向：AOT 快照（Blutter）、混淆对抗、BoringSSL pinning、`dart:ffi` |
+| 碧落天 | `KL36-KL40` | 5 | Flutter/Dart 真机逆向：AOT 快照（Blutter）、混淆对抗、BoringSSL pinning、`dart:ffi`、抓包环境对抗 |
+| 碧落天追加卷 | `KL40b` | 1 | Flutter 引擎层证书校验桩（reFlutter 等价 patch 对抗）+ RC4 流密码 / 普通摘要 |
 | 须弥界 | `KL41-KL45` | 5 | H5/WebView 逆向：JSBridge、资源加密、JS 层加密还原、协议重放 |
 | 九幽 | `KL46-KL50` | 5 | Root 检测与绕过：环境完整性、bootloader、mount namespace、Play Integrity 仿真 |
 | 迷阵 | `KL51-KL55` | 5 | OLLVM 混淆对抗：控制流平坦化、虚假控制流、字符串加密、间接跳转、魔改算法 |
@@ -173,8 +175,8 @@ adb reverse --list    # 确认映射生效
 
 | 端口 | 协议 | 适用关卡 |
 |---|---|---|
-| `8787` | HTTP | `L15-L19`、`KKL2-KKL5` |
-| `8443` | HTTPS | `L21-L25`、`L27-L37`、`L37b`、`L43-L53`、`KL6-KL10`、`KL30` |
+| `8787` | HTTP | `L15-L19`、`KKL1-KKL5` |
+| `8443` | HTTPS | `L21-L25`、`L27-L37`、`L37b`、`L43-L53`、`KL6-KL10`、`KL30`、`KL36-KL40`、`KL40b`、`KL51-KL55` |
 | `8444` | HTTPS + mTLS | `L26` |
 
 App 的地址选择逻辑位于 `NetHost.java`：`httpBase()` → `8787`，`httpsBase()` → `8443`，`mtlsBase()` → `8444`。
@@ -298,6 +300,18 @@ FatdogReverse/
 5. 返回 `403` 时，检查签名、密钥、时间戳与防篡改状态。
 6. `8443` 关卡需要处理自签证书或证书锁定。
 7. `8444` 关卡必须携带 APK 内置的 mTLS 客户端证书。
+
+</details>
+
+<details>
+<summary>Flutter 关卡（KL36-KL40 / KL40b）抓不到包怎么办？</summary>
+
+Flutter 用自带的 BoringSSL，**不读系统代理**，直接在系统里设 HTTP 代理抓不到 `KL36` 起的请求。按这几条来：
+
+1. 用 `adb reverse tcp:8443 tcp:8443` 把端口引到本机代理（或走 tun 模式），不要依赖系统 HTTP 代理。
+2. **`KL38`「雾里观花」起会对代理 / VPN 环境做体检**：命中后请求参数被**静默投毒**（签名全错，界面却不报错）。先把环境切干净，再去比对参数。
+3. **`KL40b`「镜中之障」**的门槛在**引擎层证书校验桩**：引擎里那段固定链检查被抹平（`reFlutter` 等价 patch）后，才能读到本关真数据；也可以纯静态复刻请求参数。
+4. **两关的主密钥以 base64 承载**：从载荷 / so 里 `strings` 直接搜到的是一串 base64（如 `RmF0ZG9nX2hhemU=`），需先 `b64decode` 还原主钥再派生——**直接把 base64 串当钥会全部失败**。
 
 </details>
 

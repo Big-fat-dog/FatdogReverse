@@ -52,6 +52,12 @@ public class FlutterNet {
     // 只读自检：只报密码原语、载荷来源与检测评分，不含密钥明文、不判胜
     public static native String nativeGetStatus();
 
+    // 环境体检相位：0 未扫描 / 1 清净 / 2 有异（只说有无，不点破手段、不判胜）
+    public static native int nativeEnvPhase();
+
+    // 合并 Java 侧命中数（系统代理 / VPN）与 native 侧评分，返回当前相位
+    public static native int nativeEnvNote(int hits);
+
     static final String BASE = NetHost.httpsBase();
 
     public interface Cb {

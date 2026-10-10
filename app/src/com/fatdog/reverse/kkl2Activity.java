@@ -29,17 +29,17 @@ import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.Response;
 
-// 太玄之初 KKL2 · 万剑冢：真 DEX 内存加载（★★，服务端取数）。
-// 业务 DEX（com.fatdog.reverse.kkl2.GateKeeper2）构建期加密后埋进
+// 太玄之初 KKL2 · 万剑冢：二代壳 · DEX 整体加密 + 内存加载不落盘（★★，服务端取数）。
+// 业务 DEX（com.fatdog.reverse.kkl2.GateKeeper2）构建期用 AES-128-CBC 整体加密后埋进
 // assets/kkl2/echoes_of_blades.bin；libkkl2.so 动态注册两个 native：
-//   nativeUnseal(enc)   → 解密出明文 dex 字节
-//   nativeDeriveSeal()   → HMAC 密钥（真标记 Fatdog_tense 藏 UTF-16）
+//   nativeUnseal(enc)   → AES-128-CBC 解密出明文 dex 字节
+//   nativeDeriveSeal()   → 取数签名 seal（真标记 Fatdog_tense 藏 UTF-16，MD5 派生）
 // 明文 dex 经 InMemoryDexClassLoader 内存加载（不落盘），取数逻辑只在
-// 加载出的 dex 里：GateKeeper2.sign(key, ts, page) 签 HMAC 逐页取数。
+// 加载出的 dex 里：GateKeeper2.sign(seal, ts, page) 签 MD5 逐页取数。
 // 玩家需要：① 认 assets 假壳 classes_decoy.dex → ② 还原解密链 / hook unseal
-// ③ dump 出 dex → ④ 拿 key → ⑤ HMAC 取 100 页求和。
+// ③ dump 出 dex → ④ 拿 seal → ⑤ MD5 取 100 页求和。
 public class kkl2Activity extends Activity {
-    static final String SUM_HASH = "00ed53989532cff023fc7776f13e584d75149e80f528b1f8d079de7d9bdabb13";
+    static final String SUM_HASH = "f2137159e2a60cd3abc4a35309aa1839";
     static final int PAGES = 100;
     static final String ASSET = "kkl2/echoes_of_blades.bin";
     static final String BIZ_CLASS = "com.fatdog.reverse.kkl2.GateKeeper2";
@@ -56,7 +56,7 @@ public class kkl2Activity extends Activity {
     // 内存加载后的业务类（反射句柄缓存）
     private Class<?> biz;
     private Method mSign;
-    private byte[] dexPad;
+    private byte[] seal;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -74,9 +74,9 @@ public class kkl2Activity extends Activity {
 
         TextView tv = new TextView(this);
         tv.setText("KKL2 · 万剑冢（★★）\n\n"
-                + "业务 DEX 被加密埋在 assets（classes_decoy.dex 是假壳）。\n"
+                + "业务 DEX 被 AES-128-CBC 整体加密埋在 assets（classes_decoy.dex 是假壳）。\n"
                 + "libkkl2.so 导出表没有 Java_ 符号——两个 native 是 JNI_OnLoad\n"
-                + "动态注册的：nativeUnseal 解 dex、nativeDeriveSeal 给 HMAC 密钥。\n"
+                + "动态注册的：nativeUnseal 解 dex、nativeDeriveSeal 给签名 seal。\n"
                 + "解出的 dex 不落盘，InMemoryDexClassLoader 直接内存加载。\n"
                 + "取数签名逻辑只在加载出的 dex 里，100 页 × 每页 10 个数求和。");
         tv.setGravity(Gravity.CENTER);
@@ -162,7 +162,7 @@ public class kkl2Activity extends Activity {
 
         // 答案输入 + 提交
         final EditText ansIn = new EditText(this);
-        ansIn.setHint("输入总和 sha256（64 位 hex）");
+        ansIn.setHint("输入总和 md5（32 位 hex）");
         ansIn.setTextColor(Color.WHITE);
         ansIn.setTypeface(Typeface.MONOSPACE);
         ansIn.setBackgroundColor(0x33FFFFFF);
@@ -200,17 +200,17 @@ public class kkl2Activity extends Activity {
                         .setTitle("提示")
                         .setMessage("万剑冢分析路线：\n\n"
                                 + "① jadx 看 assets：classes_decoy.dex 是假壳（真壳形状假内容），\n"
-                                + "    真密文在 kkl2/echoes_of_blades.bin；\n"
+                                + "    真密文在 kkl2/echoes_of_blades.bin（二进制，长度是 16 的倍数）；\n"
                                 + "② so：libkkl2.so 导出表只有 JNI_OnLoad，nativeUnseal /\n"
                                 + "    nativeDeriveSeal 是动态注册的（RegisterNatives）；\n"
-                                + "    解密链 = 真标记派生 32B 密钥 → 加性 keystream 流式 XOR\n"
-                                + "    → 偶数下标镜像交换（std::vector/transform/swap）；\n"
+                                + "    解密链 = 真标记派生 16B key + 16B IV → AES-128-CBC 解密\n"
+                                + "    → 去 PKCS7 → 偶数下标镜像交换（std::swap）；\n"
                                 + "③ 标记：明文 yT4!pW8@kR2# 是诱饵，真标记 Fatdog_tense 以\n"
                                 + "    UTF-16 码元藏在 .data（strings -el 才见）；\n"
                                 + "④ 抓 dex：Frida hook nativeUnseal 出口 / InMemoryDexClassLoader\n"
-                                + "    构造点 / dex-dump，dump 后 jadx 看 GateKeeper2.sign(key,page,ts)\n"
+                                + "    构造点 / dex-dump，dump 后 jadx 看 GateKeeper2.sign(seal,page,ts)\n"
                                 + "    与 magic()；\n"
-                                + "⑤ 取数：nativeDeriveSeal 拿 key → HMAC 逐页取 100 页求和。\n\n"
+                                + "⑤ 取数：nativeDeriveSeal 拿 seal → MD5 逐页取 100 页求和。\n\n"
                                 + "Frida 最短路线：hook nativeDeriveSeal 与 nativeUnseal，把 dex 写回\n"
                                 + "文件再 jadx，签名照抄即可取数。")
                         .setPositiveButton("知道了", null)
@@ -240,15 +240,15 @@ public class kkl2Activity extends Activity {
             Class<?> cls = Class.forName(BIZ_CLASS, true, loader);
             final String magic = (String) cls.getMethod("magic").invoke(null);
             mSign = cls.getMethod("sign", byte[].class, long.class, int.class);
-            dexPad = Kkl2Native.nativeDeriveSeal();
-            if (dexPad == null || dexPad.length != 32) {
-                throw new IllegalStateException("派生密钥形状不对（应 32 字节）");
+            seal = Kkl2Native.nativeDeriveSeal();
+            if (seal == null || seal.length != 16) {
+                throw new IllegalStateException("派生 seal 形状不对（应 16 字节）");
             }
             biz = cls;
             ready = true;
             runOnUiThread(new Runnable() {
                 @Override public void run() {
-                    status.setText("业务类已加载：" + magic + "（key 32B）— 可以翻页取数了");
+                    status.setText("业务类已加载：" + magic + "（seal 16B）— 可以翻页取数了");
                     Toast.makeText(kkl2Activity.this, "DEX 内存加载成功", Toast.LENGTH_SHORT).show();
                 }
             });
@@ -305,7 +305,7 @@ public class kkl2Activity extends Activity {
             @Override public void run() {
                 try {
                     final long ts = System.currentTimeMillis() / 1000;
-                    final String sign = (String) mSign.invoke(null, dexPad, ts, page);
+                    final String sign = (String) mSign.invoke(null, seal, ts, page);
                     final String url = base + "/api/kkl2?page=" + page + "&ts=" + ts + "&sign=" + sign;
                     Request req = new Request.Builder().url(url)
                             .header("User-Agent", "Fatdog/1.0 (Android)")

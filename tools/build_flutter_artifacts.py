@@ -216,12 +216,30 @@ def main():
     # 哨兵校验：对象池里能否看到 FDK 标记（明文/混淆都应可见——Flutter 混淆不加密字符串）
     try:
         blob = open(os.path.join(out_libs, 'libapp.so'), 'rb').read()
-        idx = blob.find(b'FDK')
-        if idx >= 0:
-            seg = blob[idx:idx + 64].split(b'\x00')[0]
-            log('[*] 对象池哨兵命中 @0x%x : %r' % (idx, seg))
+        # 列出全部 FDK 哨兵（各关标记都应在对象池里可见；缺哪个就看是哪关被树摇/改名）
+        seen = []
+        pos = 0
+        while True:
+            idx = blob.find(b'FDK', pos)
+            if idx < 0:
+                break
+            seg = blob[idx:idx + 48].split(b'\x00')[0]
+            parts = seg.split(b'|')
+            if len(parts) >= 2:
+                seg = parts[0] + b'|' + parts[1] + b'|'
+            seen.append((idx, seg))
+            pos = idx + 3
+        if seen:
+            for idx, seg in seen:
+                log('[*] 对象池哨兵命中 @0x%x : %r' % (idx, seg))
         else:
             log('[!] 未在 libapp.so 中搜到 FDK 哨兵 —— 伴生 so 将走镜像兜底常量')
+        want = [b'FDK36|', b'FDK38|', b'FDK39|', b'FDK40|', b'FDK4B|']
+        miss = [w.decode() for w in want if w not in blob]
+        if miss:
+            log('[!] 缺失哨兵：%s（对应关卡需检查常量是否被树摇）' % ', '.join(miss))
+        else:
+            log('[*] 全部关卡哨兵齐全：FDK36/38/39/40/4B')
     except Exception as e:
         log('[!] 哨兵校验异常：%r' % (e,))
 

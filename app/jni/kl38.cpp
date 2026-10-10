@@ -4,18 +4,20 @@
 // 因此由本 so 承担"发包瞬间的加密 + 签名 + 证书固定校验"。
 //
 // 本关算法（摘要 + 对称，**无 HMAC**）：
-//   mix_seed = SHA256("<KEY>|aes") 的前 16 字节
+//   KEY      = base64_decode(<载荷/镜像里的 base64 串>)   （密钥以 base64 承载）
+//   mix_seed = SHA256(KEY + "|aes") 的前 16 字节
 //   enc    = AES-128-CBC-PKCS7(mix_seed, iv=随机 16B 前置, "page=<page>&ts=<ts>")  → hex
-//   sign   = SHA256(enc_hex + "<KEY>") 的十六进制前 16 位
+//   sign   = SHA256(enc_hex + KEY) 的十六进制前 16 位
 //
 // 证书固定（本关的题眼）：服务器用自签 CA，App 侧在 TLS 握手后拿叶子证书 DER
 // 再算一次 SHA-256，与硬编码 pin 比对；不一致即抛错 → **请求根本发不出去**。
 // 玩家必须先绕过这一层（hook / patch BoringSSL 的 verify_cert_chain）才拿得到数据。
 //
-// 密钥以真实 Flutter 载荷 libapp.so 的对象池为准（同 KL36 的口径）：
+// 密钥以真实 Flutter 载荷 libapp.so 的对象池为准（同 KL36 的口径），**且以 base64 承载**：
 //   1) 按 /proc/self/maps 定位自身所在目录，读同目录的 libapp.so；
-//   2) 搜哨兵 "FDK38|"，取到下一个 '|' 之间的字符串作为主密钥；
-//   3) 读不到则退镜像常量（逐字节 ^0x3C 藏匿，防 strings 直读）。
+//   2) 搜哨兵 "FDK38|"，取到下一个 '|' 之间的字符串——它是**主密钥的 base64 编码**；
+//   3) base64 解码还原主密钥（严格解码失败则按明文兜底，兼容旧产物）；
+//   4) 读不到则退镜像常量（base64 串逐字节 ^0x3C 藏匿，防 strings 直读）。
 //
 // 逆向对象仍是 app/libs/arm64-v8a/libapp.so（Dart AOT 快照）。
 
@@ -242,13 +244,78 @@ static std::string cbcEncryptHex(const std::string& key16, const uint8_t iv[16],
 } // namespace kappa_ns
 
 // ============================================================
+// base64（密钥承载编码）：严格解码，拒绝非字母表字符/错长/错位填充
+// ============================================================
+namespace b64_ns {
+
+static int val(char c) {
+    if (c >= 'A' && c <= 'Z') return c - 'A';
+    if (c >= 'a' && c <= 'z') return c - 'a' + 26;
+    if (c >= '0' && c <= '9') return c - '0' + 52;
+    if (c == '+') return 62;
+    if (c == '/') return 63;
+    return -1;
+}
+
+// 严格：长度须为 4 的倍数；'=' 仅允许出现在末组末两位；表外字符一律判失败。
+static bool decode(const std::string& in, std::string& out) {
+    out.clear();
+    if (in.empty() || in.size() % 4 != 0) return false;
+    out.reserve(in.size() / 4 * 3);
+    for (size_t i = 0; i < in.size(); i += 4) {
+        int v[4]; int pad = 0;
+        for (int k = 0; k < 4; k++) {
+            char c = in[i + k];
+            if (c == '=') {
+                if (k < 2) return false;
+                pad++; v[k] = 0;
+            } else {
+                if (pad > 0) return false;
+                v[k] = val(c);
+                if (v[k] < 0) return false;
+            }
+        }
+        if (pad > 0 && i + 4 != in.size()) return false;
+        uint32_t n = ((uint32_t)v[0] << 18) | ((uint32_t)v[1] << 12) |
+                     ((uint32_t)v[2] << 6) | (uint32_t)v[3];
+        out += (char)((n >> 16) & 0xFF);
+        if (pad < 2) out += (char)((n >> 8) & 0xFF);
+        if (pad < 1) out += (char)(n & 0xFF);
+    }
+    return !out.empty();
+}
+
+// 仅测试用：编码（与解码互逆）
+[[maybe_unused]] static std::string encode(const std::string& in) {
+    static const char* T = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    std::string o; o.reserve((in.size() + 2) / 3 * 4);
+    size_t i = 0;
+    for (; i + 3 <= in.size(); i += 3) {
+        uint32_t n = ((uint32_t)(uint8_t)in[i] << 16) | ((uint32_t)(uint8_t)in[i+1] << 8) | (uint8_t)in[i+2];
+        o += T[(n >> 18) & 63]; o += T[(n >> 12) & 63]; o += T[(n >> 6) & 63]; o += T[n & 63];
+    }
+    size_t rem = in.size() - i;
+    if (rem == 1) {
+        uint32_t n = (uint32_t)(uint8_t)in[i] << 16;
+        o += T[(n >> 18) & 63]; o += T[(n >> 12) & 63]; o += '='; o += '=';
+    } else if (rem == 2) {
+        uint32_t n = ((uint32_t)(uint8_t)in[i] << 16) | ((uint32_t)(uint8_t)in[i+1] << 8);
+        o += T[(n >> 18) & 63]; o += T[(n >> 12) & 63]; o += T[(n >> 6) & 63]; o += '=';
+    }
+    return o;
+}
+
+} // namespace b64_ns
+
+// ============================================================
 // 密钥：优先从真实 libapp.so 对象池取；失败退镜像常量
 // ============================================================
 namespace anchor_store {
 
-// 镜像兜底：真标记 UTF-8 各字节 ^0x3C（volatile 防常量折叠，rule 35）
+// 镜像兜底：主密钥的 **base64 串** 逐字节 ^0x3C（volatile 防常量折叠，rule 35）。
+// 本数组按 ^0x3C 还原后 = "RmF0ZG9nX2hhemU="（base64 承载，运行时 b64decode 还原主密钥）。
 static const volatile uint8_t MIRROR[] = {
-    122,93,72,88,83,91,99,84,93,70,89
+    110,81,122,12,102,123,5,82,100,14,84,84,89,81,105,1
 };
 
 static const char TAG[] = "FDK38|";
@@ -306,19 +373,22 @@ static bool read_tag_from_payload(const std::string& path, std::string& out) {
 
 static const std::string& get() {
     if (g_ready) return g_anchor;
-    std::string path, key;
-    if (locate_payload(path) && read_tag_from_payload(path, key)) {
-        g_anchor = key;
-        g_from_payload = true;
-        LOGI("KL38 key: source=primary");
+    std::string path, carried;
+    bool from_payload = false;
+    if (locate_payload(path) && read_tag_from_payload(path, carried)) {
+        from_payload = true;
     } else {
         std::string m;
         m.reserve(sizeof(MIRROR));
         for (size_t i = 0; i < sizeof(MIRROR); i++) m += (char)(MIRROR[i] ^ 0x3C);
-        g_anchor = m;
-        g_from_payload = false;
-        LOGI("KL38 key: source=fallback");
+        carried = m;
     }
+    // 密钥以 base64 承载；严格解码失败则按明文兜底（兼容未重建的旧载荷）。
+    std::string key;
+    if (!b64_ns::decode(carried, key)) key = carried;
+    g_anchor = key;
+    g_from_payload = from_payload;
+    LOGI("KL38 key: source=%s", from_payload ? "primary" : "fallback");
     g_ready = true;
     return g_anchor;
 }
@@ -354,6 +424,86 @@ static bool verify(const uint8_t* der, size_t len) {
 } // namespace pin_store
 
 // ============================================================
+// 抓包环境体检（KL38「雾外之障」）：只读环境感知，不涉反调试
+//   命中数 >= 阈值即静默投毒（enc/sign 全错，服务端不认）。
+//   多路信号、评分阈值制：单路（ROM 预设代理等）不误杀。
+// ============================================================
+namespace env_guard {
+
+static const int THRESHOLD = 2;
+static volatile int g_native_hits = -1;   // -1 = 尚未扫描
+static volatile int g_java_hits = 0;
+
+// /proc/net/tcp{,6}：LISTEN 且端口落在抓包常用段（排除本项目端口）
+static int tcp_listen_suspect() {
+    static const int sus[] = {8080, 8081, 8082, 8083, 8087, 8888, 8889, 9090, 9091, 9099};
+    static const char* files[2] = {"/proc/net/tcp", "/proc/net/tcp6"};
+    for (int f = 0; f < 2; f++) {
+        FILE* fp = fopen(files[f], "r");
+        if (!fp) continue;
+        char line[512];
+        if (!fgets(line, sizeof(line), fp)) { fclose(fp); continue; }
+        while (fgets(line, sizeof(line), fp)) {
+            char local[128]; char st[16];
+            if (sscanf(line, "%*d: %127s %*s %15s", local, st) != 2) continue;
+            if (strcmp(st, "0A") != 0) continue;   // 0A = LISTEN
+            const char* colon = strrchr(local, ':');
+            if (!colon) continue;
+            int port = (int)strtol(colon + 1, nullptr, 16);
+            for (int i = 0; i < (int)(sizeof(sus) / sizeof(sus[0])); i++) {
+                if (sus[i] == port) { fclose(fp); return 1; }
+            }
+        }
+        fclose(fp);
+    }
+    return 0;
+}
+
+// /proc/net/dev：tun* / ppp* / wg* 接口（VPN / 代理隧道）
+static int tun_present() {
+    FILE* fp = fopen("/proc/net/dev", "r");
+    if (!fp) return 0;
+    char line[512];
+    int found = 0;
+    while (fgets(line, sizeof(line), fp)) {
+        char* c = strchr(line, ':');
+        if (!c) continue;
+        char name[64]; size_t k = 0;
+        for (char* q = line; q < c && k < 63; q++) {
+            if (*q != ' ' && *q != '\t') name[k++] = *q;
+        }
+        name[k] = 0;
+        if (strncmp(name, "tun", 3) == 0 || strncmp(name, "ppp", 3) == 0 ||
+            strncmp(name, "wg", 2) == 0) { found = 1; break; }
+    }
+    fclose(fp);
+    return found ? 1 : 0;
+}
+
+static void ensure_native() {
+    if (g_native_hits < 0) g_native_hits = tcp_listen_suspect() + tun_present();
+}
+
+static int score() {
+    ensure_native();
+    int n = g_native_hits < 0 ? 0 : g_native_hits;
+    return n + g_java_hits;
+}
+
+static bool poisoned() { return score() >= THRESHOLD; }
+
+static void note_java(int h) { g_java_hits = h > 0 ? h : 0; }
+
+// 0 = 未扫描；1 = 清净；2 = 有异
+static int phase() {
+    ensure_native();
+    if (g_native_hits < 0) return 0;
+    return poisoned() ? 2 : 1;
+}
+
+} // namespace env_guard
+
+// ============================================================
 // 加密 + 签名
 // ============================================================
 
@@ -373,15 +523,28 @@ static void make_iv(uint8_t iv[16]) {
 #endif
 }
 
-// 当前使用的主密钥
+// 静默投毒：把主钥混入污染因子（enc/sign 全错，服务端不认）
+static std::string taint(const std::string& m) {
+    std::string o = m;
+    uint32_t p = 0x9E3779B9u;
+    for (size_t i = 0; i < o.size(); i++) {
+        p = p * 1664525u + 1013904223u;
+        o[i] = (char)((uint8_t)o[i] ^ 0x5A ^ (uint8_t)(p >> 24));
+    }
+    return o;
+}
+
+// 当前使用的主密钥（环境命中则静默投毒）
 static std::string active_master() {
-    return anchor_store::get();
+    std::string m = anchor_store::get();
+    if (env_guard::poisoned()) return taint(m);
+    return m;
 }
 
 static std::string build_enc(int page, long long ts) {
     char head[64];
     snprintf(head, sizeof(head), "page=%d&ts=%lld", page, ts);
-    const std::string& master = active_master();
+    const std::string master = active_master();
     std::string mix_seed = omega_ns::digest_first16(master + "|aes");
     uint8_t iv[16];
     make_iv(iv);
@@ -390,7 +553,7 @@ static std::string build_enc(int page, long long ts) {
 
 static std::string build_sign(int page, long long ts, const std::string& enc) {
     (void)page; (void)ts;
-    const std::string& master = active_master();
+    const std::string master = active_master();
     return omega_ns::digest_hex(enc + master).substr(0, 16);
 }
 
@@ -407,6 +570,14 @@ static std::string build_answer() {
 int main() {
     printf("sha256(abc)       = %s\n", omega_ns::digest_hex("abc").c_str());
     printf("expect            = ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad\n");
+    {
+        std::string dec, bad;
+        bool ok = b64_ns::decode("RmF0ZG9nX2hhemU=", dec);
+        printf("b64(RmF0..)       = %s ok=%d (expect Fatdog_haze / 1)\n", dec.c_str(), (int)ok);
+        printf("b64(plain)        = ok=%d (expect 0)\n", (int)b64_ns::decode("Fatdog_haze", bad));
+        printf("b64 roundtrip     = %d (expect 1)\n",
+               (int)(b64_ns::encode(dec) == "RmF0ZG9nX2hhemU="));
+    }
     std::string e1 = build_enc(1, 1787013761LL);
     std::string e2 = build_enc(7, 1700000000LL);
     printf("enc(1,1787013761) = %s\n", e1.c_str());
@@ -429,6 +600,10 @@ int main() {
         printf("pin(local self)   = %d (expect 0)\n",
                (int)pin_store::verify(reinterpret_cast<const uint8_t*>("self-signed-cert"), 16));
         printf("pin hex           = %s\n", pin_store::pin_hex().c_str());
+    printf("env.phase(clean)  = %d (expect 1)\n", env_guard::phase());
+    env_guard::note_java(2);
+    printf("env.phase(proxy)  = %d (expect 2)\n", env_guard::phase());
+    printf("env.poisoned      = %d (expect 1)\n", (int)env_guard::poisoned());
     }
     return 0;
 }
@@ -472,6 +647,21 @@ JNIEXPORT jstring JNICALL
 Java_com_fatdog_reverse_FlutterNet_nativeGetPin(JNIEnv* env, jclass clz) {
     (void)clz;
     return env->NewStringUTF(pin_store::pin_hex().substr(0, 16).c_str());
+}
+
+// 只读展示：抓包环境相位（0 未扫描 / 1 清净 / 2 有异；不点破手段、不判胜）
+JNIEXPORT jint JNICALL
+Java_com_fatdog_reverse_FlutterNet_nativeEnvPhase(JNIEnv* env, jclass clz) {
+    (void)env; (void)clz;
+    return (jint)env_guard::phase();
+}
+
+// 合并 Java 侧命中数（系统代理 / VPN）与 native 侧评分
+JNIEXPORT jint JNICALL
+Java_com_fatdog_reverse_FlutterNet_nativeEnvNote(JNIEnv* env, jclass clz, jint hits) {
+    (void)env; (void)clz;
+    env_guard::note_java((int)hits);
+    return (jint)env_guard::phase();
 }
 
 JNIEXPORT jstring JNICALL

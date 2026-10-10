@@ -21,7 +21,7 @@
 | 天地秘境 · 太玄之初 | KL16-KL20、KKL1-KKL5 | `## 天地秘境 · 太玄之初（KL16-20、KKL1-5）` |
 | 天地秘境 · 扶桑树 | KL21-KL28 | `## 天地秘境 · 扶桑树（KL21-28）` |
 | 天地秘境 · 天机阁 | KL29-KL30 | `## 天地秘境 · 天机阁（KL29-30）` |
-| 天地秘境 · 碧落天 | KL36-KL40 | `## 天地秘境 · 碧落天（KL36-40）` |
+| 天地秘境 · 碧落天 | KL36-KL40 + KL40b | `## 天地秘境 · 碧落天（KL36-40 / KL40b）` |
 | 天地秘境 · 须弥界 | KL41-KL45 | `## 天地秘境 · 须弥界（KL41-45）` |
 | 天地秘境 · 九幽 | KL46-KL50 | `## 天地秘境 · 九幽（KL46-50）` |
 
@@ -2186,7 +2186,7 @@ for page in range(1, 101):
 print("总和:", total)                    # 49502
 ```
 
-**坑位提醒**：`Hk.FAKE_KEY = Fatdog_vain` 是诱饵；解法①记得用 spawn 模式（attach 半路上车时基线早已建好，来不及了）。
+**坑位提醒**：本关没有 Java 层诱饵钥——真钥 `Fatdog_jealous` 直接躺在 `libsable.so`（`strings -el` 可见）；解法①记得用 spawn 模式（attach 半路上车时基线早已建好，来不及了）。
 
 **进阶 Frida 训练——`Memory.patchCode` 指令级热补丁**：
 
@@ -2900,6 +2900,20 @@ def sm4_encrypt(data: bytes, key: bytes) -> bytes:
     # 注意：客户端是「零填充」，服务端 _l35_try 用纯解密（_l35_sm4_decrypt_raw，不做 PKCS7）
     # 再 split(b"\x00") 取明文——所以这里对已零填充的 payload 只做 ECB，绝不能再套 PKCS7。
     ...
+#可以这么写
+# ============ 加密 ============
+def sm4_ecb_encrypt(key: bytes, data: bytes) -> bytes:
+    """SM4-ECB + 零填充"""
+    pad_len = (16 - len(data) % 16) % 16
+    data = data + b"\x00" * pad_len
+
+    crypt_sm4 = CryptSM4()
+    crypt_sm4.set_key(key, SM4_ENCRYPT)
+
+    out = b""
+    for i in range(0, len(data), 16):
+        out += bytes(crypt_sm4.one_round(crypt_sm4.sk, data[i:i + 16]))
+    return out
 
 def des3_ecb_encrypt(key24: bytes, data8: bytes) -> bytes:
     d1 = _D.new(key24[0:8],  _D.MODE_ECB)
@@ -5211,36 +5225,7 @@ sign=hmac.new(key,f"page=1&ts={ts}".encode(),hashlib.sha256).hexdigest()
 3. **诱饵标记** `魍魎の罠札ø`（多 s）是假的，真标记 `Fatdog_unsheathe`。
 4. **nativeStatus()** 只读自检，可放心对照守卫状态。
 
-**flag**：`FLAG_18_KL20{legu_unboxed}`` |
-
-#### 三层保护结构
-
-| 层 | 技术 | 对应关卡 |
-|---|---|---|
-| 外层 | XOR + Base64 加密 | —（KL16/KL17 均已改为标准算法取数，不再走 XOR+Base64） |
-| 中层 | OLLVM 状态机混淆 | —（KL18 已改为方法抽取取数，不再用 OLLVM） |
-| 内层 | VMP 字节码执行 | —（KL19 已改为指令抽取+反调试取数，不再用 VMP） |
-| 额外 | 反调试 + CRC 自校验 | — |
-
-#### Hk 导出函数
-
-| 函数 | 返回 | 说明 |
-|---|---|---|
-| `nativeAntiDebug()` | `int` | 反调试检查（ptrace + TracerPid） |
-| `nativeDecrypt()` | `String` | 外层解密结果（hex） |
-| `nativeSeed()` | `int` | 提取的种子值 |
-| `nativeAnswer()` | `String` | 最终答案（SHA-256(seed)） |
-| `nativeOllvm(int)` | `int` | 中层 OLLVM 变换 |
-| `nativeVmExecute()` | `int` | 内层 VMP 执行结果 |
-| `nativeStatus()` | `String` | 各层状态信息 |
-
-#### 破解路线
-
-1. **反调试绕过**：`nativeAntiDebug()` 检查 ptrace + TracerPid，绕过后才能正常调用其他函数。
-2. **外层脱壳**：`nativeDecrypt()` → XOR 轮转解密 + Base64 解码 → 得到 hex 数据。
-3. **中层分析**：`nativeOllvm(seed)` → OLLVM 状态机（8 个 case，含虚假路径）。
-4. **内层逆向**：`nativeVmExecute()` → VMP 字节码（8 条指令，32 字节加密字节码）。
-5. **答案计算**：从解密数据提取 seed → SHA-256(seed) → 32 位 hex。
+**flag**：`FLAG_18_KL20{legu_unboxed}`
 
 #### 与前几关的关系
 
@@ -5251,288 +5236,513 @@ sign=hmac.new(key,f"page=1&ts={ts}".encode(),hashlib.sha256).hexdigest()
 | KL18 | 方法抽取：还原点逐条填回 + 标准 HMAC-SHA256 |
 | KL19 | 指令抽取还原点 + 反调试哨兵（五信号评分，阈值 2） |
 
-#### 关键数据
 
-| 内容 | 说明 |
-|---|---|
-| XOR_KEY | `5A 3C 7E 1D 92 64 A8 F0`（8 字节轮转） |
-| ENC_DATA | 24 字节加密 Base64 数据 |
-| OLLVM_ROL | 循环左移（13/7 位） |
-| VM_BC_ENC | 32 字节加密字节码（XOR 0x5C） |
-| MARKER | `Fatdog_break`（UTF-16LE，12 码元） |
-| DECOY | `Fatdog_breaker`（UTF-16LE，14 码元） |
+> 太玄之初除了"三代壳"卷（KL16-20），还追加了独立编号的 C++ 壳教学卷 KKL1-5（玄冥渊 / 万剑冢 / 断魂谷 / 锁妖塔 / 诛仙台），全部由 `app/jni/kkl*.cpp` 实现。**整改方向（2026-10-09 定）**：KKL 卷难度整体高于 KL16-20，全部**网络取数**；**前两关用二代壳、后三关上 VMP**，难度递增；每关加密算法在 AES / RC4 / SM4 中选一个，base64 视关卡选用，**哈希只用 MD5、不用 HMAC**。KKL1 已按此重做为「二代壳：DEX 整体加密 + 落盘加载 + RC4 / Base64 / MD5」，KKL2 已重做为「二代壳：DEX 整体加密 + 内存加载不落盘 + AES-128-CBC / MD5」，KKL3 已重做为「VMP：寄存器虚拟机派生主钥 + 五 so 编队（beacon/lattice/basalt/ingot/harbor）+ SM4-ECB / MD5 + 完整性守卫静默投毒」。**KKL3 起每关五个 so。**
 
-#### 坑位提醒
+### KKL1：玄冥渊（太玄之初 · 二代壳：DEX 整体加密 + 落盘加载 + RC4/Base64/MD5）
 
-1. **三层叠加** → 必须逐层突破：反调试 → 外层 → 中层 → 内层，任何一层失败都拿不到答案。
-2. **简化版 OLLVM/VMP** → 比真实加固壳的实现简单，但思路一致（注：KL18 已改为方法抽取取数，不再承担 OLLVM 教学）。
-3. **诱饵标记** → `Fatdog_breaker`（多 er）是假的，真标记 `Fatdog_break`。
-4. **nativeStatus()** → 调试利器，显示各层状态和反调试结果。
+**考点**：`libkkl1.so` 把业务 DEX（`com.fatdog.reverse.kkl1.GateKeeper1`）整体加密后埋进 `assets/kkl1/abyss_vein.bin`——打开一看它其实是一段很长的 **base64 文本**（先记住：Base64 不是加密，只是编码）。真正的保护是 RC4，而 RC4 钥由两条线索拼成：
 
-**flag**：`FLAG_18_KL20{all_shells_broken}`
+```
+seal    = MD5(真标记 + "|kkl1_abyss")       # 真标记 Fatdog_hallow 以 UTF-16 藏 .data
+rc4_key = seal XOR mask                      # mask 由虚表分发的 RealSigil::T 返回
+```
 
+`mask` 不写死在主流程：`SigilBase` 有三个派生类（`DecoySigilA` 全零表 / `DecoySigilB` 逆序表 / `RealSigil` 真身），`choose_selector()` 运行时派发（恒走真身）。所以静态复刻要**同时**拿到真标记与真 mask，缺一不可。解密出的 dex 会落进沙箱目录（`getDir("kkl1")/vein_biz.dex`）再用 `DexClassLoader` 加载——这是本关设定的「一代壳破绽」：会落地的壳，文件找得到。
 
-> 太玄之初除了"三代壳"卷（KL16-20），还追加了独立编号的 C++ 壳教学卷 KKL1-5（玄冥渊 / 万剑冢 / 断魂谷 / 锁妖塔 / 诛仙台），全部由 `app/jni/kkl*.cpp` 实现。目前开放 KKL1-KKL4，KKL5 在 MainActivity 里仍是"尚未开启"占位。与 KL16-20 的壳课不同，KKL 卷强调**用 C++ 造现代壳零件**：虚表派发、抽取回填、动态注册、真 DEX 内存加载。
+**静态复刻（Python，不依赖 Frida）**：
 
-### KKL1：玄冥渊（太玄之初 · C++ vtable 派发 + 抽取回填）
+```python
+import base64, hashlib
+asset = open('assets/kkl1/abyss_vein.bin', 'rb').read()   # 其实是 base64 文本
+ct = base64.b64decode(asset)
 
-**考点**：模拟二代壳"抽取回填"——真实密文被拆成 8 组 4 字节，按抽取表乱序散在 `POOL` 里（前 8 字节是永不参与的噪声）；运行时用表"回填"成 32 字节密文再解密。难点在于**抽取表不写死在主流程**：三个 C++ 派生类各通过虚函数 `table()` 交表，只有 `RealSigil` 是真身，另两个是 identity / reverse 假表——IDA 里认 vtable 结构、逐个派生类对表，就是本关的正解。
+seal = hashlib.md5(b"Fatdog_hallow|kkl1_abyss").digest()
+MASK = bytes([0x9C,0x3A,0x71,0xD4,0x08,0xF2,0xB6,0x5E,
+              0x1D,0x87,0xC0,0x4B,0xE9,0x26,0x53,0xAF])   # RealSigil::T（另两个类是假表）
+key = bytes(a ^ b for a, b in zip(seal, MASK))
 
-**静态复刻（Python）**：
+def rc4(key, data):
+    s = list(range(256)); j = 0
+    for i in range(256):
+        j = (j + s[i] + key[i % len(key)]) & 0xFF; s[i], s[j] = s[j], s[i]
+    out = bytearray(); i = j = 0
+    for ch in data:
+        i = (i + 1) & 0xFF; j = (j + s[i]) & 0xFF; s[i], s[j] = s[j], s[i]
+        out.append(ch ^ s[(s[i] + s[j]) & 0xFF])
+    return bytes(out)
+
+dex = rc4(key, ct)
+open('kkl1_biz.dex', 'wb').write(dex)          # jadx 打开，看 GateKeeper1.sign()
+```
+
+**取数签名**（加载出的 dex 里，`GateKeeper1.sign`；MD5 古典摘要，非 HMAC）：
+
+```python
+import hashlib, random
+def sign(ts, page):                            # sign = md5(hex(seal) + "page=N&ts=T")
+    return hashlib.md5((seal.hex() + f"page={page}&ts={ts}").encode()).hexdigest()
+
+rng = random.Random(20260902)                  # SEED_KKL1
+nums = [rng.randint(1, 100) for _ in range(1000)]
+ans = hashlib.md5(str(sum(nums)).encode()).hexdigest()
+```
+
+**答案**：`d22ace3cfb8d585d7d667394ecef4e6c`（总和 `50522` 的 md5）；flag `FLAG_18_KKL1{abyss_of_mystery}`。真标记 `Fatdog_hallow`（UTF-16 藏 `.data`）/ 诱饵 `Fatdog_hollow`（hallow→hollow，一字之差）。
+
+**动态路线**：① hook 桥 `Kkl1Native.nativeUnseal()` 出口，把返回字节写文件即得明文 dex；② hook `nativeDeriveSeal()` 直接拿 seal；③ 落盘路线——本关 dex 会落进沙箱目录，root 后 `find /data/data/<pkg> -name "*.dex"` 直接拿到。
+
+**坑**：① assets 是 base64 文本不是二进制，**别把 base64 当加密**；② 真标记是 UTF-16，普通 `strings` 看不到，要 `strings -el` 或 IDA 看 `.data` 的 `jchar[]`；③ 用诱饵标记 `Fatdog_hollow` 拼出的 seal 解不开密文、验签恒 403；④ `SALT` 在 `-O2` 下被折叠成立即数，需从 `derive_seal` 的反汇编里读。
+
+### KKL2：万剑冢（太玄之初 · 二代壳：DEX 整体加密 + 内存加载不落盘 + AES-128-CBC/MD5）
+
+**考点**：业务 DEX（`com.fatdog.reverse.kkl2.GateKeeper2`）构建期用 **AES-128-CBC(PKCS7)** 整体加密成 `assets/kkl2/echoes_of_blades.bin` 埋进 APK（**二进制密文**，长度是 16 的倍数）；旁边那个 `assets/kkl2/classes_decoy.dex` 是假壳（真壳形状假内容）。`libkkl2.so`（桥 `Kkl2Native`）导出表**没有 Java_ 符号**——两个 native 是 `JNI_OnLoad` 里动态注册的：
+
+- `nativeUnseal(enc)`：AES-128-CBC 解密 + 去 PKCS7 + 镜像交换，还原明文 dex（App 用 `InMemoryDexClassLoader` **内存加载，不落盘**）；
+- `nativeDeriveSeal()`：返回 16 字节签名 seal（MD5 派生）。
+
+密钥链**全部 MD5 派生**（本关哈希只用 MD5，不用 HMAC）：
+
+```
+key = MD5(真标记 + "|kkl2_swordfield")   # 16B，AES-128 key & 取数签名 seal
+iv  = MD5(真标记 + "|kkl2_cbc_iv")       # 16B，CBC 初始向量
+```
+
+真标记 `Fatdog_tense` 以 UTF-16 码元藏 `.data`（普通 `strings` 哑火，`strings -el` 才见）；明文 `yT4!pW8@kR2#` 是诱饵，用它派生的 key/iv 解不开密文、验签全 403。加密链：`明文 → 偶数下标镜像交换（std::swap 对合）→ AES-128-CBC(PKCS7)`。
+
+**静态复刻（Python，纯 AES 实现，不依赖 Frida）**：
 
 ```python
 import hashlib
-POOL = bytes([0x10,0x20,0x30,0x40,0x50,0x60,0x70,0x80,
-              0xC5,0xD9,0x6D,0xF7,0x88,0x63,0x3A,0xC5,0x88,0x63,0x3A,0xC5,
-              0x63,0x09,0x92,0x6D,0x4B,0xF8,0x2B,0xF1,0x4D,0x9E,0x2B,0xF1,
-              0x24,0xF7,0xA2,0xD7,0xCE,0xA5,0x3C,0xE2])
-TABLE = [6, 3, 0, 7, 4, 1, 5, 2]          # RealSigil::T（另两个类是假表）
-KX = bytes([0x4D,0x9E,0x2B,0xF1,0x88,0x63,0x3A,0xC5])
+key = hashlib.md5(b'Fatdog_tense|kkl2_swordfield').digest()
+iv  = hashlib.md5(b'Fatdog_tense|kkl2_cbc_iv').digest()
+asset = open('assets/kkl2/echoes_of_blades.bin', 'rb').read()   # 二进制密文
 
-enc = bytearray()
-for r in range(8):                          # 抽取回填（跳过 8 字节噪声）
-    enc += POOL[8 + TABLE[r]*4 : 8 + TABLE[r]*4 + 4]
-plain = bytearray()
-for i in range(32):                         # XOR → 循环左移 3 位
-    v = enc[i] ^ KX[i % 8]
-    plain.append(((v << 3) | (v >> 5)) & 0xFF)
-print(plain[:16])                           # b'KKL1_SEED:20260903' + 0x00 填充
-seed = int(bytes(plain[10:18]))             # 20260903
-ans = hashlib.sha256(seed.to_bytes(4, 'big')).hexdigest()
-print(ans)
+def unpad(b):
+    p = b[-1]
+    return b[:-p] if 1 <= p <= 16 else b
+
+def mirror_swap(b):                        # 自对合：加密/解密同一函数
+    x = bytearray(b); n = len(x)
+    for i in range(n // 2):
+        if i % 2 == 0:
+            x[i], x[n-1-i] = x[n-1-i], x[i]
+    return bytes(x)
+
+# AES_CBC_decrypt 用任意库（如 pycryptodome）或按 so 自写；解密后先去填充再镜像还原
+dex = mirror_swap(unpad(AES_CBC_decrypt(key, iv, asset)))
+open('kkl2_biz.dex', 'wb').write(dex)      # jadx 打开，看 GateKeeper2.sign()
 ```
 
-**答案**：`22f86ebbe7c758e10ca3ae0f048f5f4dede0d6aaf9022d5419a7e7874245778d`；flag `FLAG_18_KKL1{abyss_of_mystery}`。真标记 `Fatdog_hallow`（UTF-16 藏 `.data`）/ 诱饵 `Fatdog_hollow`（hallow→hollow）。
-
-**动态路线**：Frida hook 桥 `Kkl1Native` 的 `nativeDecrypt/nativeSeed/nativeAnswer` 直接对拍；想练 vtable 就 IDA 里从 `make_sigil()` 的 switch 出发，逐个类看 `table()` 返回的 8 字节表。**坑**：诱饵类解出的明文是乱码，`choose_selector` 恒走 0（真身），别把假表的解当结论。
-
-### KKL2：万剑冢（太玄之初 · 真 DEX 内存加载 + 动态注册 + 服务端取数）
-
-**考点**：业务 DEX（`com.fatdog.reverse.kkl2.GateKeeper2`）构建期被加密成 `assets/kkl2/echoes_of_blades.bin` 埋进 APK；旁边那个 `assets/kkl2/classes_decoy.dex` 是假壳（真壳形状假内容）。`libkkl2.so`（桥 `Kkl2Native`）导出表**没有 Java_ 符号**——两个 native 是 `JNI_OnLoad` 里动态注册的：
-
-- `nativeUnseal(enc)`：流式解密还原明文 dex（App 用 `InMemoryDexClassLoader` 内存加载，不落盘）；
-- `nativeDeriveSeal()`：返回 32 字节 HMAC 密钥。
-
-解密链故意走 STL（容器逆向 / lambda 捕获 / `std::swap` 是教学点）：密钥 `dk = SHA-256("Fatdog_tense" + "|kkl2_swordfield")`（真标记以 UTF-16 码元藏 `.data`，`strings -el` 才见；明文 `yT4!pW8@kR2#` 是诱饵，用它派生密钥验签全 403）→ 偶数下标与镜像位交换 → 加性 keystream（`acc = dk[0]^0x5A`，逐字节 `acc += dk[i%32]`）→ 流式 XOR。
-
-**取数链路（Python 复刻）**：解出 dex 后 jadx 看 `GateKeeper2.sign(key, page, ts)` = `HmacSHA256(key, "page=N&ts=T")`；逐页 GET `/api/kkl2` 带 `page/ts/sign`：
+**取数签名**（加载出的 dex 里，`GateKeeper2.sign`；MD5 古典摘要，非 HMAC）：`sign = MD5(hex(seal) + "page=N&ts=T")`。逐页 GET **8787** 的 `/api/kkl2` 带 `page/ts/sign`：
 
 ```python
-import hashlib, hmac, time, requests
-key = hashlib.sha256(b'Fatdog_tense|kkl2_swordfield').digest()
+import hashlib, time, requests
+key = hashlib.md5(b'Fatdog_tense|kkl2_swordfield').digest()
 total = 0
 for page in range(1, 101):
     ts = int(time.time())
-    sign = hmac.new(key, f'page={page}&ts={ts}'.encode(), hashlib.sha256).hexdigest()
-    r = requests.get('https://127.0.0.1:8443/api/kkl2',
-                     params={'page': page, 'ts': ts, 'sign': sign},
-                     verify='certs/ca.crt', timeout=5).json()
+    sign = hashlib.md5((key.hex() + f'page={page}&ts={ts}').encode()).hexdigest()
+    r = requests.get('http://127.0.0.1:8787/api/kkl2',
+                     params={'page': page, 'ts': ts, 'sign': sign}, timeout=5).json()
     total += sum(r['nums'])                 # 每页 10 个数
 print(total)                                # 49755
-print(hashlib.sha256(str(total).encode()).hexdigest())
+print(hashlib.md5(str(total).encode()).hexdigest())   # f2137159e2a60cd3abc4a35309aa1839
 ```
 
-**答案**：100 页加和 = `49755`，提交 `sha256("49755")` = `00ed53989532cff023fc7776f13e584d75149e80f528b1f8d079de7d9bdabb13`（64 hex，大小写不敏感）；flag `FLAG_18_KKL2{tomb_of_myriad_blades}`。
+**答案**：100 页加和 = `49755`，提交 `md5("49755")` = `f2137159e2a60cd3abc4a35309aa1839`（32 hex，大小写不敏感）；flag `FLAG_18_KKL2{tomb_of_myriad_blades}`。
 
-**Frida 最短路线**：hook `Kkl2Native.nativeDeriveSeal`（拿 key）+ hook `nativeUnseal` 出口把 dex 写回文件 → jadx 看 `sign` 逻辑照抄。**坑**：dump 时机要在 `InMemoryDexClassLoader` 构造点或 native 出口，晚了 dex 只在内存；服务端按 `seed 20260909` 生成 1000 个数（`random.Random(20260909).randint(1,100)`），本地可离线复算对拍。
+**动态路线**：① hook `Kkl2Native.nativeDeriveSeal()` 直接拿 seal；② hook `nativeUnseal()` 出口把明文 dex 写回文件再 jadx；③ 内存加载不落盘，dump 要在 `InMemoryDexClassLoader` 构造点或 native 出口——晚了 dex 只在内存。
+
+**坑**：① 密文是**二进制**不是文本，别再找 base64；② IV 用错（如全零）会解出乱码——两条 MD5 派生各司其职（key / iv）；③ 镜像交换在 PKCS7 填充之前（加密时先交换再填充），顺序错了解不出 dex magic；④ 真标记是 UTF-16，`strings -el` 或 IDA 看 `.data` 的 `jchar[]`；⑤ 诱饵 `yT4!pW8@kR2#` 派生出的 key/iv 解不开密文、验签恒 403；⑥ 服务端按 `seed 20260909` 生成 1000 个数（`random.Random(20260909).randint(1,100)`），本地可离线复算对拍。
 
 
-### KKL3：断魂谷（太玄之初 · 四路哨兵 + 静默投毒 + 服务端取数）
+### KKL3：断魂谷（太玄之初 · VMP 寄存器虚拟机 + 五 so 编队 + SM4-ECB + 服务端取数）
 
-**考点**：检测按钮本身永远不通关。`libkkl3.so` 的四路哨兵只在 `Kkl3Native.nativeSign(page, ts)` 每次取数签名前跑：`TracerPid`/ptrace 痕迹、maps 里的 frida/gadget/librun/gum-js/linjector、27042-27044 端口探测、`/proc/self/task/*/comm` 的 frida 线程名。任何一路命中就把 HMAC 密钥第 8 字节的 `0x40` 位永久翻转，此后签出的每一页都会被 `/api/kkl3` 静默 403——没有弹窗、没有错误码以外的提示。`nativeStatus()` 只做只读自检，点了也不会改变密钥，别把它当成过关入口。
+**考点**：断魂谷没有壳可脱——它把"派生主钥"这件事搬进了一台自造的**寄存器虚拟机**。`lib/` 下有**五个 so**：`beacon` 是全关唯一导出 `Java_` 符号的 JNI 门面，它自己不含算法，靠 `dlsym(RTLD_DEFAULT)` 把另外四个内核串起来——`lattice`（VM 解释器）、`basalt`（国密 SM4-ECB）、`ingot`（MD5）、`harbor`（完整性守卫）。**任何一环缺失，`nativeSign` 都返回空串**，取数 403，所以别只盯一个库看。
 
-**静态路线**：strings 里能看到明文诱饵 `mZ7~qB3#nV9!`，但真标记是 UTF-16 藏匿的 `Fatdog_quell`（用 `strings -el lib/arm64-v8a/libkkl3.so` 或 IDA 的 UTF-16 视图即可看到 12 个码元）。密钥派生就是 `SHA-256("Fatdog_quell" + "|kkl3_valley")`，之后逐页取数求和：
+**密钥链**：主钥 `seed`(16B) 由 `lattice` 解释执行 `app/jni/kkl3_vm_program.h` 里的**滚动异或加密字节码**得出；真标记 `Fatdog_quell` 只以 VM 立即数形式潜伏其中，静态段里看不到明文。取数协议：
+
+    enc  = hex( SM4-ECB(seed, "page=N&ts=T") )      # PKCS#7 填充
+    sign = md5( hex(seed) + enc )                   # 零 HMAC
+
+服务端 `/api/kkl3` 会**解密 enc** 并核对明文恰为 `page=N&ts=T`，再验 MD5 —— 所以光会算签名不够，SM4 必须实现正确。
+
+**完整性守卫（harbor，评分阈值制）**：四路——`TracerPid` 调试痕迹、`/proc/self/maps` 里可写可执行段、关键函数首字节被下断（BRK #0）、模拟器环境（`ro.kernel.qemu` 等）。命中 ≥2 项即把主钥第 8 字节翻 `0x40` 位**静默投毒**，之后 `/api/kkl3` 恒 403；`nativeStatus()` 只读自检，点它不会通关。（本关检测只针对"有没有人动过我的代码/环境"，与扶桑树 KL21-28 的第三方注入框架检测无关。）
+
+**静态路线（复刻派生链）**：① 从 `liblattice.so` 的 `.rodata` 解出加密字节码与滚动密钥；② 按 VM 指令表还原 16B 主钥；③ 实现 SM4-ECB 与 MD5；④ 逐页取数求和。
 
 ```python
-import hashlib, hmac, time, requests
-key = hashlib.sha256(b'Fatdog_quell|kkl3_valley').digest()
+import hashlib, time, requests
+
+SEED = bytes.fromhex('099e5c5fb3c42780cb700a338d0ac7cb')   # VM(真标记 Fatdog_quell) 派生结果
+
+# SM4-ECB(PKCS#7)：完整实现见 gen_kkl3.py 的 sm4_ecb_enc / server.py 的 _kkl3_sm4_dec
+from gen_kkl3 import sm4_ecb_enc
+
 total = 0
 for page in range(1, 101):
     ts = int(time.time())
-    sign = hmac.new(key, f'page={page}&ts={ts}'.encode(), hashlib.sha256).hexdigest()
-    r = requests.get('https://127.0.0.1:8443/api/kkl3',
-                     params={'page': page, 'ts': ts, 'sign': sign},
-                     verify='certs/ca.crt', timeout=5).json()
+    enc = sm4_ecb_enc(SEED, f'page={page}&ts={ts}'.encode()).hex()
+    sign = hashlib.md5((SEED.hex() + enc).encode()).hexdigest()
+    r = requests.get('http://127.0.0.1:8787/api/kkl3',
+                     params={'page': page, 'ts': ts, 'enc': enc, 'sign': sign}, timeout=5).json()
     total += sum(r['nums'])
-print(total)                                # 52219
-print(hashlib.sha256(str(total).encode()).hexdigest())
+print(total)                                        # 52219
+print(hashlib.md5(str(total).encode()).hexdigest())
 ```
 
-**答案**：100 页加和 = `52219`，提交 `sha256("52219")` = `5b675c4a63fbc84ebc0478f244d3c63093d57d6a1eca7df8618dbf1485c92fd7`（64 hex，大小写不敏感）；flag `FLAG_18_KKL3{valley_of_the_sentinel}`。
+**答案**：100 页加和 = `52219`，提交 `md5("52219")` = `e5b2b969f92ce208b531c252d9ccacc5`（32 hex，大小写不敏感）；flag `FLAG_18_KKL3{valley_of_the_sentinel}`。
 
-**patch/hook 路线**：目标是让四路哨兵在签名前全部判安全，而不是改 `nativeStatus()`。常见做法：nop 掉 `run_sentinels(true)` 的调用点或让四个 `detect_*` 恒返 0；注意进程一旦已被投毒，密钥在内存里已经翻位，patch 后要重启进程。服务端 seed 是 `20260916`（`random.Random(20260916).randint(1,100)` 生成 1000 个数），本地可离线复算对拍。
+**动态路线**：`harbor` 不命中时，`nativeSign` 每次都回吐 `密文|签名` —— 观察它的出口即可拿到 `enc`；也可以盯 `lattice` 的 `lt_vm_seed` 出口取 16B 主钥，再照上面取数。若环境已被判可疑（≥2 项），主钥在内存里已经翻位，须重启进程。服务端 seed 是 `20260916`（`random.Random(20260916).randint(1,100)` 生成 1000 个数），本地可离线复算对拍。
 
-### KKL4：锁妖塔（太玄之初 · 代码段 CRC + 三点记账 + 服务端取数）
+### KKL4：锁妖塔（太玄之初 · VMP 栈式虚拟机 + 链式解码 + AES-128-CTR + MD5）
 
-**考点**：`libkkl4.so` 先读 `/proc/self/maps` 定位自己的可执行段，再对 `nativeOpen` / `nativeSign` / `nativeCommit` / `kkl4_crc_check` 四个窗口做 CRC-32 自校验（基线由 `tools/gen_kkl4_crc_baseline.py` 在构建期烘焙，放在独立 `kkl4_baseline.c`，不做运行时自证）。真机关不在 `nativeStatus()`：每页请求前 `nativeSign` 都要过 open→sign→Java 回调 commit 的三点记账，任一函数被静态 patch 或 inline hook，代码窗口 CRC 立即失配，HMAC 密钥被永久投毒，`/api/kkl4` 静默 403。
+**考点**：五 so 编队（门面 `citadel` + 内核 `obsidian`/`cavern`/`tundra`/`prowl`），门面用 `dlsym(RTLD_DEFAULT)` 串联其余四个内核，缺一取数即失败。主机 `libobsidian.so` 是一台自造的**栈式**虚拟机：数据栈 + 4 通用寄存器，`CALL/RET` 子程序用独立返回栈；字节码 `(op<<28)|imm28` 编码，并用**链式（CBC 式）**密钥流加密——`dec[n]=enc[n]^key[n]`、`key[n+1]=rotl32(key[n],9)^dec[n]^0x7F4A7C15`，逐条依赖前一条，静态无法整段异或解开。程序里只有 `GETM idx`（从运行时输入缓冲取字节），真标记不进字节码。守卫 `prowl` 五路（TracerPid / 可写可执行段 / 断点痕迹 / 模拟器 / 自映射完整性）命中 ≥2 即把主钥翻 `0x40` 位投毒，`/api/kkl4` 全程静默 403。
 
-**静态路线**：strings 能看到明文诱饵 `靐飝のø`，真标记是 UTF-16 藏匿的 `Fatdog_grit`（`strings -el lib/arm64-v8a/libkkl4.so` 可看到 11 个码元）。密钥派生与 KKL3 同构，`key = SHA-256("Fatdog_grit" + "|kkl4_tower")`，之后不依赖 so 直接逐页取数求和：
+**静态路线**：`strings libcitadel.so` 能看到明文诱饵 `Fatdog_dream`；`strings -el lib/arm64-v8a/libcitadel.so` 能看到真标记 `Fatdog_dread`（UTF-16 藏 `.data`，12 码元）。两者仅末位 `d`/`m` 一字之差——真正被喂进虚拟机的是真标记。反出栈式 VM 后按下面的纯函数复刻派生即可（生成器 `tools/gen_kkl4_vm_program.py` 内嵌解释器自测证明 VM 输出 == 此纯函数）：
 
 ```python
-import hashlib, hmac, time, requests
-key = hashlib.sha256(b'Fatdog_grit|kkl4_tower').digest()
+import hashlib, time, requests
+
+MARKER = b'Fatdog_dread'          # 真标记（UTF-16 藏 .data；明文诱饵是 Fatdog_dream）
+SALT   = b'|kkl4_tower'
+
+def mix_byte(mi, si, i):
+    x = (mi * 0x51 + si * 0x37 + i * 0x23) & 0xFF
+    x ^= (si >> 1) & 0xFF
+    x = ((x << 3) | (x >> 5)) & 0xFF          # rol8 3
+    return (x ^ ((mi + i * 7) & 0xFF)) & 0xFF
+
+seed = bytes(mix_byte(MARKER[i % len(MARKER)], SALT[i % len(SALT)], i) for i in range(32))
+key, iv = seed[:16], seed[16:]                # AES-128 key + CTR 初值（计数器块 = iv[0:12] + (iv[12:16]+块号)大端）
+
+# CTR 加密：见 gen_kkl4.py 的 aes_ctr()；或 pip install pycryptodome 后：
+from Crypto.Cipher import AES
+from Crypto.Util import Counter
+def ctr_enc(data):
+    ctr = Counter.new(32, prefix=iv[:12], initial_value=int.from_bytes(iv[12:], 'big'))
+    return AES.new(key, AES.MODE_CTR, counter=ctr).encrypt(data)
+
 total = 0
 for page in range(1, 101):
     ts = int(time.time())
-    sign = hmac.new(key, f'page={page}&ts={ts}'.encode(), hashlib.sha256).hexdigest()
-    r = requests.get('https://127.0.0.1:8443/api/kkl4',
-                     params={'page': page, 'ts': ts, 'sign': sign},
-                     verify='certs/ca.crt', timeout=5).json()
+    enc = ctr_enc(f'page={page}&ts={ts}'.encode()).hex()
+    sign = hashlib.md5((seed.hex() + enc).encode()).hexdigest()   # 纯 MD5，非 HMAC
+    r = requests.get('http://127.0.0.1:8787/api/kkl4',
+                     params={'page': page, 'ts': ts, 'enc': enc, 'sign': sign}, timeout=5).json()
     total += sum(r['nums'])
 print(total)                                # 51434
-print(hashlib.sha256(str(total).encode()).hexdigest())
+print(hashlib.md5(str(total).encode()).hexdigest())
 ```
 
-**答案**：100 页加和 = `51434`，提交 `sha256("51434")` = `6e769234a6eaaeb3118e6444cb116fb4f72935cd7f947400c1eee0bee368c62b`（64 hex，大小写不敏感）；flag `FLAG_18_KKL4{tower_of_the_sealed}`。
+**答案**：100 页加和 = `51434`，提交 `md5("51434")` = `f39535a04e58cb747941d0e1dda62670`（32 hex，大小写不敏感）；flag `FLAG_18_KKL4{tower_of_the_sealed}`。
 
-**patch/hook 路线**：不要只改 `nativeStatus()`。四点记账要求 open 先置位、sign 与 commit 交替闭合；inline hook `kkl4_crc_check` 或任一 JNI 入口都会改写前几条指令，CRC 窗口自己会先失配。想靠 patch 走通，必须完整重建 CRC 与记账链路（进程已被投毒时先重启）；最省事仍是静态还原 UTF-16 真标记派生密钥直接复刻请求。服务端 seed 是 `20260923`（`random.Random(20260923).randint(1,100)` 生成 1000 个数）。
+**动态路线**：干净环境里 `nativeSign` 每次回吐 `密文|签名` —— 盯它的出口即可拿 `enc`/`sign`；也可盯 `obsidian` 的 `ob_vm_seed` 出口取 32B 主钥。若环境已被判可疑（≥2 项），主钥在内存里已翻位，须重启进程。
 
-### KKL5：诛仙台（太玄之初 · VMP + onCreate 抽取 + AES-128-CBC）
+**patch/hook 路线**：不要只改 `nativeStatus()`（它只读、不判胜、不投毒）。守卫命中项在每次 `nativeSign` 重扫；想靠 patch 走通，最省事是静态还原真标记后直接复刻上面的派生链与请求。服务端 seed 是 `20260923`（`random.Random(20260923).randint(1,100)` 生成 1000 个数），本地可离线复算对拍。
+
+### KKL5：诛仙台（太玄之初 · 五 so 编队 + VMP 内存机 + SM4-CBC/AES-CTR 复合）
 
 #### 一、这一关在考什么
 
-KKL5 对齐 360 加固对 `Activity.onCreate` 的处理方式：**原始 `onCreate` 的关键逻辑不在 dex 里，而是被抽成 native，交给壳 SO 里的解释器逐条解密执行**（参考 360 加固脱壳笔记：`StubApp.interface11` 把 `onCreate` 注册到壳 SO 的 native 方法，解释器按 case 还原 Dalvik 指令）。本关把这个手法做成可控的教学版：
+KKL5 是太玄之初的收官卷，也是 KKL1-5 里最强的一关。它把三件事叠在一起：
 
-- `kkl5Activity.onCreate()` 只做三件事：构建视图、调用 `Kkl5Native.nativeOnCreate(this)`、放行翻页取数；
-- 真正的门禁在 `libkkl5.so` 的 `kkl5_on_create_gate()` 里，由自定义寄存器 VM 解释执行字节码得出；
-- 门禁通过后才派生取数用的 AES/MAC 子钥；取数协议是 AES-128-CBC + HMAC-SHA256 复合签名；
-- 业务 DEX（`com.fatdog.reverse.kkl5.GateKeeper5`）用同一个 AES 密钥加密埋在 `assets/kkl5/ascension_altar.bin`，运行时 `nativeUnseal()` 解密后内存加载。
+- **`onCreate` 被抽成 native**（对齐 360 加固 `StubApp.interface11` 手法）：`kkl5Activity.onCreate()` 只构建视图 + 调 `Kkl5Native.nativeOnCreate(this)`，真正的门禁在 so 里；
+- **门禁由一台自造虚拟机跑**：不是普通 native 函数，而是**一台内存机 VM 逐条解密密文指令**、把钥匙从标记里一步步算出来；
+- **五 so 编队**：门面只导出 `Java_` 符号，其余四个内核靠 `dlsym(RTLD_DEFAULT)` 串联，**缺一个都取不回数**；
+- **取数是两层加密复合**：内层国密 SM4-CBC，外层 AES-128-CTR，再叠一层**纯 MD5** 签名（本关零 HMAC）。
 
-一句话：`onCreate` 是入口，VM 是机关，AES-CBC 是取数协议，服务端只认由真标记派生出的签名。
+一句话：`onCreate` 是入口，VM 是机关，SM4-CBC+AES-CTR 复合是取数协议，服务端只认由真标记派生出的主钥。
 
-#### 二、VM 架构与字节码格式
+#### 二、五 so 编队
 
-`app/jni/kkl5.cpp` 里的解释器是寄存器式 VM：
+| so | 角色 | 导出的 C 符号 |
+| --- | --- | --- |
+| `libspindle.so` | 门面（全关**唯一**导出 `Java_com_fatdog_reverse_Kkl5Native_*`） | `kd_seal_tag`（诱饵） |
+| `libvellum.so` | 虚拟机内核：差分链解密 + 内存机解释执行 | `vl_derive` / `vl_decoy_head` |
+| `libnimbus.so` | 复合原语：SM4-CBC（内层）+ AES-128-CTR（外层）+ hex | `nm_seal` / `nm_unseal` / `nm_hex` |
+| `libtallow.so` | 摘要：MD5 | `tl_tally` / `tl_hex` |
+| `libwraith.so` | 完整性守卫（阈值 2 静默投毒） | `wr_scan` |
 
-- 16 个 32 位虚拟寄存器 `V0`-`V15`；
-- 指令长度固定 32 位，小端存储；
-- 指令编码：`opcode << 24 | imm16`，即最高字节是操作码、低 16 位是立即数（KKL5 开发时曾把 opcode 放低字节、立即数放高 16 位，与解释器解码方向相反导致 VM 死循环，后统一为现在这个格式）；
-- 指令集：`MOV / ADDI / XOR / XORI / AND / OR / SHL / SHR / ROL / ROR / CMP / JMP / JZ / JNZ / ADD / SUB / MUL / HALT`；
-- 字节码不是明文：`bytecode[i] ^= kKkl5VmRollingSeed[i % 32]`，滚动密钥是 `0x11..0x30` 共 32 字节，存在 `kkl5_vm_program.h`；
-- `MOV` 是双字指令：低 16 位和高 16 位各发一条，解释器第一次保留低半区、第二次把立即数移进高半区，这样就能装下 32 位常量。
+`spindle` 里没有算法：它 `dlsym` 拿到 `vl_derive / nm_seal / nm_unseal / nm_hex / tl_tally / tl_hex / wr_scan`，任一为空就报"内核编队不完整"、签名返回空串。so 名全部是无规律词根，不含关号/算法词。
 
-字节码程序本身做的是**逐字节密钥派生**：对 `i = 0..15`（AES 主钥）或 `0..31`（MAC 子钥），按标记和盐计算
+#### 三、VM 架构与字节码格式
+
+`libvellum.so` 里的解释器是一台**内存机**（与 KKL3 的寄存器机、KKL4 的栈机刻意不同构）：
+
+- 状态：`M[0..15]` 共 16 个 32 位内存单元 + 一个累加器 `acc`；**没有数据栈、没有子程序**；
+- 指令长度固定 32 位、小端存储；编码：
+
+  ```
+  word = (op << 24) | (d << 20) | (s << 16) | imm16
+         op 高 8 位；d/s 各 4 位（内存单元号）；imm 低 16 位
+  ```
+
+- 指令集：`SET / SETH / CPY / GETA / PUTA / GETM / ADDI / MULK / XORR / ANDR / ORR / ADDR / SUBR / SHL / SHR / ROL8 / ROR8 / XORI / ANDI / JMP / JZ / JNZ / HALT`；
+- **`SET` 写低 16 位、`SETH` 写高 16 位**（32 位立即数用两条拼）——这是旧版踩坑点，重做时用成对指令 + 自测锁死；
+- **跳转全是绝对目标**（`pc = imm16`），不存在"相对偏移差 1"的坑；
+- 字节码不是明文，用**差分反馈链**加密：
+
+  ```
+  dec[n] = enc[n] ^ key[n % 16] ^ enc[n-1]      （enc[-1] = IV）
+  ```
+
+  每一条的解密都依赖**上一条密文**，不能整段独立异或出来；`key = 0x21..0x30` 共 16 字节，`IV = 0x9E3779B9`，都放在 `kkl5_vm_program.h`。
+
+**字节码程序做的是逐字节派生主钥**：入口只有 `GETM idx`（下标是编译期常量 `i % 13` / `13 + i % 11`），**标记字节不进字节码**，运行时由门面从 `.data` 的 UTF-16 数组喂进输入缓冲。派生式：
 
 ```
-k = ((marker[i % len(marker)] * 0x1F + salt[i % len(salt)] * 0x2B + i * 0x11)
-     ^ (marker[i % len(marker)] << 1)) 旋转左移 8 位 3 位  ^ salt[i % len(salt)]
+k[i] = ror8( ( (mi*0x2D + si*0x3B + i*0x53) & 0xFF ) ^ (si>>1), 3 )
+       ^ ( (mi*3 + i) & 0xFF )
+其中 mi = marker[i % 13], si = salt[i % 11]
 ```
 
-再按 `i % 4` 塞进第 `1 + i/4` 号寄存器，最后从寄存器读回 16/32 字节。真标记 `Fatdog_ascend` 是 VM 里的立即数；诱饵 `靐飝のжλ` 是另一份字节码，服务端只认真标记派生的签名。
+结果 32 字节写进输出单元 `M8..M15`（小端拼 32 位），即主钥 `seed`：`seed[0:16]` 作 SM4 密钥、`seed[16:32]` 作 AES 密钥。
 
-#### 三、密钥与协议参数
+#### 四、密钥与协议参数
 
-| 参数          | 值                                                           |
-| ------------- | ------------------------------------------------------------ |
-| 真标记        | `Fatdog_ascend`（VM 立即数）/ 诱饵 `靐飝のжλ`           |
-| AES 主钥      | `6a3315b12737d2b16d2ed50ddf8d4852`（16 字节，VM 派生）       |
-| MAC 子钥      | `SHA256(aes_key + "\|kkl5_ascension")` = `af529d9976ff1c367d3b265757362d0efce4d7d43120d7245fce4fae28d72714` |
-| 响应 AES 密钥 | `SHA256("Fatdog_ascend\|kkl5_response")[:16]`                |
-| 请求 IV       | `SHA256("page=N\|ts=T\|" + mac_key)[:16]`                    |
-| 请求密文      | `AES-128-CBC(aes_key, PKCS7("page=N&ts=T"))`，`enc = hex(IV + 密文)` |
-| 请求签名      | `HMAC-SHA256(mac_key, enc)`                                  |
-| 响应 IV       | `SHA256("N\|T\|" + rsp_key.hex())[:16]`                      |
-| 响应签名      | `HMAC-SHA256(mac_key, "N\|T\|ivHex\|dHex")`                  |
-| 页数 / 种子   | 100 页 × 10 个数字；seed `20260930`                          |
-| 加和 / 提交   | 53011 / `sha256("53011")` = `5c1f9a36a76360acdb86b6859da42f3ea7abe57ba5f5d836066039885f619924` |
-| flag          | `FLAG_18_KKL5{ascension_of_the_immortals}`                   |
+| 参数 | 值 |
+| --- | --- |
+| 真标记 | `Fatdog_ascend`（UTF-16 藏门面 `.data`）/ 明文诱饵 `Fatdog_ascent`（仅末位 d/t 一字之差） |
+| 盐 | `\|kkl5_altar`（11 字节） |
+| 主钥 seed（32B） | `49a38ec7d22c252a5781b6fdbabc9827ec743b64adc05b1b3cf1d1ad04741322` |
+| SM4 密钥 | `seed[0:16]` = `49a38ec7d22c252a5781b6fdbabc9827` |
+| AES 密钥 | `seed[16:32]` = `ec743b64adc05b1b3cf1d1ad04741322` |
+| SM4 IV | `md5(seed + "\|sm4")[:16]` |
+| AES IV | `md5(seed + "\|aes")[:16]`（随密文前 16 字节携带） |
+| 请求明文 | `page=N&ts=T` |
+| 请求密文 | `enc = hex( aes_iv(16) ‖ AES-CTR(aes_key, aes_iv, SM4-CBC(sm4_key, sm4_iv, PKCS7(明文))) )` |
+| 请求签名 | `sign = md5( seed.hex() + enc )`（**纯 MD5，不是 HMAC**） |
+| 响应 | `{"page":N,"d": hex(复合密封(页面 JSON))}`，用同一主钥解 |
+| 页数 / 种子 | 100 页 × 10 个数字；seed `20260930` |
+| 加和 / 提交 | 53011 / `md5("53011")` = `206125c6e7523ba7c0301144ac24eea9` |
+| flag | `FLAG_18_KKL5{ascension_of_the_immortals}` |
 
-服务端 `/api/kkl5` 先校验 page/ts，再用 MAC 子钥验 `sign`，然后解 AES-CBC、比对明文是否等于 `page=N&ts=T`，最后返回 `{"iv":..., "d":..., "sign":...}`。任一环节不符返回 403。
+服务端 `/api/kkl5`：先验 `sign`（MD5），再**先解外层 AES-CTR、再解内层 SM4-CBC**，比对明文等于 `page=N&ts=T`；任一环节不符 403。业务 DEX（`GateKeeper5`）用同一复合算法埋在 `assets/kkl5/ascension_altar.bin`。
 
-#### 四、静态复刻路线（推荐）
+#### 五、静态复刻路线（推荐）
 
-**第 1 步：解出 VM 字节码。** 把 `kkl5_vm_program.h` 里的 `kKkl5VmProgramEnc` 与 `kKkl5VmRollingSeed` 取出来，逐字节异或还原成 32 位指令流：
+**第 1 步：解出 VM 字节码。** `kkl5_vm_program.h` 里 `kKkl5VmProgram` 是差分链密文；配上 `kKkl5VmStreamKey` / `kKkl5VmChainIV`，逐字还原：
 
 ```python
-enc = list(kKkl5VmProgramEnc)
-key = bytes(range(0x11, 0x31))
+prev = CHAIN_IV
 words = []
-for i in range(0, len(enc), 4):
-    w = 0
-    for j in range(4):
-        w |= (enc[i + j] ^ key[(i + j) % 32]) << (j * 8)
-    words.append(w)
+for n, e in enumerate(enc_words):
+    d = e ^ STREAM_KEY[n % len(STREAM_KEY)] ^ prev
+    words.append(d)
+    prev = e          # 密文自反馈
 ```
 
-**第 2 步：实现解释器。** 解码 `op = (w >> 24) & 0xFF`、`imm = w & 0xFFFF`，按上表实现 switch 即可。跑完 `kKkl5VmProgramEnc` 得到 AES 主钥，跑 `kKkl5VmMacEnc` 得到 MAC 子钥。实际产物里这两个值是：
+**第 2 步：实现内存机解释器。** 取 `op=(w>>24)&0xFF, d=(w>>20)&0xF, s=(w>>16)&0xF, imm=w&0xFFFF`，按第三节指令集实现 switch；`GETM idx` 从"`Fatdog_ascend` ‖ `|kkl5_altar`"的输入缓冲读字节。跑到 `HALT` 后，把 `M8..M15` 小端拼成 32 字节，就是 seed。
 
-```
-aes_key = 6a3315b12737d2b16d2ed50ddf8d4852
-mac_key = af529d9976ff1c367d3b265757362d0efce4d7d43120d7245fce4fae28d72714
-```
-
-**第 3 步：复刻请求协议并逐页取数。** 下面的脚本可直接跑通（先用 `python server.py` 起服务）：
+**第 3 步：复刻请求协议并逐页取数。** 下面的脚本可直接跑通（先把 `python server.py` 起在 8787，脚本从仓库根运行）：
 
 ```python
-# solutions_kkl5.py —— KKL5 诛仙台完整复刻
-import hashlib, hmac, json, ssl, time, urllib.request
-from Crypto.Cipher import AES
+# solutions_kkl5.py —— KKL5 诛仙台完整复刻（纯标准库，无第三方依赖）
+import hashlib, json, re, struct, time, urllib.request
 
-BASE = "https://127.0.0.1:8443"
-AES_KEY = bytes.fromhex("6a3315b12737d2b16d2ed50ddf8d4852")
-MAC_KEY = hashlib.sha256(AES_KEY + b"|kkl5_ascension").digest()
-RSP_KEY = hashlib.sha256(b"Fatdog_ascend|kkl5_response").digest()[:16]
+MARKER = b"Fatdog_ascend"
+SALT = b"|kkl5_altar"
 
+# —— 从 so 头文件抠出 VM 字节码参数 ——
+hdr = open("app/jni/kkl5_vm_program.h", encoding="utf-8").read()
+def _arr(name):
+    m = re.search(name + r"\[\]\s*=\s*\{(.*?)\};", hdr, re.S)
+    return bytes(int(x, 16) for x in re.findall(r"0x([0-9A-Fa-f]{2})", m.group(1)))
+prog = _arr("kKkl5VmProgram")
+STREAM_KEY = _arr("kKkl5VmStreamKey")
+CHAIN_IV = int.from_bytes(_arr("kKkl5VmChainIV"), "little")
+PROG_IV = CHAIN_IV
+M32 = 0xFFFFFFFF
 
-def pkcs7_pad(data):
-    n = 16 - (len(data) % 16)
-    return data + bytes([n]) * n
+# —— 差分反馈链解码 ——
+def chain_decode(enc):
+    words, prev = [], PROG_IV
+    for n in range(len(enc) // 4):
+        e = int.from_bytes(enc[n*4:n*4+4], "little")
+        words.append((e ^ STREAM_KEY[n % len(STREAM_KEY)] ^ prev) & M32)
+        prev = e
+    return words
 
+# —— 内存机解释器（与 libvellum.so 逐语义对齐）——
+OP = dict(SET=0x01, SETH=0x02, CPY=0x03, GETA=0x04, PUTA=0x05, GETM=0x06, ADDI=0x07,
+          MULK=0x08, XORR=0x09, ANDR=0x0A, ORR=0x0B, ADDR=0x0C, SUBR=0x0D, SHL=0x0E,
+          SHR=0x0F, ROL8=0x10, ROR8=0x11, XORI=0x12, ANDI=0x13, JMP=0x14, JZ=0x15,
+          JNZ=0x16, HALT=0x17)
+def vm_seed(inbuf):
+    w = chain_decode(prog); M = [0]*16; acc = 0; pc = 0
+    for _ in range(400000):
+        word = w[pc]; op = (word >> 24) & 0xFF
+        d = (word >> 20) & 0xF; s = (word >> 16) & 0xF; imm = word & 0xFFFF
+        jmp = False
+        if   op == OP["SET"]:  M[d] = imm
+        elif op == OP["SETH"]: M[d] = (M[d] & 0xFFFF) | (imm << 16)
+        elif op == OP["CPY"]:  M[d] = M[s]
+        elif op == OP["GETA"]: acc = M[d]
+        elif op == OP["PUTA"]: M[d] = acc
+        elif op == OP["GETM"]: acc = inbuf[imm] if imm < len(inbuf) else 0
+        elif op == OP["ADDI"]: acc = (acc + imm) & M32
+        elif op == OP["MULK"]: acc = (acc * imm) & M32
+        elif op == OP["XORR"]: acc = (acc ^ M[s]) & M32
+        elif op == OP["ANDR"]: acc = (acc & M[s]) & M32
+        elif op == OP["ORR"]:  acc = (acc | M[s]) & M32
+        elif op == OP["ADDR"]: acc = (acc + M[s]) & M32
+        elif op == OP["SUBR"]: acc = (acc - M[s]) & M32
+        elif op == OP["SHL"]:  acc = (acc << (imm & 31)) & M32
+        elif op == OP["SHR"]:  acc = (acc >> (imm & 31)) & M32
+        elif op == OP["ROL8"]:
+            v = acc & 0xFF; r = imm & 7; acc = ((v << r) | (v >> (8 - r))) & 0xFF
+        elif op == OP["ROR8"]:
+            v = acc & 0xFF; r = imm & 7; acc = ((v >> r) | (v << (8 - r))) & 0xFF
+        elif op == OP["XORI"]: acc = (acc ^ imm) & M32
+        elif op == OP["ANDI"]: acc = (acc & imm) & M32
+        elif op == OP["JMP"]:  pc = imm; jmp = True
+        elif op == OP["JZ"]:   jmp = (acc == 0); pc = imm if jmp else pc
+        elif op == OP["JNZ"]:  jmp = (acc != 0); pc = imm if jmp else pc
+        elif op == OP["HALT"]: break
+        else: raise ValueError("bad opcode %d" % op)
+        if not jmp: pc += 1
+    return bytes((M[8 + i // 4] >> (8 * (i % 4))) & 0xFF for i in range(32))
 
-def unpad(data):
-    return data[:-data[-1]]
+seed = vm_seed(MARKER + SALT)
+print("seed =", seed.hex())
 
+# —— SM4（GB/T 32907）+ AES-128-CTR（FIPS-197）纯 Python 实现 ——
+SM4_SBOX = bytes.fromhex(
+    "d690e9fecce13db716b614c228fb2c052b679a762abe04c3aa44132649860699"
+    "9c4250f491ef987a33540b43edcfac62e4b31ca9c908e89580df94fa758f3fa6"
+    "4707a7fcf37317ba83593c19e6854fa8686b81b27164da8bf8eb0f4b70569d35"
+    "1e240e5e6358d1a225227c3b01217887d40046579fd327524c3602e7a0c4c89e"
+    "eabf8ad240c738b5a3f7f2cef96115a1e0ae5da49b341a55ad933230f58cb1e3"
+    "1df6e22e8266ca60c02923ab0d534e6fd5db3745defd8e2f03ff6a726d6c5b51"
+    "8d1baf92bbddbc7f11d95c411f105ad80ac13188a5cd7bbd2d74d012b8e5b4b0"
+    "8969974a0c96777e65b9f109c56ec68418f07dec3adc4d2079ee5f3ed7cb3948")
+SM4_FK = [0xa3b1bac6, 0x56aa3350, 0x677d9197, 0xb27022dc]
+def _rotl(x, n): return ((x << n) | (x >> (32 - n))) & M32
+def _ck(i): return ((4*i)*7 & 0xFF) << 24 | ((4*i+1)*7 & 0xFF) << 16 | ((4*i+2)*7 & 0xFF) << 8 | ((4*i+3)*7 & 0xFF)
+def _tau(x):
+    S = SM4_SBOX
+    return S[(x >> 24) & 0xFF] << 24 | S[(x >> 16) & 0xFF] << 16 | S[(x >> 8) & 0xFF] << 8 | S[x & 0xFF]
+def _t(x):
+    b = _tau(x); return b ^ _rotl(b, 2) ^ _rotl(b, 10) ^ _rotl(b, 18) ^ _rotl(b, 24)
+def _tp(x):
+    b = _tau(x); return b ^ _rotl(b, 13) ^ _rotl(b, 23)
+def sm4_keys(key):
+    k = [int.from_bytes(key[i*4:i*4+4], "big") ^ SM4_FK[i] for i in range(4)]; rk = []
+    for i in range(32):
+        nk = k[0] ^ _tp(k[1] ^ k[2] ^ k[3] ^ _ck(i)); rk.append(nk); k = [k[1], k[2], k[3], nk]
+    return rk
+def _sm4_block(rk, blk):
+    x = [int.from_bytes(blk[i*4:i*4+4], "big") for i in range(4)]
+    for i in range(32):
+        nx = x[0] ^ _t(x[1] ^ x[2] ^ x[3] ^ rk[i]); x = [x[1], x[2], x[3], nx]
+    return b"".join((v & M32).to_bytes(4, "big") for v in (x[3], x[2], x[1], x[0]))
+def sm4_cbc_dec(key, iv, data):
+    rk = sm4_keys(key)[::-1]; out = bytearray(); prev = iv
+    for off in range(0, len(data), 16):
+        c = data[off:off+16]
+        out += bytes(a ^ b for a, b in zip(_sm4_block(rk, c), prev)); prev = c
+    pad = out[-1]; return bytes(out[:-pad])
+def sm4_cbc_enc(key, iv, data):
+    n = 16 - len(data) % 16; data += bytes([n]) * n
+    rk = sm4_keys(key); out = bytearray(); prev = iv
+    for off in range(0, len(data), 16):
+        c = _sm4_block(rk, bytes(a ^ b for a, b in zip(data[off:off+16], prev)))
+        out += c; prev = c
+    return bytes(out)
 
-def fetch_page(page, ts):
-    plain = f"page={page}&ts={ts}".encode()
-    iv = hashlib.sha256(f"{page}|{ts}|".encode() + MAC_KEY).digest()[:16]
-    ct = AES.new(AES_KEY, AES.MODE_CBC, iv).encrypt(pkcs7_pad(plain))
-    enc = (iv + ct).hex()
-    sign = hmac.new(MAC_KEY, enc.encode(), hashlib.sha256).hexdigest()
-    body = f"page={page}&ts={ts}&enc={enc}&sign={sign}".encode()
-    ctx = ssl.create_default_context()
-    ctx.check_hostname = False
-    ctx.verify_mode = ssl.CERT_NONE
-    req = urllib.request.Request(BASE + "/api/kkl5", data=body,
-                                 headers={"Content-Type": "application/x-www-form-urlencoded"})
-    rsp = json.loads(urllib.request.urlopen(req, context=ctx, timeout=10).read())
-    # 验响应签名：HMAC(mac_key, "page|ts|ivHex|dHex")
-    msg = f"{page}|{ts}|{rsp['iv']}|{rsp['d']}".encode()
-    expect = hmac.new(MAC_KEY, msg, hashlib.sha256).hexdigest()
-    assert hmac.compare_digest(expect, rsp["sign"]), "响应签名不匹配"
-    pt = AES.new(RSP_KEY, AES.MODE_CBC, bytes.fromhex(rsp["iv"])).decrypt(bytes.fromhex(rsp["d"]))
-    return json.loads(unpad(pt))["nums"]
+ASBOX = bytes.fromhex(
+    "637c777bf26b6fc53001672bfed7ab76ca82c97dfa5947f0add4a2af9ca472c0"
+    "b7fd9326363ff7cc34a5e5f171d8311504c723c31896059a071280e2eb27b275"
+    "09832c1a1b6e5aa0523bd6b329e32f8453d100ed20fcb15b6acbbe394a4c58cf"
+    "d0efaafb434d338545f9027f503c9fa851a3408f929d38f5bcb6da2110fff3d2"
+    "cd0c13ec5f974417c4a77e3d645d197360814fdc222a908846eeb814de5e0bdb"
+    "e0323a0a4906245cc2d3ac629195e479e7c8376d8dd54ea96c56f4ea657aae08"
+    "ba78252e1ca6b4c6e8dd741f4bbd8b8a703eb5664803f60e613557b986c11d9e"
+    "e1f8981169d98e949b1e87e9ce5528df8ca1890dbfe6426841992d0fb054bb16")
+def _xtime(a): a <<= 1; return (a ^ 0x11b) & 0xFF if a & 0x100 else a & 0xFF
+def _gmul(a, b):
+    p = 0
+    for _ in range(8):
+        if b & 1: p ^= a
+        a = _xtime(a); b >>= 1
+    return p & 0xFF
+def _aes_expand(key):
+    w = list(key); rc = 1
+    for i in range(4, 44):
+        t = w[(i-1)*4:(i-1)*4+4]
+        if i % 4 == 0:
+            t = t[1:] + t[:1]; t = [ASBOX[x] for x in t]; t[0] ^= rc; rc = _xtime(rc)
+        w += [w[(i-4)*4+j] ^ t[j] for j in range(4)]
+    return w
+def _aes_shift_rows(s):
+    return [s[((c + r) % 4) * 4 + r] for c in range(4) for r in range(4)]
+def _aes_mix_columns(s):
+    m = [2, 3, 1, 1]
+    return [(_gmul(s[c*4], m[(0-r) % 4]) ^ _gmul(s[c*4+1], m[(1-r) % 4]) ^
+             _gmul(s[c*4+2], m[(2-r) % 4]) ^ _gmul(s[c*4+3], m[(3-r) % 4]))
+            for c in range(4) for r in range(4)]
+def _aes_block(block, w):
+    st = [block[i] ^ w[i] for i in range(16)]
+    for rnd in range(1, 10):
+        st = [ASBOX[x] for x in st]
+        st = _aes_shift_rows(st)
+        st = _aes_mix_columns(st)
+        st = [st[i] ^ w[rnd*16+i] for i in range(16)]
+    st = [ASBOX[x] for x in st]
+    st = _aes_shift_rows(st)
+    st = [st[i] ^ w[160+i] for i in range(16)]
+    return bytes(st)
+def aes_ctr(key, iv, data):
+    w = _aes_expand(key); base = int.from_bytes(iv[12:16], "big"); out = bytearray()
+    for j, off in enumerate(range(0, len(data), 16)):
+        ctr = iv[:12] + ((base + j) & M32).to_bytes(4, "big")
+        ks = _aes_block(ctr, w)
+        out += bytes(a ^ b for a, b in zip(data[off:off+16], ks))
+    return bytes(out)
 
+def unseal(blob):
+    sm4_key, aes_key = seed[:16], seed[16:]
+    inner = aes_ctr(aes_key, blob[:16], blob[16:])
+    return sm4_cbc_dec(sm4_key, hashlib.md5(seed + b"|sm4").digest()[:16], inner)
 
-ts = int(time.time())
+BASE = "http://127.0.0.1:8787"
 total = 0
 for page in range(1, 101):
-    nums = fetch_page(page, ts)
-    total += sum(nums)
-    if page % 10 == 0:
-        print(f"page {page:3d}: partial sum = {total}")
-
-print("sum =", total)
-print("submit =", hashlib.sha256(str(total).encode()).hexdigest())
+    ts = int(time.time())
+    plain = f"page={page}&ts={ts}".encode()
+    sm4_iv = hashlib.md5(seed + b"|sm4").digest()[:16]
+    aes_iv = hashlib.md5(seed + b"|aes").digest()[:16]
+    blob = aes_iv + aes_ctr(seed[16:], aes_iv, sm4_cbc_enc(seed[:16], sm4_iv, plain))
+    enc = blob.hex()
+    sign = hashlib.md5((seed.hex() + enc).encode()).hexdigest()
+    url = f"{BASE}/api/kkl5?page={page}&ts={ts}&enc={enc}&sign={sign}"
+    rsp = json.loads(urllib.request.urlopen(url, timeout=10).read())
+    body = json.loads(unseal(bytes.fromhex(rsp["d"])).decode())
+    total += sum(body["nums"])
+print("sum =", total, "submit =", hashlib.md5(str(total).encode()).hexdigest())
 ```
 
-跑完输出 `sum = 53011`，提交 `5c1f9a36a76360acdb86b6859da42f3ea7abe57ba5f5d836066039885f619924` 即通关。
+> 脚本自带纯 Python 的 SM4 / AES-128 / MD5 实现，无需任何第三方库；跑完输出 `sum = 53011`，提交 `206125c6e7523ba7c0301144ac24eea9` 即通关。（脚本里的 SM4/AES 与 so、与 `gen_kkl5.py` 是同一条算法，已逐字节对拍。）
 
-**第 4 步：如果要走 so 反汇编。** 也可以用 jadx 看 `kkl5Activity.onCreate` → `Kkl5Native.nativeOnCreate` → `System.loadLibrary("kkl5")`，再用 IDA/Ghidra 打开 `libkkl5.so`，重点看 `kkl5_vm_run` 的 switch、`kkl5_on_create_gate` 的寄存器读取，以及 `nativeSign` 里 AES-CBC + HMAC 的调用顺序。VM 字节码在 `.rodata`，滚动密钥常量同样在附近。
+**第 4 步：如果要走 so 反汇编。** jadx 看 `kkl5Activity.onCreate` → `Kkl5Native.nativeOnCreate` → 五个 `System.loadLibrary`；再用 IDA/Ghidra 打开 `libspindle.so` 看 `bind_kernels` 的 `dlsym` 名单，逐个打开 `libvellum.so`（VM 的 switch）、`libnimbus.so`（SM4/AES 两张 S 盒）、`libtallow.so`（MD5 常量 `0xd76aa478`）。VM 字节码与密钥流在 `libspindle.so` 的 `.rodata`（`kKkl5VmProgram` / `kKkl5VmStreamKey`）。
 
-#### 五、动态路线
+#### 六、动态路线
 
-- Frida hook `Kkl5Native.nativeSign(page, ts)`：直接拿 `enc|sign` 字符串，不用自己实现 AES/HMAC，然后照第 3 步拼请求即可；
-- Frida hook `Kkl5Native.nativeUnseal(sealed)`：拿到解密后的业务 DEX，dump 出来可确认 `GateKeeper5` 内容；
-- patch `kkl5_on_create_gate` 或 VM 字节码：门禁会直接失败，因为 `kkl5_on_create_gate` 会把派生出的主钥与 `kKkl5VmExpectAes` 比对，patch 后签名被投毒，服务端 403。
+- Frida hook `Kkl5Native.nativeSign(page, ts)`：直接拿 `enc|sign` 字符串，不用自己实现 SM4/AES/MD5，然后照第 3 步拼请求即可；
+- Frida hook `Kkl5Native.nativeUnseal(sealed)`：拿到解密后的业务 DEX（dump 出可确认 `GateKeeper5`）与每一页的响应明文；
+- patch `vl_derive` 或 VM 字节码：门禁会失败 → `nativeSign` 返回空串 / 主钥被投毒 → 服务端 403；
+- 拔掉五个 so 中的任意一个：门面 `dlsym` 拿不到内核 → 自检报"内核编队不完整"。
 
-#### 六、常见坑
+#### 七、常见坑
 
-1. `enc` 是 `IV + 密文` 的 hex，不是纯密文；服务端解密时从 `enc[:16]` 取 IV；
-2. 请求 IV 和响应 IV 的派生公式不同，响应 IV 是服务端算好通过 `iv` 字段下发的，不要自己重算；
-3. MAC 子钥不是 `SHA256(marker)`，而是 `SHA256(aes_key + "|kkl5_ascension")`，即先有 VM 派生的 AES 主钥，再有 MAC 子钥；
-4. VM 字节码解码时 opcode 在最高字节，`w = (w >> 24) & 0xFF`；写成 `w & 0xFF` 会得到完全错误的指令流；
-5. 服务端 seed 固定为 `20260930`，同一页的 10 个数字固定，换时间戳不会改变数字本身。
+1. `enc` 的前 16 字节是 **AES IV**（不是 SM4 IV）；SM4 IV 要从 seed 现算 `md5(seed+"|sm4")[:16]`，服务端/客户端各自算，**不随密文传**；
+2. 解密顺序是**先外层 AES-CTR，再内层 SM4-CBC**，反过来一定乱码；
+3. 签名是 `md5(seed.hex() + enc)`，`seed` 是 **32 字节主钥的十六进制**（不是标记、也不是取前 16 位）；
+4. VM 字节码是**差分反馈链**：`dec[n]` 依赖 `enc[n-1]`，别想着整段异或就能还原；
+5. 索引 `i % 13` / `13 + i % 11`：标记 13 字节、盐 11 字节，下标越界会被 `GETM` 读成 0，派生值就全错——标记或盐抄错一个字符，服务端必 403；
+6. 诱饵 `Fatdog_ascent` 与真标记只差末位一个字母，别抄错。
 
 ## 天地秘境 · 扶桑树（KL21-28）
 
@@ -5755,7 +5965,7 @@ def lcg_ans(seed):                      # KL24-28：libice 之后统一 LCG 伪 
 
 **坑位提醒**：`Ck.verifySignature` 的 HMAC 密钥就是 so 里两个标记之一（另一为 `幽玄のж` 诱饵）；响应签名覆盖的是不含 sign 字段的 body 原始字节，服务端与客户端必须保持同一套 canonical 编码，否则验签失败。flag `FLAG_18_KL30{heavenly_loom}`。
 
-## 天地秘境 · 碧落天（KL36-40）
+## 天地秘境 · 碧落天（KL36-40 / KL40b）
 
 > 碧落天五关围绕**真实 Flutter 产物**（`lib/arm64-v8a/libapp.so`、`libflutter.so`、`assets/flutter_assets/`）逆向：KL36 识别 + Dart AOT 快照对象池（MD5 签名），KL37 AOT 代码还原 + `--obfuscate` 混淆对抗（AES-128-ECB），KL38 Flutter TLS 证书固定（BoringSSL）绕过，KL39 dart:ffi 双向往调 + 密钥分片，KL40 综合收官。工具链：Blutter / reFlutter / Frida / IDA·Ghidra / radare2。产物由 `tools/flutter_probe/`（Dart 源）+ `tools/build_flutter_artifacts.py` 生成（本机 Flutter 3.47.5 / Dart 3.13.4，走国内镜像）。
 
@@ -5882,7 +6092,7 @@ flag `FLAG_18_KL37{iris_in_the_wind}`。真标记 `Fatdog_kite` / 诱饵 `Fatdog
 - 同样认准 `arm64-v8a` 的载荷；
 - 宿主伴生 so 走的是**镜像实现**（同样两瓣拼接），逆 so 是兜底路线。
 
-### KL38：雾里观花（真实 Flutter 产物 · BoringSSL 证书固定绕过 · AES-128-CBC + SHA-256）
+### KL38：雾里观花（真实 Flutter 产物 · BoringSSL 证书固定绕过 · 抓包环境对抗 · AES-128-CBC + SHA-256）
 
 **本关产物**：与前两关共用同一份真实 Flutter 载荷（`lib/arm64-v8a/libapp.so` / `libflutter.so` / `assets/flutter_assets/`）。本关**题眼是 TLS 证书固定**——Flutter 自带网络栈，既不认系统 CA，也不认 Java 的 TrustManager。
 
@@ -5933,10 +6143,26 @@ KL38 的侧重点只在**证书固定（BoringSSL pinning）**。伴生 so 原�
 
 > 服务端仍保留诱饵钥判定：诱饵 `Fatdog_fog` 与真钥 `Fatdog_haze` 只差后三字母，用错即 403（这是"错误钥反馈"，与反调试无关）。
 
+**五·补、环境对抗（2026-10 追加）：系统代理 / VPN 体检 + 静默投毒**
+
+KL38 于 2026-10 追加了一层**抓包环境体检**（与反调试无关，纯粹针对"挂代理 / VPN 抓包"）：
+
+- **native 侧**（伴生 so `libflutternet.so`）扫：`/proc/net/tcp{,6}` 上的可疑 `LISTEN` 端口（8080/8081/8082/8083/8087/8888/8889/9090/9091/9099）、`/proc/net/dev` 上的 `tun*` / `ppp*` / `wg*` 网卡；
+- **Java 侧**（`Gloom.scan`）查：系统代理属性（`http(s).proxyHost/Port`）、`ConnectivityManager` 各网络的 `getHttpProxy()`、`TRANSPORT_VPN` 传输；
+- 两者命中数**合并计分**，**阈值 ≥ 2** 判为"有异"。命中后**不报错、不闪退**——而是把请求主密钥**静默投毒**（`taint`），于是 `enc`/`sign` 全错、服务端拒绝，但**界面毫无提示**。
+
+状态三态：`0` 未扫描 / `1` 清净 / `2` 有异。App 内「雾候」一栏只显示有无，不点破手段、不判胜。
+
+**注意：这是"环境对抗"不是"反调试"**——它**不**检测 Frida / ptrace，只针对代理 / VPN 抓包。因此：
+
+- **路线 A（纯复刻）天然免疫**：不跑 App，不会被体检；
+- 走 App 内取数时，把系统代理 / VPN **关干净**再跑（Flutter 不读系统代理，正确做法是 `adb reverse` 直接引端口）；
+- 出现"数字能取到但服务端拒绝 / 加和不对"时，先自查是不是挂着代理或 VPN。
+
 **六、绕过路线（三条）**
 
 **路线 A：纯复刻（最干净，不碰 App）**
-从 `libapp.so` 拿主密钥 → 按上表算 `enc`/`sign` → 自己发请求 → 求和提交。App 侧唯一的关卡（pin 校验）也一并跳过。
+从 `libapp.so` 取哨兵里的 base64 串 → `b64decode` 还原主密钥 → 按上表算 `enc`/`sign` → 自己发请求 → 求和提交。App 侧唯一的关卡（pin 校验）也一并跳过。
 
 **路线 B：Frida 绕过 pinning（App 内取数）**
 ```javascript
@@ -5957,11 +6183,11 @@ Java.perform(function () {
 
 ```python
 # pip install pycryptodome  （或无第三方时改用 server.py 里的 _aes_cbc_decrypt 纯标准库实现）
-import hashlib, json, urllib.request
+import base64, hashlib, json, urllib.request
 from Crypto.Cipher import AES
 
 HOST = "https://10.0.2.2:8443"          # 真机改 127.0.0.1:8443
-KEY  = b"Fatdog_haze"                   # 真主密钥（诱饵 Fatdog_fog 会被 403）
+KEY  = base64.b64decode("RmF0ZG9nX2hhemU=")   # 真主密钥以 base64 承载（诱饵 RmF0ZG9nX2ZvZw== 会被 403）
 AESKEY = hashlib.sha256(KEY + b"|aes").digest()[:16]
 
 def pkcs7(b):
@@ -5996,7 +6222,7 @@ print(total)
 **八、坑位提醒**
 
 - **pin 锁的是线上证书**，训练环境自签必然不匹配——App 里点"取数"必然报 `pin: certificate mismatch`，这是**设计如此**，不是环境坏了；
-- 绕过 pinning 后若仍 403，说明**用错了钥**（`Fatdog_fog` 是诱饵、真钥是 `Fatdog_haze`），服务端对诱饵钥直接 403。本关已**无反调试**，"被检出投毒"这条路径不存在了；
+- 绕过 pinning 后若仍 403，先分清两种原因：① **用错了钥**（`Fatdog_fog` 是诱饵、真钥是 `Fatdog_haze`）；② **挂了代理 / VPN** 被环境体检命中、主密钥被静默投毒（见「五·补」节）。本关**无反调试**（不检测 Frida），但**有环境对抗**；
 - 诱饵 `Fatdog_fog` 与真钥只差后三个字母（`haze` → `fog`），用错即 403；
 - IV 是**随机**的且**前置**在密文里，别拿固定 IV 去乘服务端算出的密文；
 - 答案同样是 `sha256(str(sum))` 前 8 位 hex，`sum` 为 1000 个数之和。
@@ -6188,6 +6414,122 @@ apksigner sign --ks keystore/debug.keystore --ks-key-alias androiddebugkey \
 adb install -r patched.apk
 ```
 
+### KL40b：镜中之障（引擎层证书校验桩 · reFlutter 等价 patch 对抗 · RC4 + MD5）
+
+**本关产物**：同碧落天其余关，共用同一份真实 Flutter 载荷（`lib/arm64-v8a/libapp.so` / `libflutter.so` / `assets/flutter_assets/`）。
+
+**一、本关考什么（与 KL38 的分工）**
+
+- KL38 考"**TLS 证书固定在 BoringSSL 的位置**"——把 pin 校验放在引擎同等位置，看你会不会绕过；
+- KL40b 考"**引擎本身被打桩**"——证书校验桩**编进引擎层**（**static、非导出符号**，模拟真实 `ssl_crypto_x509_session_verify_cert_chain` 在 `libflutter.so` 里的形态），要破的是：
+  1. **在引擎里定位这个桩**（无符号名，靠特征字节 / 调用点回溯）；
+  2. **reFlutter 等价 patch**：把它改成恒返"通过"；
+  3. patch 放行后，还要**算出真密钥**才能取数——**双层门槛**。
+
+> 与 KL40 的区别：KL40b **不做算法叠加**（没有 GCM、没有换钥），只考"引擎换了张脸"这一件事。
+
+**二、双层门槛**
+
+| 层 | 位置 | 训练环境行为 |
+|---|---|---|
+| ① 引擎校验桩 | 伴生 so `libprism.so` 的 `engine_gate`（模拟 BoringSSL 校验，**static 非导出**） | 桩恒判"未通过" → 主密钥被**投毒**（`taint`），参数全错、服务端拒绝 |
+| ② 密钥派生 | `anchor_store` 从 `libapp.so` 读真标记 → 派生请求钥 | 桩通过后才用真钥 |
+
+只要桩不放行，`enc`/`sign` 全错且**界面无提示**（`nativeGetProbe` 只回"引擎校验：未通过"）——这就是"镜中之障"。
+
+**三、算法口径（流密码 + 普通摘要，无 HMAC）**
+
+| 项 | 值 |
+|---|---|
+| 主密钥 | `Fatdog_prism`（真）/ `Fatdog_prisma`（诱饵，多一个字母 `a`） |
+| 请求钥 | `stream = SHA256("<主密钥>\|rc4")`（32 字节） |
+| 密文 | `enc = RC4(stream, "page=<page>&ts=<ts>")` → 小写 hex |
+| 摘要 | `sign = MD5(enc + "<主密钥>")` → 全 **32** 位 hex（普通 MD5，非 HMAC） |
+| 请求 | `GET /api/kl40b?page=N&ts=T&enc=<hex>&sign=<32hex>` |
+| SEED | 20281001（100 页 × 10 数） |
+| 求和 | **52144**；`SUM_HASH = 0e167a7e0c343cc835ffa084667ec4da326a139fa4c3f572118f167ba12a7f9d` |
+| flag | `FLAG_18_KL40b{veil_within_mirror}` |
+
+**密钥在载荷里**：`libapp.so` 对象池哨兵 `FDK4B|Fatdog_prism|END`（`strings` 可见）；伴生 so 读不到才退**镜像常量**（真标记各字节 `^0x3C` 藏匿）。
+
+**四、三条路线**
+
+**路线 A：纯复刻（最干净，不碰 App）**
+从 `libapp.so` 取主密钥 → 按上表算 `enc`/`sign` → 自己发请求 → 求和。**两个门槛一起跳过。**
+
+**路线 B：Frida（App 内取数）**
+```javascript
+Java.perform(function () {
+  var P = Java.use('com.fatdog.reverse.FlutterPrism');
+  // 直接返回自算参数（等价于路线 A）——注意：仅改 nativeGetProbe 只改显示，不改投毒
+  P.nativeEnc.implementation = function (page, ts) { return myEnc(page, ts); };
+  P.nativeSign.implementation = function (page, ts, enc) { return mySign(enc); };
+});
+```
+> 本关**无反调试**（不检测 Frida）；门在"引擎桩"，不在"防调试"。要真正放行，patch 点必须落到 so 的 `engine_gate`（改 Java 桥无效）。
+
+**路线 C：静态 patch + 重打包**
+把 `libprism.so` 里那段引擎校验桩（`engine_gate`）改成恒返"通过"，重签名安装；或按 reFlutter 思路改 `libflutter.so` 对应位置。
+
+**五、Python 复刻脚本（路线 A，可直接跑）**
+
+```python
+# 纯标准库，无需第三方依赖
+import base64, hashlib, json, ssl, time, urllib.request
+
+HOST = "https://10.0.2.2:8443"      # 真机改 127.0.0.1:8443
+KEY  = base64.b64decode("RmF0ZG9nX3ByaXNt")   # 真主密钥以 base64 承载；诱饵 base64 会被 403
+
+def rc4(key, data):
+    S = list(range(256)); j = 0; kl = len(key) or 1
+    for i in range(256):
+        j = (j + S[i] + key[i % kl]) & 0xff
+        S[i], S[j] = S[j], S[i]
+    x = y = 0; out = bytearray()
+    for ch in data:
+        x = (x + 1) & 0xff; y = (y + S[x]) & 0xff
+        S[x], S[y] = S[y], S[x]
+        out.append(ch ^ S[(S[x] + S[y]) & 0xff])
+    return bytes(out)
+
+STREAM = hashlib.sha256(KEY + b"|rc4").digest()
+
+def make_params(page, ts):
+    pt  = f"page={page}&ts={ts}".encode()
+    enc = rc4(STREAM, pt).hex()
+    sign = hashlib.md5(enc.encode() + KEY).hexdigest()   # 全 32 位
+    return enc, sign
+
+ctx = ssl.create_default_context()
+ctx.check_hostname = False
+ctx.verify_mode = ssl.CERT_NONE      # 训练环境自签 CA
+
+total = 0
+for page in range(1, 101):
+    ts = int(time.time())
+    enc, sign = make_params(page, ts)
+    url = f"{HOST}/api/kl40b?page={page}&ts={ts}&enc={enc}&sign={sign}"
+    with urllib.request.urlopen(url, context=ctx) as r:
+        total += sum(json.loads(r.read())["nums"])
+print(total)                          # 52144
+# 提交 App：sha256(str(total))[:8]
+```
+
+> 静态自检对拍值（验证自己的 RC4 实现）：
+> - `stream_key = b1e32a6cf6b60e100ecf89e52b3b4e282fb14421c791c12de30a3fd2f56b09fb`
+> - `enc(1, 1787013761)  = 7c9c1ca30da9e36afa7010eca649326670000291`
+> - `sign(1, 1787013761) = 01f392be274b98468f81bf0834380d8b`
+> - `enc(7, 1700000000)  = 7c9c1ca30dafe36afa7010ecae4e326773070490`
+
+**六、坑位提醒**
+
+- **诱饵 `Fatdog_prisma` 只多一个 `a`**——用错即 403（服务端保留诱饵钥判定）；
+- **RC4 是流密码**：**无填充、无 IV、无块对齐**，密文长度 = 明文长度（别像 KL38/KL40 那样去找前置 IV）；
+- **`sign` 是全 32 位 MD5**（不是前 16 位，和 KL38 的 SHA256 前 16 位、KL40 的 MD5 口径都不同）；
+- **引擎桩不放行时参数被静默投毒**：数字看着能取到，但服务端 403 / 加和不对——先确认 `nativeGetProbe` 是不是"引擎校验：通过"；
+- **patch 点要落对**：改 Java 桥 / `FlutterPrism` 无效，桩在 so 引擎层；本关**无 Frida 检测**，属"引擎完整性"考查；
+- 答案同样是 `sha256(str(sum))` 前 8 位 hex。
+
 ### 附 2 · Frida 通用速查
 
 ```text
@@ -6209,7 +6551,7 @@ frida -U -n com.fatdog.reverse -l hook_l10.js
 
 
 
-### 附 3 · flag 速查表（全量 L1-47 + KL1-30 + KKL1-5）
+### 附 3 · flag 速查表（全量 L1-47 + KL1-40b + KKL1-5）
 
 
 | 关卡 | flag |
@@ -6309,6 +6651,7 @@ frida -U -n com.fatdog.reverse -l hook_l10.js
 | KL38 | `FLAG_18_KL38{flower_in_mist}` |
 | KL39 | `FLAG_18_KL39{drinking_alone_moonlight}` |
 | KL40 | `FLAG_18_KL40{galaxy_reflected}` |
+| KL40b | `FLAG_18_KL40b{veil_within_mirror}` |
 
 ---
 
