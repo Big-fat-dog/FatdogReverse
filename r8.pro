@@ -49,3 +49,43 @@
     public int[] forestHead(int);
     private int[] d(int[], int);
 }
+
+# 关卡 50：s 子包（Sift）同样不写 -keep class，类名交给 R8 改名。
+# 必须保留的名字：
+#   1) native 按名回调 slice(int)（GetMethodID 的字符串锚点）；
+#   2) 私有解密函数 d(int[],int,int) 被 getDeclaredMethod 按名反射调用。
+# 注：构造名固定 "<init>"，反射用 getDeclaredConstructor(int.class)，无需显式 keep。
+-keepclassmembers class com.fatdog.reverse.s.Sift {
+    public java.lang.String slice(int);
+    private java.lang.String d(int[], int, int);
+}
+
+# 关卡 51：t 子包（Spool）同样不写 -keep class，类名交给 R8 改名。
+# 必须保留的名字：
+#   1) native 用 NewObject 造实例后按名回调 tail(int)（GetMethodID 的字符串锚点）；
+#   2) 私有解密函数 d(int[],int,int) 被 getDeclaredMethod 按名反射调用。
+# 注：构造名固定 "<init>"，native 侧 NewObject 用 "<init>" + "(I)V"，无需显式 keep。
+-keepclassmembers class com.fatdog.reverse.t.Spool {
+    public java.lang.String tail(int);
+    private java.lang.String d(int[], int, int);
+}
+
+# 关卡 52：u 子包（Nip）同样不写 -keep class，类名交给 R8 改名。
+# 必须保留的名字：
+#   1) native 按名回调 trim(int)（GetMethodID 的字符串锚点，返回 byte[]）；
+#   2) 私有解密函数 d(int[],int,int) 被 getDeclaredMethod 按名反射调用。
+# 注：构造名固定 "<init>"，反射用 getDeclaredConstructor(int.class)，无需显式 keep。
+-keepclassmembers class com.fatdog.reverse.u.Nip {
+    public byte[] trim(int);
+    private byte[] d(int[], int, int);
+}
+
+# 关卡 53：v 子包（Chime）同样不写 -keep class，类名交给 R8 改名。
+# 必须保留的名字：
+#   1) native 用 NewObject 造实例后按名回调 chip(int)（GetMethodID 的字符串锚点，返回 byte[]）；
+#   2) 私有解密函数 d(int[],int,int) 被 getDeclaredMethod 按名反射调用。
+# 注：构造名固定 "<init>"，native 侧 NewObject 用 "<init>" + "(I)V"，无需显式 keep。
+-keepclassmembers class com.fatdog.reverse.v.Chime {
+    public byte[] chip(int);
+    private byte[] d(int[], int, int);
+}

@@ -1,58 +1,62 @@
-/**
- * cobra.cpp — L52 冰封雪域（密钥 + RC4 + 响应解密）
+/*
+ * libcobra.so — L52 冰封雪域（密钥供给 + 响应流解密）
  *
- * XOR 数组 → SM4 key + HMAC key + RC4 key
- * RC4 加密/解密响应体
- * 导出函数供 libmoose.so dlopen 调用
+ * 静态分析视角（导出表只留中性词根）：
+ *   cb_seed → SM4 主密钥【头段 12 字节】；尾段 "sm4_" 在 Java（跨层回调拼装）
+ *   cb_mark → 签名密钥（16 字节）
+ *   cb_pad  → 响应流密钥（16 字节）
+ *   原来直白的 getSm4Key / getHmacKey / getRc4Key 已改名；
+ *   死导出 deriveKeys 已删除；Java_..Bk52_nativeRc4Decrypt 改成
+ *   RegisterNatives 动态注册 → .dynsym 里不再出现 Java_*。
+ *
+ * 密钥仍藏在 XOR(^0x3C) 数组里，运行时 prime_marks() 还原（volatile 掩码防折叠）。
  */
 
 #include <jni.h>
 #include <string>
 #include <cstring>
+#include <cstdio>
 #include <cstdint>
-#include <android/log.h>
 
-#define LOG_TAG "cobra"
-#define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
-
-// ==================== XOR 密钥数组 ====================
-// SM4 key: "Fatdog_snow_sm4_" ^ 0x3C
-uint8_t K52_SM4_XOR[] = {
-    0x7a,0x5d,0x48,0x58,0x53,0x5b,0x63,0x4f,
-    0x52,0x53,0x4b,0x63,0x4f,0x51,0x08,0x63
-};
-static const uint8_t K52_XOR_KEY = 0x3C;
-
-// HMAC key: "Fatdog_snow_key!" ^ 0x3C
-uint8_t K52_HMAC_XOR[] = {
-    0x7a,0x5d,0x48,0x58,0x53,0x5b,0x63,0x4f,
-    0x52,0x53,0x4b,0x63,0x57,0x59,0x45,0x1d
+/* ==================== 密钥密文数组（XOR ^0x3C） ==================== */
+/* SM4 头段："Fatdog_snow_" 前 12 字节（尾段 "sm4_" 在 Java） */
+static const uint8_t K52_SM4_HEAD_XOR[] = {
+    0x7A,0x5D,0x48,0x58,0x53,0x5B,0x63,0x4F,0x52,0x53,0x4B,0x63
 };
 
-// RC4 key: "Fatdog_snow_rc4_" ^ 0x3C
-uint8_t K52_RC4_XOR[] = {
-    0x7a,0x5d,0x48,0x58,0x53,0x5b,0x63,0x4f,
-    0x52,0x53,0x4b,0x63,0x4e,0x5f,0x08,0x63
+/* 签名密钥："Fatdog_snow_key!" */
+static const uint8_t K52_MARK_XOR[] = {
+    0x7A,0x5D,0x48,0x58,0x53,0x5B,0x63,0x4F,
+    0x52,0x53,0x4B,0x63,0x57,0x59,0x45,0x1D
 };
 
-static uint8_t sm4_key[16];
-static uint8_t hmac_key[16];
-static uint8_t rc4_key[16];
-static bool keys_initialized = false;
+/* 响应流密钥："Fatdog_snow_rc4_" */
+static const uint8_t K52_PAD_XOR[] = {
+    0x7A,0x5D,0x48,0x58,0x53,0x5B,0x63,0x4F,
+    0x52,0x53,0x4B,0x63,0x4E,0x5F,0x08,0x63
+};
 
-static void init_keys() {
-    if (keys_initialized) return;
+static const uint8_t K52_XOR = 0x3C;
+
+static uint8_t mark_head[12];   /* SM4 头段 */
+static uint8_t mark_key[16];    /* 签名密钥 */
+static uint8_t mark_pad[16];    /* 响应流密钥 */
+static bool marks_ready = false;
+
+static void prime_marks() {
+    if (marks_ready) return;
+    volatile uint8_t m = K52_XOR;          /* volatile：防 -O2 把整表折叠回明文 */
+    for (int i = 0; i < 12; i++) mark_head[i] = (uint8_t)(K52_SM4_HEAD_XOR[i] ^ m);
     for (int i = 0; i < 16; i++) {
-        sm4_key[i]  = K52_SM4_XOR[i] ^ K52_XOR_KEY;
-        hmac_key[i] = K52_HMAC_XOR[i] ^ K52_XOR_KEY;
-        rc4_key[i]  = K52_RC4_XOR[i] ^ K52_XOR_KEY;
+        mark_key[i] = (uint8_t)(K52_MARK_XOR[i] ^ m);
+        mark_pad[i] = (uint8_t)(K52_PAD_XOR[i] ^ m);
     }
-    keys_initialized = true;
+    marks_ready = true;
 }
 
-// ==================== RC4 ====================
+/* ==================== RC4（响应流） ==================== */
 static void rc4_init(uint8_t S[256], const uint8_t* key, int key_len) {
-    for (int i = 0; i < 256; i++) S[i] = i;
+    for (int i = 0; i < 256; i++) S[i] = (uint8_t)i;
     int j = 0;
     for (int i = 0; i < 256; i++) {
         j = (j + S[i] + key[i % key_len]) & 0xFF;
@@ -74,59 +78,44 @@ static std::string rc4_crypt(const uint8_t* key, int key_len, const std::string&
     return out;
 }
 
-// ==================== 导出函数（供 dlopen） ====================
+/* ==================== 内部接口（供 libmoose dlsym） ==================== */
 extern "C" {
 
-const uint8_t* getSm4Key() {
-    init_keys();
-    return sm4_key;
-}
+const uint8_t* cb_seed() { prime_marks(); return mark_head; }   /* 12 字节头段 */
+const uint8_t* cb_mark() { prime_marks(); return mark_key;  }   /* 16 字节 */
+const uint8_t* cb_pad()  { prime_marks(); return mark_pad;  }   /* 16 字节 */
 
-const uint8_t* getHmacKey() {
-    init_keys();
-    return hmac_key;
-}
+} /* extern "C" */
 
-const uint8_t* getRc4Key() {
-    init_keys();
-    return rc4_key;
-}
-
-// 密钥派生函数：看似复杂但只是 XOR 展开
-const uint8_t* deriveKeys(uint32_t seed) {
-    init_keys();
-    // 对三组密钥做简单的 seed 混淆（不影响最终值，纯干扰）
-    static uint8_t derived[48];
-    memcpy(derived, sm4_key, 16);
-    memcpy(derived + 16, hmac_key, 16);
-    memcpy(derived + 32, rc4_key, 16);
-    return derived;
-}
-
-} // extern "C"
-
-// ==================== JNI ====================
-extern "C" JNIEXPORT jstring JNICALL
-Java_com_fatdog_reverse_Bk52_nativeRc4Decrypt(JNIEnv* env, jclass, jstring data) {
+/* ==================== JNI：响应解密（RegisterNatives 动态注册） ==================== */
+static jstring implRc4(JNIEnv* env, jclass, jstring data) {
     const char* cdata = env->GetStringUTFChars(data, nullptr);
-    std::string input(cdata);
-    env->ReleaseStringUTFChars(data, cdata);
+    std::string input = (cdata != nullptr) ? std::string(cdata) : std::string();
+    if (cdata != nullptr) env->ReleaseStringUTFChars(data, cdata);
 
-    init_keys();
-    std::string dec = rc4_crypt(rc4_key, 16, input);
+    prime_marks();
+    std::string dec = rc4_crypt(mark_pad, 16, input);
 
-    // 转 hex
     std::string hex;
-    for (unsigned char c : dec) {
-        char buf[3];
-        snprintf(buf, sizeof(buf), "%02x", c);
-        hex += buf;
-    }
+    for (unsigned char c : dec) { char buf[3]; snprintf(buf, sizeof(buf), "%02x", c); hex += buf; }
     return env->NewStringUTF(hex.c_str());
 }
 
-jint JNI_OnLoad(JavaVM* vm, void*) {
-    init_keys();
-    LOGI("JNI_OnLoad: L52k keys initialized");
+static const JNINativeMethod gMethods[] = {
+    {"nativeRc4Decrypt", "(Ljava/lang/String;)Ljava/lang/String;", (void*)implRc4},
+};
+
+extern "C" JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void*) {
+    prime_marks();
+    JNIEnv* env = nullptr;
+    if (vm->GetEnv(reinterpret_cast<void**>(&env), JNI_VERSION_1_6) != JNI_OK)
+        return JNI_VERSION_1_6;   /* 防御式：异常一律不返回 JNI_ERR */
+    jclass cls = env->FindClass("com/fatdog/reverse/Bk52");
+    if (cls != nullptr) {
+        if (env->RegisterNatives(cls, gMethods, 1) != JNI_OK && env->ExceptionCheck())
+            env->ExceptionClear();
+    } else if (env->ExceptionCheck()) {
+        env->ExceptionClear();
+    }
     return JNI_VERSION_1_6;
 }

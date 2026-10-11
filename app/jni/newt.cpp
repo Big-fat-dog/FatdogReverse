@@ -14,6 +14,9 @@
 #include <functional>
 #include <algorithm>
 
+/* 匿名命名空间包一层：内部类/函数的链接性降为内部，
+ * 导出表(.dynsym)里只剩 JNI_OnLoad，不泄漏任何类名/方法名。 */
+namespace {
 namespace newt {
 
 class NewtLedger {
@@ -33,6 +36,7 @@ private:
 };
 
 } /* namespace newt */
+} /* anonymous namespace */
 
 __attribute__((unused)) static std::string jstr_to_std(JNIEnv* env, jstring s) {
     if (s == nullptr) return std::string();

@@ -83,8 +83,8 @@ FatdogReverse 是一套**完全离线运行**的 Android 逆向工程练习靶�
 | 昆仑山 | `KL1-KL5` | 5 | Native 基础、动态注册、六 so 接力（双类型回调）、菱形分叉六 so（四类回调）+ 反模拟检测、平坦化调度器六 so（五类回调 + 三路体检，须 trace） |
 | 流沙河 | `KL6-KL10` | 5 | 魔改 AES / DES / SM4 / RC4 / SHA-256 五连关 |
 | 幽冥海 | `KL11-KL15` | 5 | SO Patch 对抗：静态 patch、动态 patch、反 patch、多 SO 交叉验证 |
-| 太玄之初 | `KL16-KL20` | 5 | 加固壳分代脱壳：一代壳、二代壳（类抽取 / 方法抽取）、三代壳 |
-| 太玄之初追加卷 | `KKL1-KKL5` | 5 | 二代壳（DEX 整体加密 · 落盘 / 内存加载；RC4 / AES-CBC + MD5）、VMP（**每关五 so 编队**、SM4-ECB + MD5） |
+| 太玄之初 | `KL16-KL20` | 5 | 加固壳分代脱壳：一代壳、二代壳（类抽取 / 方法抽取）、三代壳（**KL16-20 维护中**：入口为维护页，直接给答案，输入即标记通关） |
+| 太玄之初追加卷 | `KKL1-KKL5` | 5 | 一代壳（业务拆片 · 落盘；RC4+base64+MD5）、二代壳（DEX 整体加密 · 落盘 / 内存加载；AES-CBC + MD5）、VMP（**每关五 so 编队**、SM4-ECB + MD5） |
 | 扶桑树 | `KL21-KL28` | 8 | Frida 检测与反检测：端口、fd、maps、auxv、ptrace、时序 |
 | 天机阁 | `KL29-KL30` | 2 | 自定义 TLV 与 Protobuf 二进制协议逆向 |
 | 碧落天 | `KL36-KL40` | 5 | Flutter/Dart 真机逆向：AOT 快照（Blutter）、混淆对抗、BoringSSL pinning、`dart:ffi`、抓包环境对抗 |

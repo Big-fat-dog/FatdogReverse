@@ -5,6 +5,7 @@ import android.app.AlertDialog;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
+import android.os.Build;
 import android.os.Bundle;
 import android.view.Gravity;
 import android.view.View;
@@ -16,31 +17,48 @@ import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
 
-import org.json.JSONArray;
 import org.json.JSONObject;
 
+import java.io.InputStream;
+import java.lang.reflect.Method;
+import java.nio.ByteBuffer;
 import java.util.concurrent.TimeUnit;
 
+import dalvik.system.InMemoryDexClassLoader;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.Response;
 
-// 太玄之初 KKL3 · 断魂谷（★★★★，服务端取数）。
-// 谷里没有壳可脱：它把"派生主钥"这件事搬进了一台自造的寄存器虚拟机，
-// 五个 so 串成一条链，少一个都取不回数；完整性守卫一旦命中，
-// 主钥被污染，服务端全程静默拒绝——它不会告诉你失败在哪一步。
+// 太玄之初 KKL3 · 断魂谷：二代壳 · 多 DEX（双亲委派）+ 方法体抽取（★★★，服务端取数）。
+// 业务拆五片（GateKeeper3a/3b/3c/3d/3e），构建期各片 SM4-ECB 加密埋 assets；
+// 其中 3d.mixByte 与 3e.derive 的方法体被"抽取"——真实字节码搬进独立 bin，
+// dex 里只剩空壳（nop; return-void），须先回填才能真正跑通。
+// 五片经 InMemoryDexClassLoader 链式内存加载（3e.parent=3d=...=3a，多级双亲委派），
+// 主钥由 3e.derive() 在 Java 侧派生，再交给 nativeSign 签名取数。
+// 玩家需：① fartwithClassLoader 逐 Element 掏五片 ② 认抽取壳（空方法体）
+// ③ 主动调用回填 ④ fart.py 修复 ⑤ 读 GateKeeper3 派生主钥 + 取数。
 public class kkl3Activity extends Activity {
     static final String SUM_HASH = "e5b2b969f92ce208b531c252d9ccacc5";
     static final int PAGES = 100;
-    static final int PER_PAGE = 10;
+    static final String[] ASSETS = {
+            "kkl3/edge_vein.bin", "kkl3/guard_vein.bin", "kkl3/grip_vein.bin",
+            "kkl3/blade_vein.bin", "kkl3/hilt_vein.bin"};
+    // 3d/3e 的抽取 bin（明文，须在回填时读）
+    static final String[] EXTRACT_ASSETS = {null, null, null, "kkl3/3d_extract.bin", "kkl3/3e_extract.bin"};
+    static final String BIZ_E = "com.fatdog.reverse.kkl3.GateKeeper3";
 
     private TextView status;
     private final TextView[] cells = new TextView[10];
     private LinearLayout pageBar;
     private int currentPage = 1;
+    private boolean ready = false;
     private boolean loading = false;
     private String base;
     private OkHttpClient client;
+
+    private Class<?> biz;
+    private Method mDerive;
+    private byte[] seed;
 
     @Override
     protected void onCreate(Bundle b) {
@@ -51,41 +69,27 @@ public class kkl3Activity extends Activity {
                 .readTimeout(5, TimeUnit.SECONDS)
                 .build();
 
-        LinearLayout root = new LinearLayout(this);
-        root.setOrientation(LinearLayout.VERTICAL);
-        root.setGravity(Gravity.CENTER_HORIZONTAL);
-        root.setPadding(Ui.dp(16), Ui.dp(20), Ui.dp(16), Ui.dp(12));
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setGravity(Gravity.CENTER_HORIZONTAL);
+        box.setPadding(Ui.dp(16), Ui.dp(14), Ui.dp(16), Ui.dp(12));
 
         TextView tv = new TextView(this);
-        tv.setText("KKL3 · 断魂谷（★★★★）\n\n"
-                + "谷底无光。数字都在服务端，取数要过一道门。\n"
-                + "门后是一台自造的虚拟机——注册表里有它的全部指令，\n"
-                + "而钥匙从不出现在明文里。\n\n"
-                + "五个 so 首尾相扣：缺一环，门不开；\n"
-                + "沾了调试的痕迹，取回的数是废的。\n\n"
+        tv.setText("KKL3 · 断魂谷（★★★）\n\n"
+                + "谷底封着五片薄甲，首尾相扣，须层层剥开才能见底。\n"
+                + "其中两片是残缺的——它俩的「芯」被抽走了，只剩空壳；\n"
+                + "不把芯填回去，你走不到最后一步。\n"
+                + "五片各自落在一把轮钥之下，形状相同、药引不同。\n\n"
                 + "取满 100 页（每页 10 个数），求和后取摘要提交。");
         tv.setGravity(Gravity.CENTER);
-        root.addView(tv, Ui.wrap(6));
+        box.addView(tv, Ui.wrap(4));
 
         status = new TextView(this);
-        status.setText("翻页即取数。可先点「环境自检」看看门是否开着。");
-        status.setTextColor(Color.LTGRAY);
-        status.setTypeface(Typeface.MONOSPACE);
-        status.setTextSize(12);
+        status.setText("尚未解开：点击「破谷」启动。");
         status.setGravity(Gravity.CENTER);
-        root.addView(status, Ui.fullWidth(6));
+        status.setTextColor(ThemeKit.muted(ThemeKit.isDark(this)));
+        box.addView(status, Ui.wrap(8));
 
-        Button scanBtn = new Button(this);
-        scanBtn.setText("环境自检");
-        Ui.styleButton(scanBtn);
-        scanBtn.setOnClickListener(new View.OnClickListener() {
-            @Override public void onClick(View v) {
-                status.setText(Kkl3Native.nativeStatus());
-            }
-        });
-        root.addView(scanBtn, Ui.wrap(10));
-
-        // 数字网格：5 列 x 2 行
         GridLayout grid = new GridLayout(this);
         grid.setColumnCount(5);
         grid.setRowCount(2);
@@ -110,9 +114,8 @@ public class kkl3Activity extends Activity {
             grid.addView(c, lp);
             cells[i] = c;
         }
-        root.addView(grid, Ui.fullWidth(12));
+        box.addView(grid, Ui.fullWidth(12));
 
-        // 分页
         LinearLayout navRow = new LinearLayout(this);
         navRow.setOrientation(LinearLayout.HORIZONTAL);
         navRow.setGravity(Gravity.CENTER_VERTICAL);
@@ -123,7 +126,7 @@ public class kkl3Activity extends Activity {
                 LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
         prev.setOnClickListener(new View.OnClickListener() {
             @Override public void onClick(View v) {
-                if (!loading && currentPage > 1) loadPage(currentPage - 1);
+                if (ready && currentPage > 1) loadPage(currentPage - 1);
             }
         });
         HorizontalScrollView hsv = new HorizontalScrollView(this);
@@ -139,10 +142,32 @@ public class kkl3Activity extends Activity {
                 LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
         next.setOnClickListener(new View.OnClickListener() {
             @Override public void onClick(View v) {
-                if (!loading && currentPage < PAGES) loadPage(currentPage + 1);
+                if (ready && currentPage < PAGES) loadPage(currentPage + 1);
             }
         });
-        root.addView(navRow, Ui.fullWidth(10));
+        box.addView(navRow, Ui.fullWidth(10));
+
+        Button scanBtn = new Button(this);
+        scanBtn.setText("环境自检");
+        Ui.styleButton(scanBtn);
+        scanBtn.setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View v) {
+                status.setText(Kkl3Native.nativeStatus());
+            }
+        });
+        box.addView(scanBtn, Ui.wrap(8));
+
+        Button boot = new Button(this);
+        boot.setText("破谷");
+        Ui.styleButton(boot);
+        boot.setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View v) {
+                if (!loading) new Thread(new Runnable() {
+                    @Override public void run() { bootBiz(); }
+                }).start();
+            }
+        });
+        box.addView(boot, Ui.wrap(10));
 
         final EditText ansIn = new EditText(this);
         ansIn.setHint("输入总和 md5（32 位 hex）");
@@ -151,7 +176,7 @@ public class kkl3Activity extends Activity {
         ansIn.setBackgroundColor(0x33FFFFFF);
         int pad = Ui.dp(10);
         ansIn.setPadding(pad, pad, pad, pad);
-        root.addView(ansIn, Ui.fullWidth(10));
+        box.addView(ansIn, Ui.fullWidth(10));
 
         Button subBtn = new Button(this);
         subBtn.setText("提交答案");
@@ -171,7 +196,7 @@ public class kkl3Activity extends Activity {
                 }
             }
         });
-        root.addView(subBtn, Ui.wrap(10));
+        box.addView(subBtn, Ui.wrap(10));
 
         Button hint = new Button(this);
         hint.setText("提示");
@@ -180,28 +205,119 @@ public class kkl3Activity extends Activity {
             @Override public void onClick(View v) {
                 new AlertDialog.Builder(kkl3Activity.this)
                         .setTitle("提示")
-                        .setMessage("断魂谷的钥匙从不出现在明文里：\n\n"
-                                + "① lib/ 下五个 so 是一套编队，先摸清谁在算、谁在守；\n"
-                                + "② 主钥只以虚拟机指令的形式存在，静态段里看不到它；\n"
-                                + "③ 环境一旦可疑，服务端会静默拒绝，不会报错给你看；\n"
-                                + "④ 两个标记一真一假，拼写只差一点，仔细比对。\n\n"
-                                + "取证方向：把取数跑通的每一步摸清楚，或者干脆在干净环境里\n"
-                                + "把派生链整条复刻出来——答案只有数字之和的摘要。")
+                        .setMessage("断魂谷分析路线：\n\n"
+                                + "① 五片薄甲都在 assets 里（形似而质不同，其中一件是假壳）；\n"
+                                + "② 每片一把轮钥，药引按片不同——先还原轮钥的派生；\n"
+                                + "③ 关键在「芯被抽走」的两片：反编译看到的只是空壳，\n"
+                                + "    真实的那一段躺在旁边的 bin 里，须按位置填回去；\n"
+                                + "④ 五片是串起来的（后片认前片），要按「逐层剥」的顺序装；\n"
+                                + "⑤ 拿到第五片里的派生入口，算出 16 字节，再走国密 + 摘要取数。\n\n"
+                                + "取证方向：逐片 dump 五片 dex，认「空方法体」的抽取壳，\n"
+                                + "用主动调用触发回填，再把缺的那段补回，最后复刻派生链。")
                         .setPositiveButton("知道了", null)
                         .show();
             }
         });
-        root.addView(hint, Ui.wrap(8));
-        root.addView(Ui.banner(this, R.drawable.level_kkl3, 140));
+        box.addView(hint, Ui.wrap(8));
+        box.addView(Ui.banner(this, R.drawable.level_kkl3, 140));
 
-        setContentView(Ui.wrapScroll(root));
+        setContentView(Ui.wrapScroll(box));
         ThemeKit.apply(this);
         loadPage(1);
+    }
+
+    /** 后台：读五片密文 → 各自解密 → 3d/3e 回填 → 链式内存装载 → 反射缓存业务类 */
+    private void bootBiz() {
+        try {
+            setStatus("读取五片密文…");
+            final byte[][] dex = new byte[5][];
+            for (int i = 0; i < 5; i++) {
+                byte[] enc = readAssetBytes(ASSETS[i]);
+                dex[i] = Kkl3Native.nativeFold(enc, i);
+                if (dex[i] == null || dex[i].length < 8
+                        || !(dex[i][0] == 'd' && dex[i][1] == 'e' && dex[i][2] == 'x')) {
+                    throw new IllegalStateException("第 " + (i + 1) + " 片解出的字节不是 dex，检查解密链");
+                }
+                // 3d/3e 回填（芯被抽走的两片）
+                if (EXTRACT_ASSETS[i] != null) {
+                    byte[] bin = readAssetBytes(EXTRACT_ASSETS[i]);
+                    dex[i] = Kkl3Native.nativeRebind(dex[i], bin);
+                    if (dex[i] == null) {
+                        throw new IllegalStateException("第 " + (i + 1) + " 片回填失败，抽取 bin 不匹配");
+                    }
+                }
+            }
+            setStatus("五片就绪，链式内存装载中…");
+            ClassLoader l1 = makeLoader(dex[0]);
+            ClassLoader l2 = makeLoader(dex[1], l1);
+            ClassLoader l3 = makeLoader(dex[2], l2);
+            ClassLoader l4 = makeLoader(dex[3], l3);
+            ClassLoader l5 = makeLoader(dex[4], l4);
+            final Class<?> clsA = Class.forName("com.fatdog.reverse.kkl3.GateKeeper3a", true, l1);
+            final Class<?> clsB = Class.forName("com.fatdog.reverse.kkl3.GateKeeper3b", true, l2);
+            final Class<?> clsC = Class.forName("com.fatdog.reverse.kkl3.GateKeeper3c", true, l3);
+            final Class<?> clsD = Class.forName("com.fatdog.reverse.kkl3.GateKeeper3d", true, l4);
+            final Class<?> clsE = Class.forName(BIZ_E, true, l5);
+            final String magic = (String) clsA.getMethod("magic").invoke(null);
+            mDerive = clsE.getMethod("derive");
+            seed = (byte[]) mDerive.invoke(null);
+            if (seed == null || seed.length != 16) {
+                throw new IllegalStateException("派生主钥形状不对（应 16 字节）");
+            }
+            biz = clsE;
+            ready = true;
+            runOnUiThread(new Runnable() {
+                @Override public void run() {
+                    status.setText("五片已装载：" + magic + "（主钥 16B）— 可以翻页取数了");
+                    Toast.makeText(kkl3Activity.this, "五片装载成功", Toast.LENGTH_SHORT).show();
+                }
+            });
+            loadPage(1);
+        } catch (final Throwable t) {
+            runOnUiThread(new Runnable() {
+                @Override public void run() {
+                    status.setText("启动失败：" + t);
+                    Toast.makeText(kkl3Activity.this, "失败：" + t.getMessage(), Toast.LENGTH_SHORT).show();
+                }
+            });
+        }
+    }
+
+    private ClassLoader makeLoader(byte[] dex) {
+        return makeLoader(dex, getClassLoader());
+    }
+
+    private ClassLoader makeLoader(byte[] dex, ClassLoader parent) {
+        if (Build.VERSION.SDK_INT >= 26) {
+            return new InMemoryDexClassLoader(ByteBuffer.wrap(dex), parent);
+        }
+        java.io.File tmp = new java.io.File(getCacheDir(), "kkl3_shard_" + System.nanoTime() + ".dex");
+        java.io.FileOutputStream fos;
+        try {
+            fos = new java.io.FileOutputStream(tmp);
+            fos.write(dex);
+            fos.close();
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+        return new dalvik.system.DexClassLoader(tmp.getAbsolutePath(),
+                getCacheDir().getAbsolutePath(), null, parent);
     }
 
     private void loadPage(final int page) {
         if (loading) return;
         loading = true;
+        if (!ready) {
+            runOnUiThread(new Runnable() {
+                @Override public void run() {
+                    loading = false;
+                    currentPage = 1;
+                    status.setText("尚未解开：点击「破谷」后取数。");
+                    renderNav(1);
+                }
+            });
+            return;
+        }
         runOnUiThread(new Runnable() {
             @Override public void run() { status.setText("正在请求第 " + page + " 页…"); }
         });
@@ -209,10 +325,10 @@ public class kkl3Activity extends Activity {
             @Override public void run() {
                 try {
                     final long ts = System.currentTimeMillis() / 1000;
-                    final String token = Kkl3Native.nativeSign(page, ts);
+                    final String token = Kkl3Native.nativeSign(seed, page, ts);
                     final int bar = token == null ? -1 : token.indexOf('|');
                     if (bar <= 0) {
-                        throw new IllegalStateException("取数内核未就绪（五 so 缺一或主钥已被污染）");
+                        throw new IllegalStateException("取数内核未就绪或主钥已被污染");
                     }
                     final String enc = token.substring(0, bar);
                     final String sign = token.substring(bar + 1);
@@ -226,10 +342,10 @@ public class kkl3Activity extends Activity {
                     try {
                         if (!resp.isSuccessful()) {
                             throw new IllegalStateException("HTTP " + resp.code()
-                                    + "（门没开：内核不齐、标记用错，或环境已被标记可疑）");
+                                    + "（门没开：主钥不对，或环境已被标记可疑）");
                         }
                         JSONObject jo = new JSONObject(resp.body().string());
-                        JSONArray arr = jo.getJSONArray("nums");
+                        org.json.JSONArray arr = jo.getJSONArray("nums");
                         nums = new int[arr.length()];
                         for (int i = 0; i < arr.length(); i++) nums[i] = arr.getInt(i);
                     } finally {
@@ -241,15 +357,14 @@ public class kkl3Activity extends Activity {
                             currentPage = page;
                             render(nums);
                             renderNav(page);
-                            status.setText("第 " + page + "/" + PAGES + " 页已取，"
-                                    + nums.length + " 个数（门开着）");
+                            status.setText("第 " + page + "/" + PAGES + " 页已取，" + nums.length + " 个数");
                         }
                     });
                 } catch (final Throwable t) {
                     runOnUiThread(new Runnable() {
                         @Override public void run() {
                             loading = false;
-                            status.setText("请求失败: " + t + "\n可重试，也可「环境自检」看状态。");
+                            status.setText("请求失败: " + t + "（可重试）");
                         }
                     });
                 }
@@ -290,11 +405,27 @@ public class kkl3Activity extends Activity {
             chip.setTextColor(sel ? 0xFFFFFFFF : (ThemeKit.isDark(this) ? 0xFFD8D8E0 : 0xFF3A3A42));
             chip.setOnClickListener(new View.OnClickListener() {
                 @Override public void onClick(View v) {
-                    if (!loading && fp != currentPage) loadPage(fp);
+                    if (ready && fp != currentPage) loadPage(fp);
                 }
             });
             pageBar.addView(chip, new LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
         }
+    }
+
+    private byte[] readAssetBytes(String name) throws Exception {
+        InputStream is = getAssets().open(name);
+        java.io.ByteArrayOutputStream bos = new java.io.ByteArrayOutputStream();
+        byte[] buf = new byte[8192];
+        int n;
+        while ((n = is.read(buf)) > 0) bos.write(buf, 0, n);
+        is.close();
+        return bos.toByteArray();
+    }
+
+    private void setStatus(final String s) {
+        runOnUiThread(new Runnable() {
+            @Override public void run() { status.setText(s); }
+        });
     }
 }

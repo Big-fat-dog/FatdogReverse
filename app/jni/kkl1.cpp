@@ -1,32 +1,27 @@
 /*
- * 太玄之初 KKL1：玄冥渊——二代壳（DEX 整体加密 · 落盘加载 + C++ 虚表解密器分发）。
+ * 太玄之初 KKL1 · 玄冥渊 —— 一代壳（业务 DEX 拆片整体加密 · 落盘加载）。
  *
- * 业务 DEX（com.fatdog.reverse.kkl1.GateKeeper1）构建期被整体加密成
- * assets/kkl1/abyss_vein.bin（base64(rc4(dex))）埋进 APK。本 so 干两件事：
+ * 构建期把业务两片（com.fatdog.reverse.kkl1.GateKeeper1a / GateKeeper1b）
+ * 各自整体加密成 assets/kkl1/abyss_vein.bin、abyss_marrow.bin 埋进 APK。
+ * 本 so 对外只保留一个加载入口（JNI_OnLoad），两个 native 方法经
+ * RegisterNatives 动态注册 —— 导出表里不出现任何 Java_ 符号；一簇同形变换器
+ * 收进匿名命名空间，vtable / typeinfo / 掩码表不再进动态符号表；全模块
+ * -fvisibility=hidden。
  *
- *   1) nativeUnseal(enc)   —— base64 解码 → RC4 解密，还原出明文 dex 字节。
- *   2) nativeDeriveSeal()   —— 返回取数签名用的 seal（16B，MD5 派生）。
- *
- * 密钥链（两因素：真标记 + 虚表掩码，缺一不可）：
- *   seal     = MD5(真标记 Fatdog_hallow + "|kkl1_abyss")   —— 真标记 UTF-16 藏 .data
- *   rc4_key  = seal XOR mask                               —— mask 由 RealSigil::T 经 vtable 返回
- * 三个派生类各返回一张 mask，只有 RealSigil 是真身；另两个返回零表 / 逆序表，
- * 解出的都是乱码。选谁由 choose_selector() 运行时决定（默认走真身）。
- * 明文 Fatdog_hollow 是诱饵（一字之差），用它拼出的 seal 解不开密文、验签 403。
- *
- * 玩家路径（两条）：
- *   A. 动态：在 nativeUnseal 出口观察明文 dex（或 hook 落盘点）。
- *   B. 静态：认 vtable → 定位真身 RealSigil → 复刻 mask → 拼 seal → RC4 解密 assets
- *            → 得业务 dex → 反射取数签名 → 取 100 页求和。
- * 落盘加载是本关设定：解密出的 dex 会写到沙箱目录（一代壳的经典破绽）。
+ * 数据流（与整改前逐字节一致，只改名与注册方式，行为零变化）：
+ *   nativeFold(byte[])  —— 密文 → 文本解码 → 流还原 → 明文 dex 字节
+ *   nativeSeed()        —— 取数签名用的 mark（16B = MD5(真标记 + salt)）
+ * 轮钥 = mark ⊕ 掩码；掩码由一簇同形类经虚表返回，运行时择一（正常恒走同一支）。
+ * 明文诱饵 SHAM 与真标记只有一字之差：用它拼出的 mark 解不开密文、验签必 403。
+ * 真标记以 UTF-16 码元藏在 .data —— 普通 strings 只能翻到诱饵。
  */
 #include <jni.h>
 #include <stdint.h>
 #include <string.h>
 #include <stdlib.h>
 
-/* ================= 真标记（UTF-16 藏匿）/ 诱饵（明文） ================= */
-static const volatile jchar MARKER[] = {
+/* ================= 真标记（UTF-16 藏匿） / 明文诱饵（一字之差） ================= */
+static const volatile jchar MARK[] = {
     0x0046,
     0x0061,
     0x0074,
@@ -41,14 +36,15 @@ static const volatile jchar MARKER[] = {
     0x006F,
     0x0077
 };
-static const char SALT[] = "|kkl1_abyss";
-static const char DECOY[] = "Fatdog_hollow";     /* 明文诱饵：由 kkl1_seal_tag() 引用，保证进 .rodata */
+static const char SUFFIX[] = "|kkl1_abyss";
+/* 明文诱饵：加 used 属性强制留进 .rodata（不依赖任何导出符号引用） */
+static const char SHAM[] __attribute__((used)) = "Fatdog_hollow";
 
-/* ================= 噪声：决定 vtable 派发（恒选中真身） ================= */
-static const uint8_t POOL[8] = { 0x10,0x20,0x30,0x40,0x50,0x60,0x70,0x80 };
+/* ================= 噪声：决定虚表派发（恒选中同一支） ================= */
+static const uint8_t NOISE[8] = { 0x10,0x20,0x30,0x40,0x50,0x60,0x70,0x80 };
 
-/* ================= MD5 ================= */
-static const uint32_t MD5_K[64] = {
+/* ================= 摘要（古典 MD5） ================= */
+static const uint32_t Z_K[64] = {
     0xd76aa478,0xe8c7b756,0x242070db,0xc1bdceee,0xf57c0faf,0x4787c62a,0xa8304613,0xfd469501,
     0x698098d8,0x8b44f7af,0xffff5bb1,0x895cd7be,0x6b901122,0xfd987193,0xa679438e,0x49b40821,
     0xf61e2562,0xc040b340,0x265e5a51,0xe9b6c7aa,0xd62f105d,0x02441453,0xd8a1e681,0xe7d3fbc8,
@@ -58,15 +54,15 @@ static const uint32_t MD5_K[64] = {
     0xf4292244,0x432aff97,0xab9423a7,0xfc93a039,0x655b59c3,0x8f0ccc92,0xffeff47d,0x85845dd1,
     0x6fa87e4f,0xfe2ce6e0,0xa3014314,0x4e0811a1,0xf7537e82,0xbd3af235,0x2ad7d2bb,0xeb86d391
 };
-static const uint8_t MD5_S[64] = {
+static const uint8_t Z_S[64] = {
     7,12,17,22,7,12,17,22,7,12,17,22,7,12,17,22,
     5,9,14,20,5,9,14,20,5,9,14,20,5,9,14,20,
     4,11,16,23,4,11,16,23,4,11,16,23,4,11,16,23,
     6,10,15,21,6,10,15,21,6,10,15,21,6,10,15,21
 };
-#define ROTL32(x,c) (((x) << (c)) | ((x) >> (32 - (c))))
+#define SHL32(x,c) (((x) << (c)) | ((x) >> (32 - (c))))
 
-static void md5(const uint8_t *m, size_t l, uint8_t out[16]) {
+static void zeta(const uint8_t *m, size_t l, uint8_t out[16]) {
     uint32_t a0 = 0x67452301, b0 = 0xefcdab89, c0 = 0x98badcfe, d0 = 0x10325476;
     size_t with_one = l + 1;
     size_t pad = ((56 - (with_one % 64)) + 64) % 64;
@@ -91,7 +87,7 @@ static void md5(const uint8_t *m, size_t l, uint8_t out[16]) {
             else              { f = c ^ (b | ~d);        g = (7 * i) % 16; }
             uint32_t tmp = d;
             d = c; c = b;
-            b = b + ROTL32(a + f + MD5_K[i] + w[g], MD5_S[i]);
+            b = b + SHL32(a + f + Z_K[i] + w[g], Z_S[i]);
             a = tmp;
         }
         a0 += a; b0 += b; c0 += c; d0 += d;
@@ -106,8 +102,8 @@ static void md5(const uint8_t *m, size_t l, uint8_t out[16]) {
     free(buf);
 }
 
-/* ================= base64 解码（忽略 '=' 与空白） ================= */
-static int b64_val(int c) {
+/* ================= 文本解码（忽略 '=' 与空白） ================= */
+static int unfold_ch(int c) {
     if (c >= 'A' && c <= 'Z') return c - 'A';
     if (c >= 'a' && c <= 'z') return c - 'a' + 26;
     if (c >= '0' && c <= '9') return c - '0' + 52;
@@ -116,10 +112,10 @@ static int b64_val(int c) {
     return -1;
 }
 
-static int b64_decode(const uint8_t *in, size_t n, uint8_t *out) {
+static int unfold(const uint8_t *in, size_t n, uint8_t *out) {
     uint32_t acc = 0; int bits = 0; int oi = 0;
     for (size_t i = 0; i < n; i++) {
-        int v = b64_val(in[i]);
+        int v = unfold_ch(in[i]);
         if (v < 0) continue;
         acc = (acc << 6) | (uint32_t)v;
         bits += 6;
@@ -128,13 +124,13 @@ static int b64_decode(const uint8_t *in, size_t n, uint8_t *out) {
     return oi;
 }
 
-/* ================= RC4 ================= */
-static void rc4(const uint8_t *key, int klen, uint8_t *data, size_t n) {
+/* ================= 流还原（对称） ================= */
+static void swirl(const uint8_t *pad, int plen, uint8_t *data, size_t n) {
     uint8_t s[256];
     for (int i = 0; i < 256; i++) s[i] = (uint8_t)i;
     int j = 0;
     for (int i = 0; i < 256; i++) {
-        j = (j + s[i] + key[i % klen]) & 0xFF;
+        j = (j + s[i] + pad[i % plen]) & 0xFF;
         uint8_t t = s[i]; s[i] = s[j]; s[j] = t;
     }
     int i2 = 0; j = 0;
@@ -146,103 +142,97 @@ static void rc4(const uint8_t *key, int klen, uint8_t *data, size_t n) {
     }
 }
 
-/* ================= C++ 虚表：解密器分发 ================= */
-class SigilBase {
+/* ================= 一簇同形变换器（匿名命名空间：不进导出表） ================= */
+namespace {
+
+class Slot {
 public:
-    virtual ~SigilBase() {}
-    /* 返回解密掩码（16B），与 seal 异或得 RC4 钥 */
+    virtual ~Slot() {}
+    /* 返回变换掩码（16B），与 mark 异或得轮钥 */
     virtual const uint8_t *mask(int &n) = 0;
 };
 
-/* 诱饵 A：全零掩码 —— 直接拿 seal 当钥，解出乱码 */
-class DecoySigilA : public SigilBase {
+class SlotAsh : public Slot {
 private:
-    static const uint8_t T[16];
+    static const uint8_t M[16];
 public:
-    const uint8_t *mask(int &n) override { n = 16; return T; }
+    const uint8_t *mask(int &n) override { n = 16; return M; }
 };
-const uint8_t DecoySigilA::T[16] = {
+const uint8_t SlotAsh::M[16] = {
     0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
     0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00
 };
 
-/* 诱饵 B：逆序掩码 —— 同样解不出 dex */
-class DecoySigilB : public SigilBase {
+class SlotRime : public Slot {
 private:
-    static const uint8_t T[16];
+    static const uint8_t M[16];
 public:
-    const uint8_t *mask(int &n) override { n = 16; return T; }
+    const uint8_t *mask(int &n) override { n = 16; return M; }
 };
-const uint8_t DecoySigilB::T[16] = { 0xAF,0x53,0x26,0xE9,0x4B,0xC0,0x87,0x1D,0x5E,0xB6,0xF2,0x08,0xD4,0x71,0x3A,0x9C };
+const uint8_t SlotRime::M[16] = { 0xAF,0x53,0x26,0xE9,0x4B,0xC0,0x87,0x1D,0x5E,0xB6,0xF2,0x08,0xD4,0x71,0x3A,0x9C };
 
-/* 真身：唯一能还原正确 RC4 钥的掩码 */
-class RealSigil : public SigilBase {
+class SlotVein : public Slot {
 private:
-    static const uint8_t T[16];
+    static const uint8_t M[16];
 public:
-    const uint8_t *mask(int &n) override { n = 16; return T; }
+    const uint8_t *mask(int &n) override { n = 16; return M; }
 };
-const uint8_t RealSigil::T[16] = { 0x9C,0x3A,0x71,0xD4,0x08,0xF2,0xB6,0x5E,0x1D,0x87,0xC0,0x4B,0xE9,0x26,0x53,0xAF };
+const uint8_t SlotVein::M[16] = { 0x9C,0x3A,0x71,0xD4,0x08,0xF2,0xB6,0x5E,0x1D,0x87,0xC0,0x4B,0xE9,0x26,0x53,0xAF };
 
-/* 运行时选择：默认 0 -> RealSigil；hook 此函数可观察派发目标 */
-static int choose_selector(const uint8_t *pool) {
-    /* (前两个噪声字节之和 & 3) 恒为 0 —— 正常路径永远是真身 */
-    return (pool[0] + pool[1]) & 3;
+/* 运行时择一：(前两个噪声字节之和 & 3) 恒为 0 —— 正常路径恒走同一支 */
+int pick_slot(const uint8_t *noise) {
+    return (noise[0] + noise[1]) & 3;
 }
 
-static SigilBase *make_sigil(void) {
-    static DecoySigilA sA;
-    static DecoySigilB sB;
-    static RealSigil    sR;
-    switch (choose_selector(POOL)) {
-        case 1: return &sA;
-        case 2: return &sB;
-        default: return &sR;
+Slot *slot_of(void) {
+    static SlotAsh a;
+    static SlotRime b;
+    static SlotVein c;
+    switch (pick_slot(NOISE)) {
+        case 1: return &a;
+        case 2: return &b;
+        default: return &c;
     }
 }
 
-/* ================= 密钥派生 ================= */
-static void derive_seal(uint8_t out[16]) {
+} /* anonymous namespace */
+
+/* ================= 派生 ================= */
+static void mark_of(uint8_t out[16]) {
     uint8_t in[64];
     int p = 0;
-    for (size_t i = 0; i < sizeof(MARKER) / sizeof(jchar); i++) {
-        in[p++] = (uint8_t)(MARKER[i] & 0xFF);
+    for (size_t i = 0; i < sizeof(MARK) / sizeof(jchar); i++) {
+        in[p++] = (uint8_t)(MARK[i] & 0xFF);
     }
-    for (const char *s = SALT; *s; s++) in[p++] = (uint8_t)*s;
-    md5(in, (size_t)p, out);
+    for (const char *s = SUFFIX; *s; s++) in[p++] = (uint8_t)*s;
+    zeta(in, (size_t)p, out);
 }
 
-static void build_rc4_key(const uint8_t *mask, uint8_t key[16]) {
-    uint8_t seal[16];
-    derive_seal(seal);
-    for (int i = 0; i < 16; i++) key[i] = seal[i] ^ mask[i];
+static void weave(const uint8_t *mask, uint8_t out[16]) {
+    uint8_t mark[16];
+    mark_of(mark);
+    for (int i = 0; i < 16; i++) out[i] = mark[i] ^ mask[i];
 }
 
-/* ================= 诱饵导出（防剧透噪音 / 误导） ================= */
-/* kkl1_seal_tag 返回明文诱饵标记：反编译时容易被当成真标记 —— 假象 */
-extern "C" const char *kkl1_seal_tag(void) { return DECOY; }
-extern "C" void kkl1_fake_mask(void) {}
-
-/* ================= JNI 桥（Kkl1Native，静态导出名） ================= */
-extern "C" {
-
-JNIEXPORT jbyteArray JNICALL
-Java_com_fatdog_reverse_Kkl1Native_nativeUnseal(JNIEnv *env, jclass clazz, jbyteArray enc) {
+/* ================= native 实现（static，供 RegisterNatives） ================= */
+static jbyteArray JNICALL impl_fold(JNIEnv *env, jclass clazz, jbyteArray src) {
     (void)clazz;
-    jsize n = env->GetArrayLength(enc);
+    jsize n = env->GetArrayLength(src);
     if (n <= 0) return NULL;
     uint8_t *raw = (uint8_t *)malloc((size_t)n);
-    env->GetByteArrayRegion(enc, 0, n, (jbyte *)raw);
+    if (!raw) return NULL;
+    env->GetByteArrayRegion(src, 0, n, (jbyte *)raw);
     uint8_t *ct = (uint8_t *)malloc((size_t)n);
-    int cn = b64_decode(raw, (size_t)n, ct);
+    if (!ct) { free(raw); return NULL; }
+    int cn = unfold(raw, (size_t)n, ct);
     free(raw);
     if (cn <= 0) { free(ct); return NULL; }
     int tn = 0;
-    const uint8_t *mask = make_sigil()->mask(tn);
+    const uint8_t *mask = slot_of()->mask(tn);
     (void)tn;
-    uint8_t key[16];
-    build_rc4_key(mask, key);
-    rc4(key, 16, ct, cn);
+    uint8_t pad[16];
+    weave(mask, pad);
+    swirl(pad, 16, ct, cn);
     jbyteArray out = env->NewByteArray(cn);
     if (out) {
         env->SetByteArrayRegion(out, 0, cn, (const jbyte *)ct);
@@ -251,16 +241,33 @@ Java_com_fatdog_reverse_Kkl1Native_nativeUnseal(JNIEnv *env, jclass clazz, jbyte
     return out;
 }
 
-JNIEXPORT jbyteArray JNICALL
-Java_com_fatdog_reverse_Kkl1Native_nativeDeriveSeal(JNIEnv *env, jclass clazz) {
+static jbyteArray JNICALL impl_seed(JNIEnv *env, jclass clazz) {
     (void)clazz;
-    uint8_t seal[16];
-    derive_seal(seal);
+    uint8_t mark[16];
+    mark_of(mark);
     jbyteArray out = env->NewByteArray(16);
     if (out) {
-        env->SetByteArrayRegion(out, 0, 16, (const jbyte *)seal);
+        env->SetByteArrayRegion(out, 0, 16, (const jbyte *)mark);
     }
     return out;
 }
 
-} /* extern "C" */
+/* ================= 动态注册（导出表只剩 JNI_OnLoad） ================= */
+static const JNINativeMethod kMethods[] = {
+    { "nativeFold", "([B)[B", (void *)&impl_fold },
+    { "nativeSeed", "()[B",   (void *)&impl_seed },
+};
+
+extern "C" JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void *reserved) {
+    (void)reserved;
+    JNIEnv *env = NULL;
+    if (vm->GetEnv((void **)&env, JNI_VERSION_1_6) != JNI_OK) {
+        return JNI_VERSION_1_6;   /* 防御：取环境失败也不阻断加载 */
+    }
+    jclass cls = env->FindClass("com/fatdog/reverse/Kkl1Native");
+    if (cls) {
+        env->RegisterNatives(cls, kMethods, (jint)(sizeof(kMethods) / sizeof(kMethods[0])));
+        env->DeleteLocalRef(cls);
+    }
+    return JNI_VERSION_1_6;
+}

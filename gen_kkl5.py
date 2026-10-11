@@ -33,7 +33,8 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 JNI = os.path.join(HERE, 'app', 'jni')
-ASSET_DIR = os.path.join(HERE, 'app', 'assets', 'kkl5')
+APP = os.path.join(HERE, 'app')
+ASSET_DIR = os.path.join(APP, 'assets', 'kkl5')
 
 # ─────────────── 与 tools/gen_kkl5_vm_program.py 的共享事实（硬约束） ───────────────
 MARKER = b"Fatdog_ascend"
@@ -53,6 +54,26 @@ _rng = random.Random(SEED)
 _NUMS = [_rng.randint(1, 100) for _ in range(PAGES * PER_PAGE)]
 SUM = sum(_NUMS)
 SUM_HASH = hashlib.md5(str(SUM).encode()).hexdigest()
+
+# ─────────────── 多类壳 · 业务 DEX 分片（§4.6 整改新增） ───────────────
+# 三级壳中壳（外层 y.* + 壳 DEX A + 壳 DEX B）3 片 + 业务 DEX 13 片（5a..5m）+ 明文诱饵 1 片。
+SHARDS = ['quill', 'rune', 'sigil', 'ward', 'glyph',
+          'totem', 'brand', 'mark', 'seal', 'token',
+          'charm', 'totem2', 'omem']
+ASSET_DIR = os.path.join(APP, 'assets', 'kkl5')
+# 壳层盐（外层=layer1 / 壳 A=layer2 / 壳 B=layer3）；业务用 layer4+片盐。
+OUTER_SALT = b"|kkl5_layer1"
+SHELL_A_SALT = b"|kkl5_layer2"
+SHELL_B_SALT = b"|kkl5_layer3"
+BIZ_SALT_PREFIX = b"|kkl5_layer4|"
+
+
+def _layer_key(seed, salt, which):
+    """层 key/iv 派生（与 spindle.layer_keys 逐字节一致）：
+    key = MD5(主钥32B ‖ salt ‖ "|key")[:16]；iv = MD5(主钥32B ‖ salt ‖ "|iv")[:16]。"""
+    assert which in ('key', 'iv')
+    tag = b"|key" if which == 'key' else b"|iv"
+    return hashlib.md5(seed + salt + tag).digest()[:16]
 
 
 # ─────────────────────────── 纯 Python SM4（GB/T 32907-2016） ───────────────────────────
@@ -314,6 +335,7 @@ T_SPINDLE = r'''/*
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <vector>
 
 #include "kkl5_vm_program.h"
 
@@ -507,6 +529,128 @@ extern "C" JNIEXPORT jint JNICALL
 Java_com_fatdog_reverse_Kkl5Native_nativePoisoned(JNIEnv *env, jclass) {
     (void)env;
     return g_poisoned ? 1 : 0;
+}
+
+/* ================= 多类壳（三级壳中壳）· 壳层密钥派生 + 业务 DEX 装载（§4.6 整改） ================= */
+
+/* 业务片盐（13 片，中性词）。 */
+static const char *SHARD_SALT[13] = {
+    "quill", "rune", "sigil", "ward", "glyph",
+    "totem", "brand", "mark", "seal", "token",
+    "charm", "totem2", "omem"
+};
+
+/* 每层 key/iv 由 VM 主钥域分离派生（只用 MD5，铁律）：
+ *   key = MD5(主钥32B ‖ salt ‖ "|key")[:16]
+ *   iv  = MD5(主钥32B ‖ salt ‖ "|iv" )[:16] */
+static void layer_keys(const uint8_t *seed, const char *salt,
+                       uint8_t key[16], uint8_t iv[16]) {
+    uint8_t buf[256];
+    int p = 0;
+    for (int i = 0; i < 32; i++) buf[p++] = seed[i];
+    for (const char *s = salt; *s; s++) buf[p++] = (uint8_t)*s;
+    const char *tk = "|key";
+    for (; *tk; tk++) buf[p++] = (uint8_t)*tk;
+    g_tally(buf, (size_t)p, key);
+
+    p = 0;
+    for (int i = 0; i < 32; i++) buf[p++] = seed[i];
+    for (const char *s = salt; *s; s++) buf[p++] = (uint8_t)*s;
+    const char *ti = "|iv";
+    for (; *ti; ti++) buf[p++] = (uint8_t)*ti;
+    g_tally(buf, (size_t)p, iv);
+}
+
+/* 用复合原语（nimbus 的 nm_seal/nm_unseal：SM4-CBC 内层 + AES-CTR 外层）解密一片 dex。
+ * 壳层 seed 由 VM 主钥域分离派生：layer_seed(32B) = key(16) ‖ iv(16)，其中
+ *   key = MD5(主钥32B ‖ salt ‖ "|key")[:16]；iv = MD5(主钥32B ‖ salt ‖ "|iv")[:16]；
+ * 复合口径与 gen_kkl5.py 的 composite_seal 一致：sm4_key=key、aes_key=iv、
+ *   sm4_iv = md5(layer_seed ‖ "|sm4")、aes_iv = md5(layer_seed ‖ "|aes")。
+ * 先过内存机 VM 才有主钥，再派生层密钥 —— 连过三层 VM 才能拼出业务 DEX。 */
+extern "C" JNIEXPORT jbyteArray JNICALL
+Java_com_fatdog_reverse_Kkl5Native_nativeFold(JNIEnv *env, jclass,
+                                              jbyteArray enc, jint layer, jint shard) {
+    bind_kernels();
+    if (kernel_missing()) return NULL;
+    jsize n = env->GetArrayLength(enc);
+    if (n <= 16) return NULL;
+
+    /* 先过内存机 VM 拿主钥（真标记 ‖ salt 喂虚拟机） */
+    uint8_t seed[32];
+    if (!derive_seed(seed)) return NULL;
+
+    char salt[64];
+    if (layer == 1) {
+        snprintf(salt, sizeof(salt), "|kkl5_layer1");
+    } else if (layer == 2) {
+        snprintf(salt, sizeof(salt), "|kkl5_layer2");
+    } else if (layer == 3) {
+        snprintf(salt, sizeof(salt), "|kkl5_layer3");
+    } else if (layer == 4 && shard >= 0 && shard < 13) {
+        snprintf(salt, sizeof(salt), "|kkl5_layer4|%s", SHARD_SALT[shard]);
+    } else {
+        return NULL;
+    }
+    uint8_t key[16], iv[16];
+    layer_keys(seed, salt, key, iv);
+
+    /* 壳层 seed(32B) = key ‖ iv，作为复合原语的两把密钥。 */
+    uint8_t lseed[32];
+    memcpy(lseed, key, 16);
+    memcpy(lseed + 16, iv, 16);
+    uint8_t sm4_iv[16];
+    iv_from_seed(lseed, "|sm4", sm4_iv);
+
+    std::vector<uint8_t> raw((size_t)n);
+    env->GetByteArrayRegion(enc, 0, n, (jbyte *)raw.data());
+    std::vector<uint8_t> out((size_t)n);
+    int m = g_unseal(lseed, sm4_iv, raw.data(), (size_t)n, out.data());
+    if (m <= 0) return NULL;
+    jbyteArray r = env->NewByteArray(m);
+    if (r) env->SetByteArrayRegion(r, 0, m, (const jbyte *)out.data());
+    return r;
+}
+
+/* 业务片 GateKeeper5l.nativeSign 的实现：与门面 nativeSign 同一条取数链
+ * （内存机 VM 派生主钥 + SM4-CBC/AES-CTR 复合 + MD5），被 RegisterNatives 绑到子加载器。 */
+static jstring kk5l_native_sign(JNIEnv *env, jclass, jint page, jlong ts) {
+    bind_kernels();
+    if (kernel_missing()) return env->NewStringUTF("");
+    uint8_t seed[32];
+    if (!derive_seed(seed)) return env->NewStringUTF("");
+
+    char payload[64];
+    int pl = snprintf(payload, sizeof(payload), "page=%d&ts=%lld", (int)page, (long long)ts);
+    uint8_t sm4_iv[16], aes_iv[16];
+    iv_from_seed(seed, "|sm4", sm4_iv);
+    iv_from_seed(seed, "|aes", aes_iv);
+    uint8_t ct[256];
+    int cl = g_seal(seed, sm4_iv, aes_iv, (const uint8_t *)payload, (size_t)pl, ct);
+    if (cl <= 0) { g_poisoned = 1; return env->NewStringUTF(""); }
+    char enc[600];
+    g_hex(ct, (size_t)cl, enc);
+    char kh[80];
+    g_ihex(seed, 32, kh);
+    char msg[700];
+    snprintf(msg, sizeof(msg), "%s%s", kh, enc);
+    uint8_t mac[16];
+    g_tally((const uint8_t *)msg, strlen(msg), mac);
+    char sign[40];
+    g_ihex(mac, 16, sign);
+    char out[680];
+    snprintf(out, sizeof(out), "%s|%s", enc, sign);
+    return env->NewStringUTF(out);
+}
+
+/* nativeBind：把业务 DEX 里的 GateKeeper5l.nativeSign 显式绑到加载它的 ClassLoader。
+ * 子 DexClassLoader 不会自动解析父加载器的 so，必须 RegisterNatives。 */
+extern "C" JNIEXPORT jint JNICALL
+Java_com_fatdog_reverse_Kkl5Native_nativeBind(JNIEnv *env, jclass, jclass target) {
+    if (target == NULL) return 0;
+    JNINativeMethod methods[] = {
+        { (char *)"nativeSign", (char *)"(IJ)Ljava/lang/String;", (void *)kk5l_native_sign },
+    };
+    return env->RegisterNatives(target, methods, 1) == JNI_OK ? 1 : 0;
 }
 
 /* 诱饵标记的出入口：保证 DECOY 进 .rodata，同时给静态分析留一条"假线索"。 */
@@ -1044,20 +1188,59 @@ def c_header():
             '/* 太玄之初 KKL5 诛仙台 · 五 so 编队（门面/虚拟机/复合分组/摘要/守卫）。 */\n\n')
 
 
-# ─────────────────────────── bake（业务 DEX） ───────────────────────────
-def bake(dex_path):
-    with open(dex_path, 'rb') as f:
-        plain = f.read()
+# ─────────────────────────── bake（三级壳 + 13 业务 DEX） ───────────────────────────
+def _layer_seed(seed, salt):
+    """壳层 seed(32B) = key(16) ‖ iv(16)，其中 key/iv 由主钥域分离派生。"""
+    return _layer_key(seed, salt, 'key') + _layer_key(seed, salt, 'iv')
+
+
+def bake(dex_paths):
+    """构建期：三级壳（外层 y.* + 壳 A + 壳 B）+ 13 业务 DEX 各自用壳层密钥复合加密埋
+    assets/kkl5/；诱饵明文落盘。主钥 = VM(真标记‖salt)，server 零改动。"""
+    # 期望：outer(y.*) + shellA + shellB + 5a..5m + decoy = 3 + 13 + 1 = 17 个
+    assert len(dex_paths) == 17, 'KKL5 bake needs 17 dex (outer + shellA + shellB + 5a..5m + decoy)'
     os.makedirs(ASSET_DIR, exist_ok=True)
-    sealed = composite_seal(TRUE_SEED, plain)
-    out = os.path.join(ASSET_DIR, 'ascension_altar.bin')
-    with open(out, 'wb') as f:
-        f.write(sealed)
-    decoy = os.path.join(ASSET_DIR, 'classes_decoy.dex')
-    with open(decoy, 'wb') as f:
-        f.write(DECOY_MAGIC + b"\n" + bytes((i * 7 + 3) & 0xFF for i in range(1024)))
-    print("KKL5 seal: %s (%d -> %d bytes)" % (out, len(plain), len(sealed)))
-    print("KKL5 decoy: %s" % decoy)
+
+    # ① 外层壳（y.*）→ layer1
+    outer = open(dex_paths[0], 'rb').read()
+    assert outer[:4] == b'dex\n', 'outer shell input not dex'
+    sealed = composite_seal(_layer_seed(TRUE_SEED, OUTER_SALT), outer)
+    open(os.path.join(ASSET_DIR, 'outer_lock.bin'), 'wb').write(sealed)
+    print('[bake] outer (y.*) -> outer_lock.bin  (%d -> %d B)' % (len(outer), len(sealed)))
+
+    # ② 壳 DEX A → layer2
+    sha = open(dex_paths[1], 'rb').read()
+    assert sha[:4] == b'dex\n', 'shell A input not dex'
+    sealed = composite_seal(_layer_seed(TRUE_SEED, SHELL_A_SALT), sha)
+    open(os.path.join(ASSET_DIR, 'shell_a_lock.bin'), 'wb').write(sealed)
+    print('[bake] shell A -> shell_a_lock.bin  (%d -> %d B)' % (len(sha), len(sealed)))
+
+    # ③ 壳 DEX B → layer3
+    shb = open(dex_paths[2], 'rb').read()
+    assert shb[:4] == b'dex\n', 'shell B input not dex'
+    sealed = composite_seal(_layer_seed(TRUE_SEED, SHELL_B_SALT), shb)
+    open(os.path.join(ASSET_DIR, 'shell_b_lock.bin'), 'wb').write(sealed)
+    print('[bake] shell B -> shell_b_lock.bin  (%d -> %d B)' % (len(shb), len(sealed)))
+
+    # ④ 13 业务 DEX → layer4 + 片盐
+    for i in range(13):
+        data = open(dex_paths[3 + i], 'rb').read()
+        assert data[:4] == b'dex\n', 'biz input not dex: shard %d' % i
+        salt = BIZ_SALT_PREFIX + SHARDS[i].encode()
+        lseed = _layer_seed(TRUE_SEED, salt)
+        cipher = composite_seal(lseed, data)
+        # 回环自检
+        assert composite_unseal(lseed, cipher) == data, 'roundtrip mismatch shard %d' % i
+        out = os.path.join(ASSET_DIR, '5%c_vein.bin' % chr(ord('a') + i))
+        open(out, 'wb').write(cipher)
+        print('[bake] shard 5%c (%s) plain %d B -> %s' % (chr(ord('a') + i), SHARDS[i], len(data), out))
+
+    # ⑤ 诱饵明文落盘
+    decoy = open(dex_paths[16], 'rb').read()
+    assert decoy[:4] == b'dex\n', 'decoy input not dex'
+    open(os.path.join(ASSET_DIR, 'classes_decoy.dex'), 'wb').write(decoy)
+    print('[bake] decoy -> classes_decoy.dex  (%d B)' % len(decoy))
+    return ASSET_DIR
 
 
 def selftest():
@@ -1110,7 +1293,7 @@ def selftest():
 def main():
     args = sys.argv[1:]
     if '--bake' in args:
-        bake(args[args.index('--bake') + 1])
+        bake(args[args.index('--bake') + 1:])
         return
     ok = selftest()
     if '--selftest' in args:

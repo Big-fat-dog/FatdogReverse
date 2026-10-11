@@ -30,6 +30,7 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 JNI = os.path.join(HERE, 'app', 'jni')
+APP = os.path.join(HERE, 'app')
 
 # ─────────────── 与 tools/gen_kkl4_vm_program.py 的共享事实（硬约束） ───────────────
 MARKER = b"Fatdog_dread"
@@ -48,6 +49,22 @@ _rng = random.Random(SEED)
 _NUMS = [_rng.randint(1, 100) for _ in range(PAGES * PER_PAGE)]
 SUM = sum(_NUMS)
 SUM_HASH = hashlib.md5(str(SUM).encode()).hexdigest()
+
+# ─────────────── 多类壳 · 业务 DEX 分片（§4.5 整改新增） ───────────────
+# 壳层 DEX（w.* 类群）1 片 + 业务 DEX 9 片（4a..4i）+ 明文诱饵 1 片。
+SHARDS = ['torch', 'ember', 'cinder', 'ash', 'spark',
+          'flint', 'pyre', 'brand', 'hearth']
+ASSET_DIR = os.path.join(APP, 'assets', 'kkl4')
+SHELL_SALT = b"|kkl4_layer1"
+BIZ_SALT_PREFIX = b"|kkl4_layer2|"
+
+
+def _layer_key(seed, salt, which):
+    """层 key/iv 派生（与 citadel.layer_keys 逐字节一致）：
+    key = MD5(主钥32B ‖ salt ‖ "|key")[:16]；iv = MD5(主钥32B ‖ salt ‖ "|iv")[:16]。"""
+    assert which in ('key', 'iv')
+    tag = b"|key" if which == 'key' else b"|iv"
+    return hashlib.md5(seed + salt + tag).digest()[:16]
 
 
 # ─────────────────────────── 纯 Python AES-128（CTR 自测） ───────────────────────────
@@ -180,6 +197,7 @@ T_CITADEL = r'''/*
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
+#include <vector>
 
 #include "kkl4_vm_program.h"
 
@@ -323,6 +341,130 @@ extern "C" JNIEXPORT jint JNICALL
 Java_com_fatdog_reverse_Kkl4Native_nativePoisoned(JNIEnv *env, jclass) {
     (void)env;
     return g_poisoned ? 1 : 0;
+}
+
+/* ================= 多类壳 · 壳层密钥派生 + 业务 DEX 装载（§4.5 整改） ================= */
+
+/* 业务片盐（9 片，中性词）。 */
+static const char *SHARD_SALT[9] = {
+    "torch", "ember", "cinder", "ash", "spark",
+    "flint", "pyre", "brand", "hearth"
+};
+
+/* 每层 key/iv 由 VM 主钥域分离派生（只用 MD5，铁律）：
+ *   key = MD5(主钥32B ‖ salt ‖ "|key")[:16]
+ *   iv  = MD5(主钥32B ‖ salt ‖ "|iv" )[:16] */
+static void layer_keys(const uint8_t *seed, const char *salt,
+                       uint8_t key[16], uint8_t iv[16]) {
+    uint8_t buf[256];
+    int p = 0;
+    for (int i = 0; i < 32; i++) buf[p++] = seed[i];
+    for (const char *s = salt; *s; s++) buf[p++] = (uint8_t)*s;
+    const char *tk = "|key";
+    for (; *tk; tk++) buf[p++] = (uint8_t)*tk;
+    g_tally(buf, (size_t)p, key);
+
+    p = 0;
+    for (int i = 0; i < 32; i++) buf[p++] = seed[i];
+    for (const char *s = salt; *s; s++) buf[p++] = (uint8_t)*s;
+    const char *ti = "|iv";
+    for (; *ti; ti++) buf[p++] = (uint8_t)*ti;
+    g_tally(buf, (size_t)p, iv);
+}
+
+/* 解密一片 dex（layer 1=壳层 w.*，layer 2=业务 4a..4i）。
+ * 密钥由 VM 主钥域分离派生——先过 VM 才有钥匙，把 VMP 与多类壳焊成一条链。 */
+extern "C" JNIEXPORT jbyteArray JNICALL
+Java_com_fatdog_reverse_Kkl4Native_nativeFold(JNIEnv *env, jclass,
+                                              jbyteArray enc, jint layer, jint shard) {
+    bind_kernels();
+    if (kernel_missing()) return NULL;
+    jsize n = env->GetArrayLength(enc);
+    if (n <= 0) return NULL;
+
+    /* 先过 VM 拿主钥 */
+    uint8_t in[64];
+    int in_len = build_input(in, sizeof(in));
+    uint8_t seed[32];
+    if (!g_vm(kKkl4VmProgram, KKL4_VM_PROGRAM_BYTES,
+              kKkl4VmChainSeed, KKL4_VM_CHAIN_SEED_LEN,
+              in, in_len, seed, 32)) {
+        g_poisoned = 1;
+        return NULL;
+    }
+
+    char salt[64];
+    if (layer == 1) {
+        snprintf(salt, sizeof(salt), "|kkl4_layer1");
+    } else if (layer == 2 && shard >= 0 && shard < 9) {
+        snprintf(salt, sizeof(salt), "|kkl4_layer2|%s", SHARD_SALT[shard]);
+    } else {
+        return NULL;
+    }
+    uint8_t key[16], iv[16];
+    layer_keys(seed, salt, key, iv);
+
+    std::vector<uint8_t> raw((size_t)n);
+    env->GetByteArrayRegion(enc, 0, n, (jbyte *)raw.data());
+    std::vector<uint8_t> out((size_t)n);
+    int m = g_seal(key, iv, raw.data(), (size_t)n, out.data());
+    if (m <= 0) return NULL;
+    jbyteArray r = env->NewByteArray(m);
+    if (r) env->SetByteArrayRegion(r, 0, m, (const jbyte *)out.data());
+    return r;
+}
+
+/* 业务片 GateKeeper4h.nativeSign 的实现：与门面 nativeSign 同一条取数链
+ * （VM 派生主钥 + AES-128-CTR + MD5），只是被 RegisterNatives 绑到子加载器。 */
+static jstring kk4h_native_sign(JNIEnv *env, jclass, jint page, jlong ts) {
+    bind_kernels();
+    if (kernel_missing()) return env->NewStringUTF("");
+    int bits = 0;
+    g_scan(&bits);
+    g_last_bits = bits;
+
+    uint8_t in[64];
+    int in_len = build_input(in, sizeof(in));
+    uint8_t seed[32];
+    if (!g_vm(kKkl4VmProgram, KKL4_VM_PROGRAM_BYTES,
+              kKkl4VmChainSeed, KKL4_VM_CHAIN_SEED_LEN,
+              in, in_len, seed, 32)) {
+        g_poisoned = 1;
+        return env->NewStringUTF("");
+    }
+    if (hit_count(bits) >= 2) poison(seed);
+
+    char payload[64];
+    int pl = snprintf(payload, sizeof(payload), "page=%d&ts=%lld", (int)page, (long long)ts);
+    uint8_t ct[128];
+    int cl = g_seal(seed, seed + 16, (const uint8_t *)payload, (size_t)pl, ct);
+    if (cl <= 0) { g_poisoned = 1; return env->NewStringUTF(""); }
+    char enc[300];
+    g_hex(ct, (size_t)cl, enc);
+
+    char kh[80];
+    g_ihex(seed, 32, kh);
+    char msg[420];
+    snprintf(msg, sizeof(msg), "%s%s", kh, enc);
+    uint8_t mac[16];
+    g_tally((const uint8_t *)msg, strlen(msg), mac);
+    char sign[40];
+    g_ihex(mac, 16, sign);
+
+    char out[400];
+    snprintf(out, sizeof(out), "%s|%s", enc, sign);
+    return env->NewStringUTF(out);
+}
+
+/* nativeBind：把业务 DEX 里的 GateKeeper4h.nativeSign 显式绑到加载它的 ClassLoader。
+ * 子 DexClassLoader 不会自动解析父加载器的 so，必须 RegisterNatives。 */
+extern "C" JNIEXPORT jint JNICALL
+Java_com_fatdog_reverse_Kkl4Native_nativeBind(JNIEnv *env, jclass, jclass target) {
+    if (target == NULL) return 0;
+    JNINativeMethod methods[] = {
+        { (char *)"nativeSign", (char *)"(IJ)Ljava/lang/String;", (void *)kk4h_native_sign },
+    };
+    return env->RegisterNatives(target, methods, 1) == JNI_OK ? 1 : 0;
 }
 
 /* 诱饵标记的出入口：保证 DECOY 进 .rodata，同时给静态分析留一条"假线索"。 */
@@ -798,8 +940,55 @@ def selftest():
     return ok
 
 
+def bake(dex_paths):
+    """构建期：壳 DEX（w.* 类群）用 layer1 密钥、9 个业务 DEX 各自用 layer2+片盐 密钥
+    AES-128-CTR 加密埋 assets/kkl4/；诱饵明文落盘。主钥 = VM(真标记‖salt)，server 零改动。"""
+    # 期望：shell.dex + 4a..4i.dex + decoy.dex = 11 个
+    assert len(dex_paths) == 11, 'KKL4 bake needs 11 dex (shell + 4a..4i + decoy)'
+    os.makedirs(ASSET_DIR, exist_ok=True)
+
+    def _enc(plain, key, iv):
+        return aes_ctr(key, iv, plain)
+
+    # ① 壳层 DEX（w.* 类群）→ layer1
+    shell_data = open(dex_paths[0], 'rb').read()
+    assert shell_data[:4] == b'dex\n', 'shell input not dex'
+    k1 = _layer_key(TRUE_SEED, SHELL_SALT, 'key')
+    v1 = _layer_key(TRUE_SEED, SHELL_SALT, 'iv')
+    open(os.path.join(ASSET_DIR, 'shell_lock.bin'), 'wb').write(_enc(shell_data, k1, v1))
+    print('[bake] shell (w.*) -> shell_lock.bin  (key=%s iv=%s)'
+          % (k1.hex(), v1.hex()))
+
+    # ② 9 个业务 DEX → layer2 + 片盐
+    for i in range(9):
+        data = open(dex_paths[1 + i], 'rb').read()
+        assert data[:4] == b'dex\n', 'biz input not dex: shard %d' % i
+        salt = BIZ_SALT_PREFIX + SHARDS[i].encode()
+        k2 = _layer_key(TRUE_SEED, salt, 'key')
+        v2 = _layer_key(TRUE_SEED, salt, 'iv')
+        cipher = _enc(data, k2, v2)
+        # 回环自检
+        assert _enc(cipher, k2, v2) == data, 'CTR roundtrip mismatch shard %d' % i
+        out = os.path.join(ASSET_DIR, '4%c_vein.bin' % chr(ord('a') + i))
+        open(out, 'wb').write(cipher)
+        print('[bake] shard 4%c (%s) plain %d B -> %s  (key=%s iv=%s)'
+              % (chr(ord('a') + i), SHARDS[i], len(data), out, k2.hex(), v2.hex()))
+
+    # ③ 诱饵明文落盘
+    decoy = open(dex_paths[10], 'rb').read()
+    assert decoy[:4] == b'dex\n', 'decoy input not dex'
+    open(os.path.join(ASSET_DIR, 'classes_decoy.dex'), 'wb').write(decoy)
+    print('[bake] decoy -> classes_decoy.dex')
+    print('[bake] VM master seed(hex): %s' % TRUE_SEED.hex())
+    return ASSET_DIR
+
+
 def main():
     args = sys.argv[1:]
+    if '--bake' in args:
+        # usage: gen_kkl4.py --bake <shell.dex> <4a.dex> ... <4i.dex> <decoy.dex>
+        bake([a for a in args if not a.startswith('--')])
+        return
     ok = selftest()
     if '--selftest' in args:
         sys.exit(0 if ok else 1)

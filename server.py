@@ -1174,19 +1174,9 @@ NUMS_KL9 = [_rng_kl9.randint(1, 100) for _ in range(PAGES_KL9 * PER_PAGE_KL9)]
 
 
 def _ksa_init_kl9() -> list:
-    """自定义初始置换：sha256("Fatdog_veil|ksa") 确定性 Fisher-Yates（与 libjade.so 一致）"""
-    seed = hashlib.sha256(b"Fatdog_veil|ksa").digest()
-    data = b""
-    ctr = 0
-    while len(data) < 512:
-        data += hashlib.sha256(seed + ctr.to_bytes(4, "big")).digest()
-        ctr += 1
-    p = list(range(256))
-    for i in range(255, 0, -1):
-        r = int.from_bytes(data[(255 - i) * 2:(255 - i) * 2 + 2], "big")
-        j = r % (i + 1)
-        p[i], p[j] = p[j], p[i]
-    return p
+    """魔改点一：KSA 初始 S 盒「倒过来填充」S[i]=255-i（255,254,...,1,0）。
+    标准 RC4 用恒等初排 S[i]=i；本关把 S 盒整个倒过来，与 libjade.so 一致。"""
+    return [255 - i for i in range(256)]
 
 
 _KSA_KL9 = _ksa_init_kl9()

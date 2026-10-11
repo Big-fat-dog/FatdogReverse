@@ -18,6 +18,9 @@ import android.widget.Toast;
 
 import org.json.JSONObject;
 
+import java.io.ByteArrayOutputStream;
+import java.io.File;
+import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.lang.reflect.Method;
 import java.util.concurrent.TimeUnit;
@@ -27,27 +30,32 @@ import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.Response;
 
-// 太玄之初 KKL1 · 玄冥渊：DEX 整体加密 + 落盘加载（★，服务端取数）。
-// 业务 DEX（com.fatdog.reverse.kkl1.GateKeeper1）构建期整体加密后埋进
-// assets/kkl1/abyss_vein.bin（base64(rc4(dex))）；libkkl1.so 静态导出两个 native：
-//   nativeUnseal(enc)    → 解密出明文 dex 字节
-//   nativeDeriveSeal()    → 取数签名 seal（真标记藏 UTF-16 派生）
-// 解密出的 dex 会落盘到沙箱目录，再交给 DexClassLoader 加载——这是本关设定
-// 的「一代壳破绽」：会落地的壳，文件可被找到。取数逻辑只在加载出的 dex 里：
-// GateKeeper1.sign(seal, ts, page) 逐页取数。
-// 玩家需要：①（动态）在解密出口抓明文 dex /（静态）认 vtable 还原 mask + seal
-// ② 拿 seal → ③ 逐页签名取数 → ④ 求和对总和取 md5。
+// 太玄之初 KKL1 · 玄冥渊：一代壳 · 业务拆两片（各整体加密）+ 落盘加载（★，服务端取数）。
+// 业务拆成两片（GateKeeper1a / GateKeeper1b）：构建期分别整体加密成
+// assets/kkl1/abyss_vein.bin、assets/kkl1/abyss_marrow.bin；另有明文诱饵
+// assets/kkl1/classes_decoy.dex。
+// libkkl1.so 动态注册两个 native（导出表无 Java_ 符号）：
+//   nativeFold(enc)   → 还原一段加密分片 → 明文 dex 字节
+//   nativeSeed()      → 取数签名用的 mark（真标记藏 UTF-16 派生）
+// 两片各自落盘，再按序挂载（loader1b.parent = loader1a）：这是本关设定的
+// 「一代壳破绽」——会落地的壳，文件找得到。
+// 取数逻辑在第二片里：GateKeeper1b.sign(mark, ts, page) 逐页取数。
+// 玩家需要：①（动态）在还原出口抓明文 dex（两片）/（静态）认虚表还原掩码 + mark
+// ② 拿 mark → ③ 逐页签名取数 → ④ 求和对总和取 md5。
 public class kkl1Activity extends Activity {
     static final String SUM_HASH = "d22ace3cfb8d585d7d667394ecef4e6c";
     static final int PAGES = 100;
-    static final String ASSET = "kkl1/abyss_vein.bin";
-    static final String BIZ_CLASS = "com.fatdog.reverse.kkl1.GateKeeper1";
+    static final String ASSET_A = "kkl1/abyss_vein.bin";
+    static final String ASSET_B = "kkl1/abyss_marrow.bin";
+    static final String ASSET_DECOY = "kkl1/classes_decoy.dex";
+    static final String BIZ_A = "com.fatdog.reverse.kkl1.GateKeeper1a";
+    static final String BIZ_B = "com.fatdog.reverse.kkl1.GateKeeper1b";
 
     private TextView status;
     private final TextView[] cells = new TextView[10];
     private LinearLayout pageBar;
     private int currentPage = 1;
-    private boolean ready = false;      // dex 是否已解密并加载
+    private boolean ready = false;      // 分片是否已还原并挂载
     private boolean loading = false;
     private String base;
     private OkHttpClient client;
@@ -71,15 +79,14 @@ public class kkl1Activity extends Activity {
 
         TextView tv = new TextView(this);
         tv.setText("KKL1 · 玄冥渊（★）\n\n"
-                + "业务 DEX 被整体加密埋在 assets（base64 + RC4）。\n"
-                + "libkkl1.so 静态导出两个方法：nativeUnseal 解 dex、nativeDeriveSeal 给签名 seal。\n"
-                + "解出的 dex 会落到沙箱目录，再由 DexClassLoader 加载——会落地的壳，文件找得到。\n"
-                + "取数签名逻辑只在加载出的 dex 里，100 页 × 每页 10 个数求和。");
+                + "渊底裹着一层薄壳，壳里不是一具真身，是拆开的两片。\n"
+                + "它藏得不深——最古老的那种掩眼法，破绽不在进不去，在它会落下痕迹。\n"
+                + "取数一页十枚，百页成数；签在真身手里，钥藏在翻不到字面的地方。");
         tv.setGravity(Gravity.CENTER);
         box.addView(tv, Ui.wrap(4));
 
         status = new TextView(this);
-        status.setText("未解密：点击「解密并加载」启动。");
+        status.setText("未开壳：点击「破壳并挂载」启动。");
         status.setGravity(Gravity.CENTER);
         status.setTextColor(ThemeKit.muted(ThemeKit.isDark(this)));
         box.addView(status, Ui.wrap(8));
@@ -142,7 +149,7 @@ public class kkl1Activity extends Activity {
         box.addView(navRow, Ui.fullWidth(10));
 
         Button boot = new Button(this);
-        boot.setText("解密并加载业务 DEX");
+        boot.setText("破壳并挂载");
         Ui.styleButton(boot);
         boot.setOnClickListener(new View.OnClickListener() {
             @Override public void onClick(View v) {
@@ -189,17 +196,14 @@ public class kkl1Activity extends Activity {
             @Override public void onClick(View v) {
                 new AlertDialog.Builder(kkl1Activity.this)
                         .setTitle("提示")
-                        .setMessage("玄冥渊分析路线：\n\n"
-                                + "① 壳形状：assets/kkl1/abyss_vein.bin 是一段很长的文本——\n"
-                                + "    拿去 base64 解码再想下一步（base64 不是加密）；\n"
-                                + "② so：libkkl1.so 符号表直白可见，两个 native 一目了然；\n"
-                                + "    解密链 = C++ 虚表分发的「掩码」⊕ 真标记派生的 seal → RC4 钥；\n"
-                                + "    真标记以 UTF-16 码元藏在 .data（普通 strings 哑火）；\n"
-                                + "③ dex 落盘：解密出的 dex 会写进沙箱目录再加载，会落地的壳\n"
-                                + "    就是会被找到——去自己的沙箱里找找看；\n"
-                                + "④ 取数：拿 seal（nativeDeriveSeal 或按真标记自己拼）→ 逐页签名\n"
-                                + "    取 100 页 → 求和 → 对总和取 md5 就是答案。\n\n"
-                                + "两个标记只有一处拼写差异，哪一个是真身得自己判断。")
+                        .setMessage("玄冥渊探路：\n\n"
+                                + "① 壳会卸货：它把真身写到自己的地盘上再挂起来——落地的壳，\n"
+                                + "    就是会被找到的壳。别只盯着包里，也看看应用自己的目录。\n"
+                                + "② 真身是两片，分先后挂载，后一片认前一片作长辈（双亲委派）。\n"
+                                + "③ 两片长相平平无奇，符号表里也翻不到门道——换条路。\n"
+                                + "    门在『钥』上：同一串字里藏着一处伪笔，差一个字母，\n"
+                                + "    拼出的钥就全错（服务端只认一种拼法）。\n"
+                                + "④ 拿到真钥 → 逐页签取 100 页 → 求和 → 对总和取 md5 就是答案。")
                         .setPositiveButton("知道了", null)
                         .show();
             }
@@ -212,49 +216,68 @@ public class kkl1Activity extends Activity {
         loadPage(1);
     }
 
-    /** 后台线程：读 assets 密文 → nativeUnseal 解密 → 落盘 → DexClassLoader → 反射缓存 */
+    /** 后台线程：逐片还原加密分片 → 落盘 → 按序挂载（父链）→ 反射缓存取数签名 */
     private void bootBiz() {
         try {
-            setStatus("读取 assets 密文…");
-            byte[] enc = readAssetBytes(ASSET);
-            setStatus("nativeUnseal 解密中…");
-            final byte[] dex = Kkl1Native.nativeUnseal(enc);
-            if (dex == null || dex.length < 8 || !(dex[0] == 'd' && dex[1] == 'e' && dex[2] == 'x')) {
-                throw new IllegalStateException("解出的字节不是 dex（magic 不符），检查解密链");
-            }
-            setStatus("dex 就绪 " + dex.length + " B，落盘并加载…");
-            // 落盘：一代壳的经典破绽——解密后的 dex 会留在沙箱目录里
-            java.io.File dir = getDir("kkl1", MODE_PRIVATE);
-            java.io.File dexFile = new java.io.File(dir, "vein_biz.dex");
-            java.io.FileOutputStream fos = new java.io.FileOutputStream(dexFile);
-            fos.write(dex);
-            fos.close();
-            java.io.File optDir = getDir("kkl1_opt", MODE_PRIVATE);
-            ClassLoader loader = new DexClassLoader(dexFile.getAbsolutePath(),
+            File dir = getDir("kkl1", MODE_PRIVATE);
+            File optDir = getDir("kkl1_opt", MODE_PRIVATE);
+
+            setStatus("还原分片一…");
+            File fileA = new File(dir, "vein_a.dex");
+            writeFile(fileA, restoreDex(ASSET_A));
+            ClassLoader loaderA = new DexClassLoader(fileA.getAbsolutePath(),
                     optDir.getAbsolutePath(), null, getClassLoader());
-            Class<?> cls = Class.forName(BIZ_CLASS, true, loader);
-            final String magic = (String) cls.getMethod("magic").invoke(null);
-            mSign = cls.getMethod("sign", byte[].class, long.class, int.class);
-            seal = Kkl1Native.nativeDeriveSeal();
+
+            setStatus("还原分片二…");
+            File fileB = new File(dir, "vein_b.dex");
+            writeFile(fileB, restoreDex(ASSET_B));
+            // 后一片认前一片作长辈：双亲委派链
+            ClassLoader loaderB = new DexClassLoader(fileB.getAbsolutePath(),
+                    optDir.getAbsolutePath(), null, loaderA);
+
+            // 明文诱饵：一并落到同目录（不挂载）——落在盘上的东西，谁都能翻
+            try {
+                writeFile(new File(dir, "vein_x.dex"), readAssetBytes(ASSET_DECOY));
+            } catch (Throwable ignore) {
+                // 诱饵缺失不影响通关
+            }
+
+            setStatus("挂载真身…");
+            Class<?> clsA = Class.forName(BIZ_A, true, loaderA);
+            Class<?> clsB = Class.forName(BIZ_B, true, loaderB);
+            final String tag = (String) clsA.getMethod("magic").invoke(null);
+            mSign = clsB.getMethod("sign", byte[].class, long.class, int.class);
+            seal = Kkl1Native.nativeSeed();
             if (seal == null || seal.length != 16) {
-                throw new IllegalStateException("派生 seal 形状不对（应 16 字节）");
+                throw new IllegalStateException("取到的钥形状不对（应 16 字节）");
             }
             ready = true;
             runOnUiThread(new Runnable() {
                 @Override public void run() {
-                    status.setText("业务类已加载：" + magic + "（seal 16B）— 可以翻页取数了");
-                    Toast.makeText(kkl1Activity.this, "DEX 落盘加载成功", Toast.LENGTH_SHORT).show();
+                    status.setText("真身已挂载：" + tag + "（钥 16B）— 可以翻页取数了");
+                    Toast.makeText(kkl1Activity.this, "真身已挂载", Toast.LENGTH_SHORT).show();
                 }
             });
             loadPage(1);
         } catch (final Throwable t) {
             runOnUiThread(new Runnable() {
                 @Override public void run() {
-                    status.setText("启动失败：" + t);
+                    status.setText("开壳失败：" + t);
                     Toast.makeText(kkl1Activity.this, "失败：" + t.getMessage(), Toast.LENGTH_SHORT).show();
                 }
             });
         }
+    }
+
+    /** 读一段加密分片 → 还原 → 校验 dex 形状 */
+    private byte[] restoreDex(String asset) throws Exception {
+        byte[] enc = readAssetBytes(asset);
+        byte[] dex = Kkl1Native.nativeFold(enc);
+        if (dex == null || dex.length < 8
+                || !(dex[0] == 'd' && dex[1] == 'e' && dex[2] == 'x')) {
+            throw new IllegalStateException("分片还原失败（magic 不符）：" + asset);
+        }
+        return dex;
     }
 
     private void loadPage(final int page) {
@@ -265,7 +288,7 @@ public class kkl1Activity extends Activity {
                 @Override public void run() {
                     loading = false;
                     currentPage = 1;
-                    status.setText("未解密：点击「解密并加载」后取数。");
+                    status.setText("未开壳：点击「破壳并挂载」后取数。");
                     renderNav(1);
                 }
             });
@@ -360,12 +383,21 @@ public class kkl1Activity extends Activity {
 
     private byte[] readAssetBytes(String name) throws Exception {
         InputStream is = getAssets().open(name);
-        java.io.ByteArrayOutputStream bos = new java.io.ByteArrayOutputStream();
+        ByteArrayOutputStream bos = new ByteArrayOutputStream();
         byte[] buf = new byte[8192];
         int n;
         while ((n = is.read(buf)) > 0) bos.write(buf, 0, n);
         is.close();
         return bos.toByteArray();
+    }
+
+    private void writeFile(File f, byte[] data) throws Exception {
+        FileOutputStream fos = new FileOutputStream(f);
+        try {
+            fos.write(data);
+        } finally {
+            fos.close();
+        }
     }
 
     private void setStatus(final String s) {

@@ -1,25 +1,27 @@
 /*
- * 太玄之初 KKL2：万剑冢——二代壳（DEX 整体加密 · 内存加载不落盘 + JNI 动态注册）。
+ * 太玄之初 KKL2：万剑冢——二代壳（DEX 三片整体加密 · 内存加载不落盘 + JNI 动态注册）。
  *
- * 业务 DEX（com.fatdog.reverse.kkl2.GateKeeper2）构建期被整体加密成
- * assets/kkl2/echoes_of_blades.bin（AES-128-CBC 二进制密文）埋进 APK；本 so 干两件事：
+ * 业务 DEX 拆三片（com.fatdog.reverse.kkl2.GateKeeper2a/2b/2c），构建期各自用
+ * AES-128-CBC 整体加密成 assets/kkl2/{edge,guard,grip}_vein.bin（二进制密文）埋进 APK；
+ * 本 so 干两件事：
  *
- *   1) nativeUnseal(enc)   —— AES-128-CBC 解密 + 去 PKCS7 + 镜像交换还原出明文
- *                            dex 字节，由 Java 侧 InMemoryDexClassLoader 内存加载
- *                            （不落盘，adb pull / 常规 dump 全部失效）。
- *   2) nativeDeriveSeal()   —— 返回取数签名 seal（16B，MD5 派生）。
+ *   1) nativeFold(enc, shard) —— 按片号选盐派生 key/iv，AES-128-CBC 解密 + 去 PKCS7
+ *                                + 镜像交换还原出明文 dex 字节，由 Java 侧
+ *                                InMemoryDexClassLoader 内存加载（不落盘，常规 dump 失效）。
+ *   2) nativeSeed()            —— 返回取数签名 seal（16B，MD5 派生）。
  *
  * 密钥链（全部 MD5 派生，本关哈希只用 MD5，不用 HMAC）：
- *   key = MD5(真标记 Fatdog_tense + "|kkl2_swordfield")    —— 16B，AES-128 密钥 & 签名 seal
- *   iv  = MD5(真标记 + "|kkl2_cbc_iv")                     —— 16B，CBC 初始向量
+ *   seal    = MD5(真标记 Fatdog_tense + "|kkl2_swordfield")     —— 取数签名，server 口径不变
+ *   片 key  = MD5(真标记 + "|kkl2_<片>_vein")                    —— 16B，AES-128 密钥
+ *   片 iv   = MD5(真标记 + "|kkl2_<片>_frost")                   —— 16B，CBC 初始向量
  * 真标记以 UTF-16 码元藏在 .data（strings 哑火，strings -el 才见）；
  * 明文 yT4!pW8@kR2# 是诱饵，用它派生的 key/iv 解不开密文、验签 403。
- * salt 拆两段（SALT_HEAD + SALT_TAIL）用 std::string 运行时拼装——STL 教学点。
+ * seal 盐拆两段（SEAL_HEAD + SEAL_TAIL）用 std::string 运行时拼装——STL 教学点。
  *
- * 玩家需：① 认清 assets 里 classes_decoy.dex 是假壳 → 找到真密文 bin；
- *         ② 还原解密链（AES-128-CBC + 去填充 + 镜像交换；或 hook nativeUnseal 出口抓明文）；
- *         ③ 内存加载/dump 出 dex → 看 GateKeeper2.sign(key,page,ts) 取数逻辑；
- *         ④ nativeDeriveSeal 拿 seal → MD5 签名取数求和通关。
+ * 玩家需：① 认清 assets 里 classes_decoy.dex 是假壳 → 找到三片真密文 bin；
+ *         ② 还原解密链（AES-128-CBC + 去填充 + 镜像交换；或 hook nativeFold 出口抓明文）；
+ *         ③ 内存加载/dump 出三片 dex → 看 GateKeeper2c.sign(seal,page,ts) 取数逻辑；
+ *         ④ nativeSeed 拿 seal → MD5 签名取数求和通关。
  */
 #include <jni.h>
 #include <stdint.h>
@@ -44,12 +46,18 @@ static const volatile jchar MARKER[] = {
     0x0073,
     0x0065
 };
-static const char DECOY[] = "yT4!pW8@kR2#";     /* 明文诱饵：由 kkl2_seal_tag() 引用，保证进 .rodata */
+__attribute__((used)) static const char SHAM[] = "yT4!pW8@kR2#";   /* 明文诱饵：进 .rodata 供误导，不导出符号 */
 
 /* ================= salt 两段拼装（std::string 教学点） ================= */
-static const char SALT_HEAD[] = "|kkl2_";
-static const char SALT_TAIL[] = "swordfield";
-static const char IV_SALT[]   = "|kkl2_cbc_iv";
+static const char SEAL_HEAD[] = "|kkl2_";
+static const char SEAL_TAIL[] = "swordfield";
+/* 三片 key/iv 盐（vein=密钥脉络 / frost=冷启动向量），按片号索引 */
+static const char K_SALT[3][32] = {
+    "|kkl2_edge_vein", "|kkl2_guard_vein", "|kkl2_grip_vein"
+};
+static const char V_SALT[3][32] = {
+    "|kkl2_edge_frost", "|kkl2_guard_frost", "|kkl2_grip_frost"
+};
 
 /* ================= MD5 ================= */
 static const uint32_t MD5_K[64] = {
@@ -70,7 +78,7 @@ static const uint8_t MD5_S[64] = {
 };
 #define ROTL32(x,c) (((x) << (c)) | ((x) >> (32 - (c))))
 
-static void md5(const uint8_t *m, size_t l, uint8_t out[16]) {
+static void zeta(const uint8_t *m, size_t l, uint8_t out[16]) {
     uint32_t a0 = 0x67452301, b0 = 0xefcdab89, c0 = 0x98badcfe, d0 = 0x10325476;
     size_t with_one = l + 1;
     size_t pad = ((56 - (with_one % 64)) + 64) % 64;
@@ -160,8 +168,8 @@ static uint8_t gmul(uint8_t a, uint8_t b) {
     return p;
 }
 
-static void key_expansion(const uint8_t key[16], uint8_t rk[176]) {
-    for (int i = 0; i < 16; i++) rk[i] = key[i];
+static void spread(const uint8_t pad[16], uint8_t rk[176]) {
+    for (int i = 0; i < 16; i++) rk[i] = pad[i];
     uint8_t rcon = 1;
     for (int i = 4; i < 44; i++) {
         uint8_t t[4];
@@ -205,10 +213,10 @@ static void inv_cipher(const uint8_t in[16], const uint8_t rk[176], uint8_t out[
     for (int i = 0; i < 16; i++) out[i] = s[i];
 }
 
-static void aes128_cbc_decrypt(const uint8_t key[16], const uint8_t iv[16],
-                               const uint8_t *in, size_t n, uint8_t *out) {
+static void unravel_cbc(const uint8_t pad[16], const uint8_t iv[16],
+                        const uint8_t *in, size_t n, uint8_t *out) {
     uint8_t rk[176];
-    key_expansion(key, rk);
+    spread(pad, rk);
     uint8_t prev[16];
     memcpy(prev, iv, 16);
     for (size_t off = 0; off + 16 <= n; off += 16) {
@@ -238,27 +246,34 @@ static std::string marker_ascii() {
     return s;
 }
 
-static std::vector<uint8_t> md5_of(const std::string &s) {
+static std::vector<uint8_t> zeta_of(const std::string &s) {
     std::vector<uint8_t> o(16);
-    md5((const uint8_t *)s.data(), s.size(), o.data());
+    zeta((const uint8_t *)s.data(), s.size(), o.data());
     return o;
 }
 
-static std::vector<uint8_t> derive_key() {
-    std::string salt = std::string(SALT_HEAD) + std::string(SALT_TAIL);  /* STL 拼装 */
-    return md5_of(marker_ascii() + salt);
+static std::vector<uint8_t> vein_of(int shard) {
+    /* 第 shard 片的 AES-128 密钥 = MD5(真标记 + 片 key 盐) */
+    return zeta_of(marker_ascii() + std::string(K_SALT[shard]));
 }
 
-static std::vector<uint8_t> derive_iv() {
-    return md5_of(marker_ascii() + std::string(IV_SALT));
+static std::vector<uint8_t> frost_of(int shard) {
+    /* 第 shard 片的 CBC IV = MD5(真标记 + 片 iv 盐) */
+    return zeta_of(marker_ascii() + std::string(V_SALT[shard]));
+}
+
+static std::vector<uint8_t> seal_of() {
+    /* 取数签名 seal = MD5(真标记 + SEAL_HEAD + SEAL_TAIL)，std::string 拼装 */
+    std::string salt = std::string(SEAL_HEAD) + std::string(SEAL_TAIL);
+    return zeta_of(marker_ascii() + salt);
 }
 
 /* ================= 解密：AES-128-CBC → 去 PKCS7 → 镜像交换 ================= */
-static std::vector<uint8_t> unseal_bytes(const uint8_t *in, size_t n) {
-    std::vector<uint8_t> key = derive_key();
-    std::vector<uint8_t> iv = derive_iv();
+static std::vector<uint8_t> unfold_bytes(const uint8_t *in, size_t n, int shard) {
+    std::vector<uint8_t> pad = vein_of(shard);
+    std::vector<uint8_t> iv = frost_of(shard);
     std::vector<uint8_t> v(n);
-    aes128_cbc_decrypt(key.data(), iv.data(), in, n, v.data());
+    unravel_cbc(pad.data(), iv.data(), in, n, v.data());
     size_t m = pkcs7_unpad(v.data(), n);       /* PKCS7 去填充 */
     v.resize(m);
     for (size_t i = 0; i < m / 2; i++) {       /* 镜像交换还原（std::swap） */
@@ -267,17 +282,14 @@ static std::vector<uint8_t> unseal_bytes(const uint8_t *in, size_t n) {
     return v;
 }
 
-/* ================= 诱饵导出（防剧透噪音 / 误导） ================= */
-extern "C" const char *kkl2_seal_tag(void) { return DECOY; }
-extern "C" void kkl2_fake_key(void) {}
-
 /* ================= JNI 动态注册（导出表无 Java_ 符号） ================= */
-static jbyteArray JNICALL nativeUnseal(JNIEnv *env, jclass, jbyteArray enc) {
+static jbyteArray JNICALL nativeFold(JNIEnv *env, jclass, jbyteArray enc, jint shard) {
+    if (shard < 0 || shard >= 3) return NULL;
     jsize n = env->GetArrayLength(enc);
     if (n <= 0 || (n % 16) != 0) return NULL;   /* CBC 密文必为 16 的倍数 */
     std::vector<uint8_t> raw((size_t)n);
     env->GetByteArrayRegion(enc, 0, n, reinterpret_cast<jbyte *>(raw.data()));
-    std::vector<uint8_t> plain = unseal_bytes(raw.data(), (size_t)n);
+    std::vector<uint8_t> plain = unfold_bytes(raw.data(), (size_t)n, (int)shard);
     jbyteArray out = env->NewByteArray((jsize)plain.size());
     if (out) {
         env->SetByteArrayRegion(out, 0, (jsize)plain.size(),
@@ -286,18 +298,18 @@ static jbyteArray JNICALL nativeUnseal(JNIEnv *env, jclass, jbyteArray enc) {
     return out;
 }
 
-static jbyteArray JNICALL nativeDeriveSeal(JNIEnv *env, jclass) {
-    std::vector<uint8_t> key = derive_key();
+static jbyteArray JNICALL nativeSeed(JNIEnv *env, jclass) {
+    std::vector<uint8_t> seal = seal_of();
     jbyteArray out = env->NewByteArray(16);
     if (out) {
-        env->SetByteArrayRegion(out, 0, 16, reinterpret_cast<const jbyte *>(key.data()));
+        env->SetByteArrayRegion(out, 0, 16, reinterpret_cast<const jbyte *>(seal.data()));
     }
     return out;
 }
 
 static const JNINativeMethod METHODS[] = {
-    {"nativeUnseal",    "([B)[B", (void *) &nativeUnseal},
-    {"nativeDeriveSeal", "()[B",   (void *) &nativeDeriveSeal},
+    {"nativeFold",    "([BI)[B", (void *) &nativeFold},
+    {"nativeSeed",    "()[B",    (void *) &nativeSeed},
 };
 
 JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void *reserved) {

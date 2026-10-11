@@ -1,11 +1,20 @@
-/**
- * tapir.cpp — L53 焚天火域（主入口 + 调度 + 异常控制流 · 最终关）
+/*
+ * libtapir.so — L53 焚天火域（Native大陆第 6 关 · 最终关）
  *
- * 3 SO 分离：tapir（调度+异常） + viper（加密核心+密钥） + customs（业务干扰）
- * 异常控制流：try/catch 里藏真逻辑
- * vtable 分发：CipherFactory 根据 algo_id 选择加密器
- * 深层调用栈（5+ 层）：JNI → k53_dispatch → ErrorHandler::process → CipherFactory::create → encryptor->encrypt
- * 协议：POST /api/l53 表单 page/ts/enc/aes/sign，响应 {"d": RC4 加密}
+ * 主入口 · 调度 + 异常控制流 · 跨 so（dlopen libviper）+ 跨层（回调 Java）
+ *
+ * 静态分析视角：
+ *   - 导出表只有 JNI_OnLoad（动态注册；类名/方法名/签名全是运行时解出的密文）；
+ *   - dlopen 的库名、dlsym 的符号名全是密文 → 看不到 libviper.so / vp_seal 之类；
+ *   - 调度类簇（TideFlow / Seal / SealNull / SealAlt / SealOne / SealTwo / SealPick）
+ *     全部收进匿名命名空间，vtable/typeinfo 不进 .dynsym。
+ *
+ * 跨 so + 跨层密钥拼装（签名密钥）：
+ *   头段 12B ← libviper.so 的 vp_mark()
+ *   尾段 4B  ← Java（Bk53 递 Class → 本 so NewObject 造实例 → 回调 chip(int) 取 byte[]）
+ *   → sign = HMAC-MD5(密钥, payload)；少任何一段 → 服务端 403。
+ *
+ * 协议：POST /api/l53 表单 page/ts/enc/aes/sign，响应 {"d": 流加密}
  * flag：FLAG_18_L53{scorched_fireland}
  */
 
@@ -15,11 +24,40 @@
 #include <cstdint>
 #include <dlfcn.h>
 #include <stdexcept>
-#include <android/log.h>
 #include <vector>
 
-#define LOG_TAG "tapir"
-#define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
+/* ============================================================
+ * 字符串密文化（掩码走 volatile，防 -O2 常量折叠成明文）
+ * ============================================================ */
+static std::string decloak(const unsigned char* enc, size_t n, unsigned char mk) {
+    std::string out(n, '\0');
+    volatile unsigned char m = mk;
+    for (size_t i = 0; i < n; i++) out[i] = (char)(enc[i] ^ m);
+    return out;
+}
+#define DK(ARR, MK) decloak((ARR), sizeof(ARR), (unsigned char)(MK))
+
+/* 类名 / 方法名 / 签名 / 回调锚点 / 库名 / dlsym 名 —— 构建期 XOR ^0x63 密文化 */
+static const unsigned char C_CLS[] = { 0x00,0x0C,0x0E,0x4C,0x05,0x02,0x17,0x07,0x0C,0x04,0x4C,0x11,0x06,0x15,0x06,0x11,0x10,0x06,0x4C,0x21,0x08,0x56,0x50 };  // com/fatdog/reverse/Bk53
+static const unsigned char C_M1[] = { 0x0D,0x02,0x17,0x0A,0x15,0x06,0x26,0x0D,0x00 };  // nativeEnc
+static const unsigned char C_G1[] = { 0x4B,0x2F,0x09,0x02,0x15,0x02,0x4C,0x0F,0x02,0x0D,0x04,0x4C,0x30,0x17,0x11,0x0A,0x0D,0x04,0x58,0x2A,0x4A,0x2F,0x09,0x02,0x15,0x02,0x4C,0x0F,0x02,0x0D,0x04,0x4C,0x30,0x17,0x11,0x0A,0x0D,0x04,0x58 };  // (Ljava/lang/String;I)Ljava/lang/String;
+static const unsigned char C_M2[] = { 0x0D,0x02,0x17,0x0A,0x15,0x06,0x30,0x0A,0x04,0x0D };  // nativeSign
+static const unsigned char C_G2[] = { 0x4B,0x2F,0x09,0x02,0x15,0x02,0x4C,0x0F,0x02,0x0D,0x04,0x4C,0x30,0x17,0x11,0x0A,0x0D,0x04,0x58,0x4A,0x2F,0x09,0x02,0x15,0x02,0x4C,0x0F,0x02,0x0D,0x04,0x4C,0x30,0x17,0x11,0x0A,0x0D,0x04,0x58 };  // (Ljava/lang/String;)Ljava/lang/String;
+static const unsigned char C_M3[] = { 0x0D,0x02,0x17,0x0A,0x15,0x06,0x31,0x00,0x57,0x27,0x06,0x00,0x11,0x1A,0x13,0x17 };  // nativeRc4Decrypt
+static const unsigned char C_G3[] = { 0x4B,0x2F,0x09,0x02,0x15,0x02,0x4C,0x0F,0x02,0x0D,0x04,0x4C,0x30,0x17,0x11,0x0A,0x0D,0x04,0x58,0x4A,0x2F,0x09,0x02,0x15,0x02,0x4C,0x0F,0x02,0x0D,0x04,0x4C,0x30,0x17,0x11,0x0A,0x0D,0x04,0x58 };  // (Ljava/lang/String;)Ljava/lang/String;
+static const unsigned char C_M4[] = { 0x01,0x0A,0x0D,0x07,0x28,0x06,0x1A,0x10 };  // bindKeys
+static const unsigned char C_G4[] = { 0x4B,0x2F,0x09,0x02,0x15,0x02,0x4C,0x0F,0x02,0x0D,0x04,0x4C,0x20,0x0F,0x02,0x10,0x10,0x58,0x4A,0x35 };  // (Ljava/lang/Class;)V
+static const unsigned char C_CB[] = { 0x00,0x0B,0x0A,0x13 };  // chip
+static const unsigned char C_GB[] = { 0x4B,0x2A,0x4A,0x38,0x21 };  // (I)[B
+static const unsigned char C_LIB[] = { 0x0F,0x0A,0x01,0x15,0x0A,0x13,0x06,0x11,0x4D,0x10,0x0C };  // libviper.so
+static const unsigned char C_LIBD[] = { 0x0F,0x0A,0x01,0x00,0x16,0x10,0x17,0x0C,0x0E,0x10,0x4D,0x10,0x0C };  // libcustoms.so
+static const unsigned char C_D1[] = { 0x15,0x13,0x3C,0x0E,0x02,0x11,0x08 };  // vp_mark
+static const unsigned char C_D2[] = { 0x15,0x13,0x3C,0x10,0x06,0x02,0x0F };  // vp_seal
+static const unsigned char C_D3[] = { 0x15,0x13,0x3C,0x14,0x11,0x02,0x13 };  // vp_wrap
+static const unsigned char C_D4[] = { 0x15,0x13,0x3C,0x10,0x17,0x11,0x06,0x02,0x0E };  // vp_stream
+
+/* 诱饵标记（明文可见，strings 可抓） */
+static const char FAKE_MARK[] = "Fatdog_ember";
 
 // ==================== dlopen 函数指针类型 ====================
 typedef const uint8_t* (*get_key_func)();
@@ -27,11 +65,21 @@ typedef int (*feistel_core_fn)(const uint8_t*, int, uint8_t*, int, int*);
 typedef int (*rc4_core_fn)(const uint8_t*, int, uint8_t*, int, int*);
 typedef int (*aes_variant_core_fn)(const uint8_t*, int, uint8_t*, int, int*);
 
-// ==================== 异常控制流：ErrorHandler ====================
-class ErrorHandler {
+// ==================== 加密核心（前置声明，定义在本节之后的辅助函数区） ====================
+static std::string core_one(const std::string& data);
+static std::string core_two(const std::string& data);
+
+/* ============================================================
+ * 调度 / 异常 / vtable 分发的类簇 —— 全部收进匿名命名空间：
+ * 具名作用域下的多态类会把 vtable/typeinfo/析构写进 .dynsym
+ * （nm -D 一眼看到 FeistelEngine 之类），匿名化后导出表全清。
+ * ============================================================ */
+namespace {
+
+// 异常控制流：真逻辑藏在 catch 块里——IDA 看 try 块是空的，必须跟到 catch
+class TideFlow {
 public:
-    // 真逻辑藏在 catch 块里——IDA 看 try 块是空的，必须跟到 catch
-    std::string process(const std::string& input) {
+    std::string flow(const std::string& input) {
         try {
             // try 块：看似无意义的运算，实际是触发异常的引子
             volatile int trigger = 0;
@@ -53,7 +101,7 @@ public:
     }
 
     // 第二层异常控制：密钥派生也藏在 catch 里
-    std::string deriveKey(const std::string& seed) {
+    std::string weave(const std::string& seed) {
         try {
             if (seed.empty()) throw std::invalid_argument("empty");
             // 正常路径返回空
@@ -71,68 +119,67 @@ public:
     }
 };
 
-// ==================== CipherFactory：vtable 分发 ====================
-class ICipher {
+// ==================== 分发接口 + vtable 分发 ====================
+class Seal {
 public:
-    virtual ~ICipher() {}
-    virtual std::string encrypt(const std::string& data) = 0;
-    virtual std::string name() const = 0;
+    virtual ~Seal() {}
+    virtual std::string run(const std::string& data) = 0;
+    virtual std::string tag() const = 0;
 };
 
 // 诱饵加密器
-class NullCipher : public ICipher {
+class SealNull : public Seal {
 public:
-    std::string encrypt(const std::string& data) override { return data; }
-    std::string name() const override { return "null"; }
+    std::string run(const std::string& data) override { return data; }
+    std::string tag() const override { return "null"; }
 };
 
 // 诱饵加密器2
-class XorCipher : public ICipher {
+class SealAlt : public Seal {
     uint8_t key_;
 public:
-    XorCipher(uint8_t k = 0xFF) : key_(k) {}
-    std::string encrypt(const std::string& data) override {
+    SealAlt(uint8_t k = 0xFF) : key_(k) {}
+    std::string run(const std::string& data) override {
         std::string r = data;
         for (auto& c : r) c ^= key_;
         return r;
     }
-    std::string name() const override { return "xor"; }
+    std::string tag() const override { return "xor"; }
 };
 
-static std::string core_feistel_encrypt(const std::string& data);
-static std::string core_aes_variant_encrypt(const std::string& data);
-
-// Feistel 主路径：处理 ErrorHandler 输出的掩码数据
-class FeistelEngine : public ICipher {
+// 主路径：处理 TideFlow 输出的掩码数据
+class SealOne : public Seal {
 public:
-    std::string encrypt(const std::string& data) override {
-        return core_feistel_encrypt(data);
+    std::string run(const std::string& data) override {
+        return core_one(data);
     }
-    std::string name() const override { return "feistel53"; }
+    std::string tag() const override { return "one53"; }
 };
 
-// 独立魔改 AES 分组路径：与 Feistel 使用同一掩码输入，但轮结构完全不同
-class AesVariantEngine : public ICipher {
+// 独立变体分组路径：与主路径使用同一掩码输入，但轮结构完全不同
+class SealTwo : public Seal {
 public:
-    std::string encrypt(const std::string& data) override {
-        return core_aes_variant_encrypt(data);
+    std::string run(const std::string& data) override {
+        return core_two(data);
     }
-    std::string name() const override { return "aes53"; }
+    std::string tag() const override { return "two53"; }
 };
 
-class CipherFactory {
+class SealPick {
 public:
     // 根据 algo_id 创建加密器——vtable 分发
-    static ICipher* create(int algo_id) {
-        if (algo_id == 1) return new FeistelEngine();
-        if (algo_id == 2) return new AesVariantEngine();
+    static Seal* pick(int algo_id) {
+        if (algo_id == 1) return new SealOne();
+        if (algo_id == 2) return new SealTwo();
         // fallback：返回诱饵
         switch (algo_id) {
-            case 0: return new NullCipher();
-            default: return new NullCipher();
+            case 0: return new SealNull();
+            default: return new SealNull();
         }
     }
 };
+
+} /* anonymous namespace */
 
 // ==================== HMAC-SHA256 ====================
 static uint32_t sha256_k[64] = {
@@ -303,17 +350,18 @@ static std::string hmac_sha256(const std::string& key, const std::string& msg) {
     return sha256_hash(opad + sha256_hash(ipad + msg));
 }
 
-// ==================== XOR 密钥（本地 fallback） ====================
-// ==================== XOR 密钥（本地 fallback，正常由 libviper 提供） ====================
-uint8_t K53_HMAC_XOR[] = {
+// ==================== 本地兜底密钥（正常由 libviper 提供） ====================
+/* 签名密钥头段："Fatdog_hmac_" ^0x3C（12 字节）；尾段 "k53\0" 在 Java */
+static const uint8_t K53_MARK_HEAD_XOR[] = {
     0x7a,0x5d,0x48,0x58,0x53,0x5b,0x63,0x54,
-    0x51,0x5d,0x5f,0x63,0x57,0x09,0x0f,0x3c
+    0x51,0x5d,0x5f,0x63
 };
 static const uint8_t K53_XOR = 0x3C;
 
-static std::string get_hmac_key_local() {
-    std::string key(16, '\0');
-    for (int i = 0; i < 16; i++) key[i] = K53_HMAC_XOR[i] ^ K53_XOR;
+static std::string get_mark_head_local() {
+    std::string key(12, '\0');
+    volatile uint8_t m = K53_XOR;       /* volatile：防 -O2 折叠 */
+    for (int i = 0; i < 12; i++) key[i] = (char)(K53_MARK_HEAD_XOR[i] ^ m);
     return key;
 }
 
@@ -324,14 +372,16 @@ static rc4_core_fn g_rc4_fn = nullptr;
 
 static void ensure53cCore() {
     if (g_53c_handle) return;
-    g_53c_handle = dlopen("libviper.so", RTLD_NOW);
+    std::string lib = DK(C_LIB, 0x63);
+    g_53c_handle = dlopen(lib.c_str(), RTLD_NOW);
     if (!g_53c_handle) return;
-    g_feistel_fn = (feistel_core_fn)dlsym(g_53c_handle, "k53FeistelEncrypt");
-    g_aes_variant_fn = (aes_variant_core_fn)dlsym(g_53c_handle, "k53AesVariantEncrypt");
-    g_rc4_fn = (rc4_core_fn)dlsym(g_53c_handle, "k53Rc4Crypt");
+    std::string d2 = DK(C_D2, 0x63), d3 = DK(C_D3, 0x63), d4 = DK(C_D4, 0x63);
+    g_feistel_fn = (feistel_core_fn)dlsym(g_53c_handle, d2.c_str());
+    g_aes_variant_fn = (aes_variant_core_fn)dlsym(g_53c_handle, d3.c_str());
+    g_rc4_fn = (rc4_core_fn)dlsym(g_53c_handle, d4.c_str());
 }
 
-static std::string core_feistel_encrypt(const std::string& data) {
+static std::string core_one(const std::string& data) {
     ensure53cCore();
     if (!g_feistel_fn) return "";
     std::vector<uint8_t> out(data.size() + 32);
@@ -342,7 +392,7 @@ static std::string core_feistel_encrypt(const std::string& data) {
     return std::string((const char*)out.data(), outLen);
 }
 
-static std::string core_aes_variant_encrypt(const std::string& data) {
+static std::string core_two(const std::string& data) {
     ensure53cCore();
     if (!g_aes_variant_fn) return "";
     std::vector<uint8_t> out(data.size() + 32);
@@ -356,11 +406,11 @@ static std::string core_aes_variant_encrypt(const std::string& data) {
 // ==================== 深层调用栈辅助函数 ====================
 static std::string k53_dispatch(int algo_id, const std::string& data) {
     // 第2层
-    ErrorHandler handler;
-    std::string processed = handler.process(data);
+    TideFlow handler;
+    std::string processed = handler.flow(data);
     // 第3层
-    ICipher* cipher = CipherFactory::create(algo_id);
-    std::string result = cipher->encrypt(processed);
+    Seal* cipher = SealPick::pick(algo_id);
+    std::string result = cipher->run(processed);
     delete cipher;
     return result;
 }
@@ -368,36 +418,77 @@ static std::string k53_dispatch(int algo_id, const std::string& data) {
 // ==================== JNI 函数（静态命名 → RegisterNatives 动态绑定） ====================
 static JavaVM* g_jvm = nullptr;
 
-static jstring nativeSign53(JNIEnv* env, jobject, jstring data) {
-    const char* cdata = env->GetStringUTFChars(data, nullptr);
-    std::string payload(cdata);
-    env->ReleaseStringUTFChars(data, cdata);
+/* ---------- 跨层回调：签名密钥尾段（"k53\0"）由 Java 侧供给 ---------- */
+static jclass g_cls = NULL;      /* Bk53 递进来的取件器 Class */
+static jmethodID g_ctor = NULL;
+static jmethodID g_tail = NULL;
 
-    // 从 libviper.so 获取 HMAC key
-    std::string hmac_key;
-    void* handle = dlopen("libviper.so", RTLD_NOW);
+static const jint K53_SPOOL = 0x6B24;      /* Java 构造用盐 */
+static const jint K53_MASK  = 0x1F4A62D8;  /* so 侧回调掩码：少一比特 → 乱码 */
+
+static JNIEnv* cur_env() {
+    if (g_jvm == NULL) return NULL;
+    JNIEnv* env = NULL;
+    if (g_jvm->GetEnv(reinterpret_cast<void**>(&env), JNI_VERSION_1_6) != JNI_OK) return NULL;
+    return env;
+}
+
+/* native 侧自己造 Java 对象（JNI 不看访问修饰符 → 可直接调私有构造） */
+static std::string fetch_tail(JNIEnv* env) {
+    if (env == NULL) env = cur_env();
+    if (env == NULL || g_cls == NULL || g_ctor == NULL || g_tail == NULL) return std::string();
+    jobject obj = env->NewObject(g_cls, g_ctor, K53_SPOOL);
+    if (obj == NULL) return std::string();
+    jbyteArray ja = (jbyteArray) env->CallObjectMethod(obj, g_tail, K53_MASK);
+    env->DeleteLocalRef(obj);
+    if (ja == NULL) return std::string();
+    jsize n = env->GetArrayLength(ja);
+    jbyte* b = env->GetByteArrayElements(ja, NULL);
+    std::string out;
+    if (b != NULL && n > 0) {
+        out.assign(reinterpret_cast<const char*>(b), (size_t)n);
+        env->ReleaseByteArrayElements(ja, b, JNI_ABORT);
+    }
+    env->DeleteLocalRef(ja);
+    return out;
+}
+
+/* 拼齐 16 字节签名密钥：头段 12B（viper 或本地兜底）+ 尾段 4B（Java） */
+static std::string full_mark_key(JNIEnv* env) {
+    std::string head;
+    std::string lib = DK(C_LIB, 0x63), sym = DK(C_D1, 0x63);
+    void* handle = dlopen(lib.c_str(), RTLD_NOW);
     if (handle) {
-        get_key_func fn = (get_key_func)dlsym(handle, "getHmacKey");
+        get_key_func fn = (get_key_func)dlsym(handle, sym.c_str());
         if (fn) {
             const uint8_t* raw = fn();
-            if (raw) hmac_key = std::string(reinterpret_cast<const char*>(raw), 16);
+            if (raw) head.assign(reinterpret_cast<const char*>(raw), 12);
         }
         dlclose(handle);
     }
-    if (hmac_key.empty()) hmac_key = get_hmac_key_local();
+    if (head.size() != 12) head = get_mark_head_local();
+    std::string tail = fetch_tail(env);
+    if (tail.size() != 4) return std::string();
+    return head + tail;
+}
 
-    std::string sig = hmac_md5(hmac_key, payload);
+static jstring nativeSignImpl(JNIEnv* env, jobject, jstring data) {
+    const char* cdata = env->GetStringUTFChars(data, nullptr);
+    std::string payload = (cdata != nullptr) ? std::string(cdata) : std::string();
+    if (cdata != nullptr) env->ReleaseStringUTFChars(data, cdata);
+
+    std::string sig = hmac_md5(full_mark_key(env), payload);
     std::string hex;
     for (unsigned char c : sig) { char buf[3]; snprintf(buf, sizeof(buf), "%02x", c); hex += buf; }
     return env->NewStringUTF(hex.c_str());
 }
 
-static jstring nativeEnc53(JNIEnv* env, jobject, jstring data, jint algo) {
+static jstring nativeEncImpl(JNIEnv* env, jobject, jstring data, jint algo) {
     const char* cdata = env->GetStringUTFChars(data, nullptr);
-    std::string input(cdata);
-    env->ReleaseStringUTFChars(data, cdata);
+    std::string input = (cdata != nullptr) ? std::string(cdata) : std::string();
+    if (cdata != nullptr) env->ReleaseStringUTFChars(data, cdata);
 
-    // 深层调用栈：JNI → k53_dispatch → ErrorHandler::process → CipherFactory::create → encrypt
+    // 深层调用栈：JNI → k53_dispatch → TideFlow::flow → SealPick::pick → Seal::run
     std::string enc = k53_dispatch(algo, input);
 
     std::string hex;
@@ -412,10 +503,10 @@ static int hex_nibble(char c) {
     return -1;
 }
 
-static jstring nativeRc4Decrypt53(JNIEnv* env, jobject, jstring hexData) {
+static jstring nativeRc4Impl(JNIEnv* env, jobject, jstring hexData) {
     const char* cdata = env->GetStringUTFChars(hexData, nullptr);
-    std::string hex(cdata);
-    env->ReleaseStringUTFChars(hexData, cdata);
+    std::string hex = (cdata != nullptr) ? std::string(cdata) : std::string();
+    if (cdata != nullptr) env->ReleaseStringUTFChars(hexData, cdata);
     if (hex.size() % 2 != 0) return env->NewStringUTF("");
     std::vector<uint8_t> in(hex.size() / 2);
     for (size_t i = 0; i < in.size(); i++) {
@@ -434,24 +525,50 @@ static jstring nativeRc4Decrypt53(JNIEnv* env, jobject, jstring hexData) {
     return env->NewStringUTF(plain.c_str());
 }
 
+/* 跨层桥：Bk53 递进取件器的 Class，本 so NewObject 造实例 + 回调 */
+static void implBind(JNIEnv* env, jclass, jclass holder) {
+    if (g_cls != NULL) { env->DeleteGlobalRef(g_cls); g_cls = NULL; }
+    g_ctor = g_tail = NULL;
+    if (holder == NULL) return;
+    g_cls = (jclass) env->NewGlobalRef(holder);
+    if (g_cls == NULL) return;
+    std::string ct = DK(C_CB, 0x63);
+    std::string gb = DK(C_GB, 0x63);
+    g_ctor = env->GetMethodID(g_cls, "<init>", "(I)V");
+    g_tail = env->GetMethodID(g_cls, ct.c_str(), gb.c_str());
+}
+
+/* 诱饵导出：Java 侧根本没声明这个方法 —— 纯误导 */
+extern "C" JNIEXPORT jstring JNICALL
+Java_com_fatdog_reverse_Bk53_nativeTapir(JNIEnv* env, jclass) {
+    return env->NewStringUTF(FAKE_MARK);
+}
+
 // ==================== RegisterNatives 动态绑定 ====================
-
-static const JNINativeMethod gMethods53[] = {
-    {"nativeSign", "(Ljava/lang/String;)Ljava/lang/String;", (void*)nativeSign53},
-    {"nativeEnc",  "(Ljava/lang/String;I)Ljava/lang/String;", (void*)nativeEnc53},
-    {"nativeRc4Decrypt", "(Ljava/lang/String;)Ljava/lang/String;", (void*)nativeRc4Decrypt53},
-};
-
 extern "C" JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void*) {
     g_jvm = vm;
-    JNIEnv* env;
-    if (vm->GetEnv(reinterpret_cast<void**>(&env), JNI_VERSION_1_6) != JNI_OK) return JNI_ERR;
-    jclass cls = env->FindClass("com/fatdog/reverse/Bk53");
-    if (!cls) return JNI_ERR;
-    if (env->RegisterNatives(cls, gMethods53, 3) != JNI_OK) return JNI_ERR;
-    LOGI("JNI_OnLoad: L53 initialized (RegisterNatives dynamic)");
-    /* 干扰 so：仅 dlopen 进进程（出现于 /proc/self/maps、可被 dlopen-trace 捕获），
-     * 不 dlsym、不调用其中任何符号（纯诱饵，不影响通关逻辑） */
-    (void)dlopen("libcustoms.so", RTLD_NOW);
+    JNIEnv* env = cur_env();
+    if (env != NULL) {
+        std::string cls = DK(C_CLS, 0x63);
+        jclass c = env->FindClass(cls.c_str());
+        if (c != NULL) {
+            std::string n1 = DK(C_M1, 0x63), g1 = DK(C_G1, 0x63);
+            std::string n2 = DK(C_M2, 0x63), g2 = DK(C_G2, 0x63);
+            std::string n3 = DK(C_M3, 0x63), g3 = DK(C_G3, 0x63);
+            std::string n4 = DK(C_M4, 0x63), g4 = DK(C_G4, 0x63);
+            JNINativeMethod m[4];
+            m[0].name = const_cast<char*>(n1.c_str()); m[0].signature = const_cast<char*>(g1.c_str()); m[0].fnPtr = (void*)nativeEncImpl;
+            m[1].name = const_cast<char*>(n2.c_str()); m[1].signature = const_cast<char*>(g2.c_str()); m[1].fnPtr = (void*)nativeSignImpl;
+            m[2].name = const_cast<char*>(n3.c_str()); m[2].signature = const_cast<char*>(g3.c_str()); m[2].fnPtr = (void*)nativeRc4Impl;
+            m[3].name = const_cast<char*>(n4.c_str()); m[3].signature = const_cast<char*>(g4.c_str()); m[3].fnPtr = (void*)implBind;
+            if (env->RegisterNatives(c, m, 4) != JNI_OK && env->ExceptionCheck())
+                env->ExceptionClear();
+        } else if (env->ExceptionCheck()) {
+            env->ExceptionClear();
+        }
+    }
+    /* 干扰 so：仅 dlopen 进进程（/proc/self/maps 可见、dlopen-trace 可捕获），不 dlsym 不调用 */
+    std::string decoy = DK(C_LIBD, 0x63);
+    (void)dlopen(decoy.c_str(), RTLD_NOW);
     return JNI_VERSION_1_6;
 }

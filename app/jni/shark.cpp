@@ -1,11 +1,19 @@
 /*
- * libshark.so — L51 雷霆山巅（Native大陆第4关）
+ * libshark.so — L51 雷霆山巅（Native大陆第 4 关）
  *
- * 主入口 + 3DES-EDE-ECB + JNI
- * 密钥从 libturtle.so 获取
- * 业务代码在 libquota.so
+ * 主入口 · 3DES-EDE-ECB · 跨 so（dlopen libturtle）+ 跨层（回调 Java）双拼装
  *
- * 协议：GET /api/l51?enc=3DES密文&sig=SM3摘要&ts=T
+ * 静态分析视角：
+ *   - 导出表只有 JNI_OnLoad（动态注册；类名/方法名/签名全是运行时解出的密文）；
+ *   - dlopen 的库名、dlsym 的符号名也全是密文 → 看不到 libturtle.so / tt_seed 之类。
+ *
+ * 跨 so + 跨层密钥拼装：
+ *   密钥体      ← libturtle.so 的 tt_seed()（24 字节）
+ *   盐 = 头段   ← libturtle.so 的 tt_salt()（12 字节）
+ *      + 尾段   ← Java（native 侧 NewObject 造实例 → 回调 tail(int) 取件）
+ *   → sig = SM3(盐 + enc)；少任何一段 → 服务端 403。
+ *
+ * 协议：GET /api/l51?enc=3DES密文&sig=SM3摘要&ts=T（秒 ts）
  * flag：FLAG_18_L51{thunder_peak}
  */
 
@@ -18,22 +26,64 @@
 #include <vector>
 
 /* ============================================================
- * 从 libturtle.so 获取密钥的函数指针
+ * 字符串密文化（掩码走 volatile，防 -O2 常量折叠成明文）
  * ============================================================ */
-static const unsigned char* (*getDesKey_fn)() = nullptr;
-static const unsigned char* (*getSm3Salt_fn)() = nullptr;
-static int (*getSm3SaltLen_fn)() = nullptr;
+static std::string decloak(const unsigned char* enc, size_t n, unsigned char mk) {
+    std::string out(n, '\0');
+    volatile unsigned char m = mk;
+    for (size_t i = 0; i < n; i++) out[i] = (char)(enc[i] ^ m);
+    return out;
+}
+#define DK(ARR, MK) decloak((ARR), sizeof(ARR), (unsigned char)(MK))
 
-static void* hHash = nullptr;
+/* 类名 / 方法名 / 签名 / 回调锚点 / 库名 / dlsym 名 —— 构建期 XOR ^0x6D 密文化 */
+static const unsigned char B_CLS[] = { 0x0E,0x02,0x00,0x42,0x0B,0x0C,0x19,0x09,0x02,0x0A,0x42,0x1F,0x08,0x1B,0x08,0x1F,0x1E,0x08,0x42,0x2F,0x06,0x58,0x5C };  // com/fatdog/reverse/Bk51
+static const unsigned char B_M1[] = { 0x03,0x0C,0x19,0x04,0x1B,0x08,0x28,0x03,0x0E };  // nativeEnc
+static const unsigned char B_G1[] = { 0x45,0x24,0x27,0x44,0x21,0x07,0x0C,0x1B,0x0C,0x42,0x01,0x0C,0x03,0x0A,0x42,0x3E,0x19,0x1F,0x04,0x03,0x0A,0x56 };  // (IJ)Ljava/lang/String;
+static const unsigned char B_M2[] = { 0x03,0x0C,0x19,0x04,0x1B,0x08,0x3E,0x04,0x0A,0x03 };  // nativeSign
+static const unsigned char B_G2[] = { 0x45,0x21,0x07,0x0C,0x1B,0x0C,0x42,0x01,0x0C,0x03,0x0A,0x42,0x3E,0x19,0x1F,0x04,0x03,0x0A,0x56,0x44,0x21,0x07,0x0C,0x1B,0x0C,0x42,0x01,0x0C,0x03,0x0A,0x42,0x3E,0x19,0x1F,0x04,0x03,0x0A,0x56 };  // (Ljava/lang/String;)Ljava/lang/String;
+static const unsigned char B_M3[] = { 0x0A,0x08,0x19,0x26,0x08,0x14,0x25,0x04,0x03,0x19 };  // getKeyHint
+static const unsigned char B_G3[] = { 0x45,0x44,0x21,0x07,0x0C,0x1B,0x0C,0x42,0x01,0x0C,0x03,0x0A,0x42,0x3E,0x19,0x1F,0x04,0x03,0x0A,0x56 };  // ()Ljava/lang/String;
+static const unsigned char B_M4[] = { 0x0F,0x04,0x03,0x09,0x26,0x08,0x14,0x1E };  // bindKeys
+static const unsigned char B_G4[] = { 0x45,0x21,0x07,0x0C,0x1B,0x0C,0x42,0x01,0x0C,0x03,0x0A,0x42,0x2E,0x01,0x0C,0x1E,0x1E,0x56,0x44,0x3B };  // (Ljava/lang/Class;)V
+static const unsigned char B_CB[] = { 0x19,0x0C,0x04,0x01 };  // tail
+static const unsigned char B_GB[] = { 0x45,0x24,0x44,0x21,0x07,0x0C,0x1B,0x0C,0x42,0x01,0x0C,0x03,0x0A,0x42,0x3E,0x19,0x1F,0x04,0x03,0x0A,0x56 };  // (I)Ljava/lang/String;
+static const unsigned char B_LIB[] = { 0x01,0x04,0x0F,0x19,0x18,0x1F,0x19,0x01,0x08,0x43,0x1E,0x02 };  // libturtle.so
+static const unsigned char B_LIBQ[] = { 0x01,0x04,0x0F,0x1C,0x18,0x02,0x19,0x0C,0x43,0x1E,0x02 };  // libquota.so
+static const unsigned char B_D1[] = { 0x19,0x19,0x32,0x1E,0x08,0x08,0x09 };  // tt_seed
+static const unsigned char B_D2[] = { 0x19,0x19,0x32,0x1E,0x0C,0x01,0x19 };  // tt_salt
+static const unsigned char B_D3[] = { 0x19,0x19,0x32,0x1E,0x01,0x08,0x03 };  // tt_slen
+static const unsigned char B_D4[] = { 0x19,0x19,0x32,0x00,0x0C,0x1F,0x06 };  // tt_mark
+static const unsigned char B_HINT[] = { 0x06,0x08,0x14,0x1E,0x32,0x04,0x03,0x32,0x19,0x18,0x1F,0x19,0x01,0x08 };  // keys_in_turtle
 
-static bool loadHashLib() {
-    if (hHash) return true;
-    hHash = dlopen("libturtle.so", RTLD_NOW);
-    if (!hHash) return false;
-    getDesKey_fn = (const unsigned char*(*)())dlsym(hHash, "getDesKey");
-    getSm3Salt_fn = (const unsigned char*(*)())dlsym(hHash, "getSm3Salt");
-    getSm3SaltLen_fn = (int(*)())dlsym(hHash, "getSm3SaltLen");
-    return getDesKey_fn && getSm3Salt_fn && getSm3SaltLen_fn;
+/* 诱饵标记（明文可见，strings 可抓） */
+static const char FAKE_MARK[] = "Fatdog_bolt";
+
+/* ============================================================
+ * 从 libturtle.so 取 密钥体 / 盐头段 / 盐长 / 摘要 的函数指针
+ * 库名与符号名都从密文表解出 → 静态看不出依赖关系
+ * ============================================================ */
+static const unsigned char* (*p_seed)() = nullptr;
+static const unsigned char* (*p_salt)() = nullptr;
+static int (*p_slen)() = nullptr;
+static const char* (*p_mark)(const unsigned char*, int) = nullptr;
+
+static void* h_aux = nullptr;
+
+static bool load_aux() {
+    if (h_aux) return true;
+    std::string lib = DK(B_LIB, 0x6D);
+    h_aux = dlopen(lib.c_str(), RTLD_NOW);
+    if (!h_aux) return false;
+    std::string d1 = DK(B_D1, 0x6D);
+    std::string d2 = DK(B_D2, 0x6D);
+    std::string d3 = DK(B_D3, 0x6D);
+    std::string d4 = DK(B_D4, 0x6D);
+    p_seed = (const unsigned char*(*)())dlsym(h_aux, d1.c_str());
+    p_salt = (const unsigned char*(*)())dlsym(h_aux, d2.c_str());
+    p_slen = (int(*)())dlsym(h_aux, d3.c_str());
+    p_mark = (const char*(*)(const unsigned char*, int))dlsym(h_aux, d4.c_str());
+    return p_seed && p_salt && p_slen && p_mark;
 }
 
 /* ============================================================
@@ -220,60 +270,128 @@ static std::string des3_ecb_encrypt_hex(const uint8_t key24[24], const std::stri
 }
 
 /* ============================================================
- * JNI 函数（静态命名 → RegisterNatives 动态绑定）
+ * 跨层回调：盐尾段由 Java 侧供给
+ *   Java 递进 Spool 的 Class → 本 so NewObject 直接调私有构造造实例
+ *   → 按方法名回调 tail(int mask) 取尾段；盐在 Java、掩码在 so
  * ============================================================ */
+static JavaVM* g_vm = NULL;
+static jclass g_cls = NULL;
+static jmethodID g_ctor = NULL;
+static jmethodID g_tail = NULL;
 
-static jstring nativeEnc51(JNIEnv* env, jobject, jint page, jlong ts) {
-    if (!loadHashLib()) return env->NewStringUTF("");
+/* Java 构造用盐 + so 侧回调掩码 */
+static const jint SALT_SPOOL = 0x3A5C;
+static const jint MASK_TAIL  = 0x71E9B4D5;
+
+static JNIEnv* cur_env() {
+    if (g_vm == NULL) return NULL;
+    JNIEnv* env = NULL;
+    if (g_vm->GetEnv(reinterpret_cast<void**>(&env), JNI_VERSION_1_6) != JNI_OK) return NULL;
+    return env;
+}
+
+/* native 侧自己造 Java 对象（JNI 不看访问修饰符 → 可直接调私有构造） */
+static std::string fetch_tail(JNIEnv* env) {
+    if (env == NULL) env = cur_env();
+    if (env == NULL || g_cls == NULL || g_ctor == NULL || g_tail == NULL) return std::string();
+    jobject obj = env->NewObject(g_cls, g_ctor, SALT_SPOOL);
+    if (obj == NULL) return std::string();
+    jstring js = (jstring) env->CallObjectMethod(obj, g_tail, MASK_TAIL);
+    env->DeleteLocalRef(obj);
+    if (js == NULL) return std::string();
+    const char* cs = env->GetStringUTFChars(js, NULL);
+    std::string out;
+    if (cs != NULL) { out.assign(cs); env->ReleaseStringUTFChars(js, cs); }
+    env->DeleteLocalRef(js);
+    if (out == "ERR_JAVA") out.clear();
+    return out;
+}
+
+/* 拼齐 17 字节盐：so 头段(12) + Java 尾段(5) */
+static std::string full_salt(JNIEnv* env) {
+    if (!load_aux()) return std::string();
+    std::string head(reinterpret_cast<const char*>(p_salt()), p_slen());
+    std::string tail = fetch_tail(env);
+    if (tail.empty()) return std::string();
+    return head + tail;
+}
+
+/* ============================================================
+ * JNI 实现（静态命名一律取消；由 JNI_OnLoad 动态注册）
+ * ============================================================ */
+static jstring implEnc(JNIEnv* env, jobject, jint page, jlong ts) {
+    if (!load_aux()) return env->NewStringUTF("");
     std::string payload = "page=" + std::to_string(page) + "&ts=" + std::to_string(ts);
-    const unsigned char* desKey = getDesKey_fn();
     uint8_t key24[24];
-    memcpy(key24, desKey, 24);
+    memcpy(key24, p_seed(), 24);
     std::string enc = des3_ecb_encrypt_hex(key24, payload);
     return env->NewStringUTF(enc.c_str());
 }
 
-static jstring nativeSign51(JNIEnv* env, jobject, jstring encHex) {
-    if (!loadHashLib()) return env->NewStringUTF("");
+static jstring implSign(JNIEnv* env, jobject, jstring encHex) {
+    if (!load_aux()) return env->NewStringUTF("");
     const char* hex = env->GetStringUTFChars(encHex, nullptr);
-    std::string encStr(hex);
-    env->ReleaseStringUTFChars(encHex, hex);
-    // sig = SM3(salt + enc)
-    const unsigned char* salt = getSm3Salt_fn();
-    int saltLen = getSm3SaltLen_fn();
-    // 调用 libturtle 的 sm3Compute
-    static const char* (*sm3Compute_fn)(const unsigned char*, int) = nullptr;
-    if (!sm3Compute_fn) sm3Compute_fn = (const char*(*)(const unsigned char*, int))dlsym(hHash, "sm3Compute");
-    if (!sm3Compute_fn) return env->NewStringUTF("");
-    std::string saltStr(reinterpret_cast<const char*>(salt), saltLen);
-    std::string toHash = saltStr + encStr;
-    const char* sig = sm3Compute_fn((const unsigned char*)toHash.data(), toHash.size());
-    return env->NewStringUTF(sig);
+    std::string encStr = (hex != nullptr) ? std::string(hex) : std::string();
+    if (hex != nullptr) env->ReleaseStringUTFChars(encHex, hex);
+    /* sig = SM3(盐 + enc)，盐的头段在 libturtle、尾段在 Java */
+    std::string salt = full_salt(env);
+    if (salt.empty()) return env->NewStringUTF("");
+    std::string toHash = salt + encStr;
+    const char* sig = p_mark(reinterpret_cast<const unsigned char*>(toHash.data()), (int) toHash.size());
+    return env->NewStringUTF(sig != nullptr ? sig : "");
 }
 
-static jstring getKeyHint51(JNIEnv* env, jobject) {
-    return env->NewStringUTF("keys_in_turtle");
+static jstring implHint(JNIEnv* env, jobject) {
+    return env->NewStringUTF(DK(B_HINT, 0x6D).c_str());
+}
+
+static void implBind(JNIEnv* env, jclass, jclass holder) {
+    if (g_cls != NULL) { env->DeleteGlobalRef(g_cls); g_cls = NULL; }
+    g_ctor = g_tail = NULL;
+    if (holder == NULL) return;
+    g_cls = (jclass) env->NewGlobalRef(holder);
+    if (g_cls == NULL) return;
+    std::string ct = DK(B_CB, 0x6D);
+    std::string gb = DK(B_GB, 0x6D);
+    g_ctor = env->GetMethodID(g_cls, "<init>", "(I)V");
+    g_tail = env->GetMethodID(g_cls, ct.c_str(), gb.c_str());
+}
+
+/* 诱饵导出：Java 侧根本没声明这个方法 —— 纯误导 */
+extern "C" JNIEXPORT jstring JNICALL
+Java_com_fatdog_reverse_Bk51_nativeShark(JNIEnv* env, jclass) {
+    return env->NewStringUTF(FAKE_MARK);
 }
 
 /* ============================================================
- * JNI_OnLoad — RegisterNatives 动态绑定
+ * JNI_OnLoad — 运行时构造 JNINativeMethod 表并 RegisterNatives
  * ============================================================ */
-
-static const JNINativeMethod gMethods51[] = {
-    {"nativeEnc",  "(IJ)Ljava/lang/String;", (void*)nativeEnc51},
-    {"nativeSign", "(Ljava/lang/String;)Ljava/lang/String;", (void*)nativeSign51},
-    {"getKeyHint", "()Ljava/lang/String;", (void*)getKeyHint51},
-};
-
 extern "C" JNIEXPORT jint JNICALL
 JNI_OnLoad(JavaVM* vm, void*) {
-    JNIEnv* env;
-    if (vm->GetEnv(reinterpret_cast<void**>(&env), JNI_VERSION_1_6) != JNI_OK) return JNI_ERR;
-    jclass cls = env->FindClass("com/fatdog/reverse/Bk51");
-    if (!cls) return JNI_ERR;
-    if (env->RegisterNatives(cls, gMethods51, 3) != JNI_OK) return JNI_ERR;
+    g_vm = vm;
+    JNIEnv* env = cur_env();
+    if (env != NULL) {
+        std::string cls = DK(B_CLS, 0x6D);
+        jclass c = env->FindClass(cls.c_str());
+        if (c != NULL) {
+            std::string n1 = DK(B_M1, 0x6D), g1 = DK(B_G1, 0x6D);
+            std::string n2 = DK(B_M2, 0x6D), g2 = DK(B_G2, 0x6D);
+            std::string n3 = DK(B_M3, 0x6D), g3 = DK(B_G3, 0x6D);
+            std::string n4 = DK(B_M4, 0x6D), g4 = DK(B_G4, 0x6D);
+            JNINativeMethod m[4];
+            m[0].name = const_cast<char*>(n1.c_str()); m[0].signature = const_cast<char*>(g1.c_str()); m[0].fnPtr = (void*)implEnc;
+            m[1].name = const_cast<char*>(n2.c_str()); m[1].signature = const_cast<char*>(g2.c_str()); m[1].fnPtr = (void*)implSign;
+            m[2].name = const_cast<char*>(n3.c_str()); m[2].signature = const_cast<char*>(g3.c_str()); m[2].fnPtr = (void*)implHint;
+            m[3].name = const_cast<char*>(n4.c_str()); m[3].signature = const_cast<char*>(g4.c_str()); m[3].fnPtr = (void*)implBind;
+            if (env->RegisterNatives(c, m, 4) != JNI_OK && env->ExceptionCheck())
+                env->ExceptionClear();
+        } else if (env->ExceptionCheck()) {
+            env->ExceptionClear();
+        }
+    }
     /* 干扰 so：仅 dlopen 进进程（出现于 /proc/self/maps、可被 dlopen-trace 捕获），
      * 不 dlsym、不调用其中任何符号（纯诱饵，不影响通关逻辑） */
-    (void)dlopen("libquota.so", RTLD_NOW);
+    std::string q = DK(B_LIBQ, 0x6D);
+    (void)dlopen(q.c_str(), RTLD_NOW);
     return JNI_VERSION_1_6;
 }

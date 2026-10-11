@@ -202,31 +202,31 @@ include $(BUILD_SHARED_LIBRARY)
 # KL6
 include $(CLEAR_VARS)
 LOCAL_MODULE := ember
-LOCAL_SRC_FILES := ember.c
+LOCAL_SRC_FILES := ember.cpp
 include $(BUILD_SHARED_LIBRARY)
 
 # KL7
 include $(CLEAR_VARS)
 LOCAL_MODULE := frost
-LOCAL_SRC_FILES := frost.c
+LOCAL_SRC_FILES := frost.cpp
 include $(BUILD_SHARED_LIBRARY)
 
 # KL8
 include $(CLEAR_VARS)
 LOCAL_MODULE := ivory
-LOCAL_SRC_FILES := ivory.c
+LOCAL_SRC_FILES := ivory.cpp
 include $(BUILD_SHARED_LIBRARY)
 
 # KL9
 include $(CLEAR_VARS)
 LOCAL_MODULE := jade
-LOCAL_SRC_FILES := jade.c
+LOCAL_SRC_FILES := jade.cpp
 include $(BUILD_SHARED_LIBRARY)
 
 # KL10
 include $(CLEAR_VARS)
 LOCAL_MODULE := onyx
-LOCAL_SRC_FILES := onyx.c
+LOCAL_SRC_FILES := onyx.cpp
 include $(BUILD_SHARED_LIBRARY)
 
 # L44
@@ -449,11 +449,11 @@ LOCAL_CPPFLAGS := -std=c++17 -fexceptions -frtti
 LOCAL_LDLIBS := -llog
 include $(BUILD_SHARED_LIBRARY)
 
-# KKL1
+# KKL1（-fvisibility=hidden：非 JNIEXPORT 符号一律不进动态符号表，导出只剩 JNI_OnLoad）
 include $(CLEAR_VARS)
 LOCAL_MODULE := kkl1
 LOCAL_SRC_FILES := kkl1.cpp
-LOCAL_CPPFLAGS := -std=c++17 -fexceptions -frtti
+LOCAL_CPPFLAGS := -std=c++17 -fexceptions -frtti -fvisibility=hidden
 LOCAL_LDLIBS := -llog
 include $(BUILD_SHARED_LIBRARY)
 
@@ -461,22 +461,16 @@ include $(BUILD_SHARED_LIBRARY)
 include $(CLEAR_VARS)
 LOCAL_MODULE := kkl2
 LOCAL_SRC_FILES := kkl2.cpp
-LOCAL_CPPFLAGS := -std=c++17 -fexceptions -frtti
+LOCAL_CPPFLAGS := -std=c++17 -fexceptions -frtti -fvisibility=hidden
 LOCAL_LDLIBS := -llog
 include $(BUILD_SHARED_LIBRARY)
 
-# KKL3 断魂谷 —— 五 so 编队（门面 beacon + 内核 lattice/basalt/ingot/harbor，缺一不可）
+# KKL3 断魂谷 —— 四 so 编队（门面 beacon + 内核 basalt/ingot/harbor，缺一不可；VM 已下沉）
 include $(CLEAR_VARS)
 LOCAL_MODULE := beacon
 LOCAL_SRC_FILES := beacon.cpp
-LOCAL_CPPFLAGS := -std=c++17 -fexceptions -frtti
+LOCAL_CPPFLAGS := -std=c++17 -fexceptions -frtti -fvisibility=hidden
 LOCAL_LDLIBS := -llog -ldl
-include $(BUILD_SHARED_LIBRARY)
-
-include $(CLEAR_VARS)
-LOCAL_MODULE := lattice
-LOCAL_SRC_FILES := lattice.cpp
-LOCAL_CPPFLAGS := -std=c++17 -fexceptions -frtti
 include $(BUILD_SHARED_LIBRARY)
 
 include $(CLEAR_VARS)
@@ -498,7 +492,7 @@ include $(BUILD_SHARED_LIBRARY)
 include $(CLEAR_VARS)
 LOCAL_MODULE := citadel
 LOCAL_SRC_FILES := citadel.cpp
-LOCAL_CPPFLAGS := -std=c++17 -fexceptions -frtti
+LOCAL_CPPFLAGS := -std=c++17 -fexceptions -frtti -fvisibility=hidden
 LOCAL_LDLIBS := -llog -ldl
 include $(BUILD_SHARED_LIBRARY)
 
@@ -527,7 +521,7 @@ include $(BUILD_SHARED_LIBRARY)
 include $(CLEAR_VARS)
 LOCAL_MODULE := spindle
 LOCAL_SRC_FILES := spindle.cpp
-LOCAL_CPPFLAGS := -std=c++17 -fexceptions -frtti
+LOCAL_CPPFLAGS := -std=c++17 -fexceptions -frtti -fvisibility=hidden
 LOCAL_LDLIBS := -llog -ldl
 include $(BUILD_SHARED_LIBRARY)
 
@@ -703,6 +697,8 @@ include $(BUILD_SHARED_LIBRARY)
 include $(CLEAR_VARS)
 LOCAL_MODULE := crane
 LOCAL_SRC_FILES := crane.cpp
+# 只留 JNI_OnLoad（含诱饵导出）在 .dynsym：其余符号一律隐藏
+LOCAL_CPPFLAGS := -fvisibility=hidden
 include $(BUILD_SHARED_LIBRARY)
 
 # L51 —— 10 个 so（1 真 + 9 干扰，名字不体现关卡号）
@@ -756,6 +752,8 @@ include $(BUILD_SHARED_LIBRARY)
 include $(CLEAR_VARS)
 LOCAL_MODULE := shark
 LOCAL_SRC_FILES := shark.cpp
+# 只留 JNI_OnLoad（含诱饵导出）在 .dynsym：其余符号一律隐藏
+LOCAL_CPPFLAGS := -fvisibility=hidden
 LOCAL_LDLIBS := -ldl
 include $(BUILD_SHARED_LIBRARY)
 
@@ -812,7 +810,8 @@ include $(BUILD_SHARED_LIBRARY)
 include $(CLEAR_VARS)
 LOCAL_MODULE := moose
 LOCAL_SRC_FILES := moose.cpp
-LOCAL_CPPFLAGS := -std=c++17 -fexceptions -frtti
+# 只留 JNI_OnLoad（含诱饵导出）在 .dynsym：其余符号（libc++ 弱模板等）一律隐藏
+LOCAL_CPPFLAGS := -std=c++17 -fexceptions -frtti -fvisibility=hidden
 LOCAL_LDLIBS := -llog -ldl
 include $(BUILD_SHARED_LIBRARY)
 
@@ -869,7 +868,8 @@ include $(BUILD_SHARED_LIBRARY)
 include $(CLEAR_VARS)
 LOCAL_MODULE := tapir
 LOCAL_SRC_FILES := tapir.cpp
-LOCAL_CPPFLAGS := -std=c++17 -fexceptions -frtti
+# 只留 JNI_OnLoad（含诱饵导出）在 .dynsym：其余符号（libc++ 弱模板等）一律隐藏
+LOCAL_CPPFLAGS := -std=c++17 -fexceptions -frtti -fvisibility=hidden
 LOCAL_LDLIBS := -llog -ldl
 include $(BUILD_SHARED_LIBRARY)
 

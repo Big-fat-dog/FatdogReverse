@@ -19,29 +19,45 @@ import android.widget.Toast;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
+import java.io.InputStream;
+import java.lang.reflect.Method;
+import java.nio.ByteBuffer;
 import java.util.concurrent.TimeUnit;
 
+import dalvik.system.InMemoryDexClassLoader;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.Response;
 
 // 太玄之初 KKL4 · 锁妖塔（★★★★，服务端取数）。
-// 塔里没有壳可脱：它把"派生主钥"这件事搬进了一台自造的**栈式**虚拟机，
+// 塔里没有「现成的壳」：它把"派生主钥"这件事搬进了一台自造的**栈式**虚拟机，
 // 字节码还是一条压一条链式加密的——解得开第一条，才有第二条。
-// 五个 so 串成一条链，少一个都取不回数；完整性守卫一旦命中，
-// 主钥被污染，服务端全程静默拒绝——它不会告诉你失败在哪一步。
+// 主钥只出 VM 的门，就立刻被拆成两把钥匙（壳层一把、业务九把），
+// 分别去解「多类壳（w.* 一簇）」与九片业务 DEX；先过 VM，才有钥匙。
+// 业务 DEX 里的取数方法是 native 的，得由门面 so 显式绑定才跑得起来。
 public class kkl4Activity extends Activity {
     static final String SUM_HASH = "f39535a04e58cb747941d0e1dda62670";
     static final int PAGES = 100;
     static final int PER_PAGE = 10;
 
+    // 壳层 DEX（w.* 类群）+ 九片业务 DEX（4a..4i）的密文资源
+    static final String SHELL_ASSET = "kkl4/shell_lock.bin";
+    static final String[] BIZ_ASSETS = {
+            "kkl4/4a_vein.bin", "kkl4/4b_vein.bin", "kkl4/4c_vein.bin",
+            "kkl4/4d_vein.bin", "kkl4/4e_vein.bin", "kkl4/4f_vein.bin",
+            "kkl4/4g_vein.bin", "kkl4/4h_vein.bin", "kkl4/4i_vein.bin"};
+    static final String BIZ = "com.fatdog.reverse.kkl4.GateKeeper4";
+
     private TextView status;
     private final TextView[] cells = new TextView[10];
     private LinearLayout pageBar;
     private int currentPage = 1;
+    private boolean ready = false;
     private boolean loading = false;
     private String base;
     private OkHttpClient client;
+
+    private Method mFetch;
 
     @Override
     protected void onCreate(Bundle b) {
@@ -62,14 +78,14 @@ public class kkl4Activity extends Activity {
                 + "塔锁的不是妖，是一把钥匙。\n"
                 + "门后是一台自造的虚拟机：指令一条压一条地加密，\n"
                 + "前一条解不开，后一条就是个谜；真正的钥匙从不出现在明文里。\n\n"
-                + "五个 so 首尾相扣：缺一环，门不开；\n"
-                + "沾了调试的痕迹，取回的数是废的。\n\n"
+                + "钥匙出了 VM 的门，立刻拆成两把：一把开壳，一把开九片薄甲，\n"
+                + "壳还是一簇散开的类，单看哪一片都拼不出全貌。\n\n"
                 + "取满 100 页（每页 10 个数），求和后取摘要提交。");
         tv.setGravity(Gravity.CENTER);
         root.addView(tv, Ui.wrap(6));
 
         status = new TextView(this);
-        status.setText("翻页即取数。可先点「环境自检」看看门是否开着。");
+        status.setText("尚未破塔：点击「破塔」启动。可先点「环境自检」看门是否开着。");
         status.setTextColor(Color.LTGRAY);
         status.setTypeface(Typeface.MONOSPACE);
         status.setTextSize(12);
@@ -85,6 +101,18 @@ public class kkl4Activity extends Activity {
             }
         });
         root.addView(scanBtn, Ui.wrap(10));
+
+        Button boot = new Button(this);
+        boot.setText("破塔");
+        Ui.styleButton(boot);
+        boot.setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View v) {
+                if (!loading) new Thread(new Runnable() {
+                    @Override public void run() { bootBiz(); }
+                }).start();
+            }
+        });
+        root.addView(boot, Ui.wrap(10));
 
         // 数字网格：5 列 x 2 行
         GridLayout grid = new GridLayout(this);
@@ -124,7 +152,7 @@ public class kkl4Activity extends Activity {
                 LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
         prev.setOnClickListener(new View.OnClickListener() {
             @Override public void onClick(View v) {
-                if (!loading && currentPage > 1) loadPage(currentPage - 1);
+                if (!loading && ready && currentPage > 1) loadPage(currentPage - 1);
             }
         });
         HorizontalScrollView hsv = new HorizontalScrollView(this);
@@ -140,7 +168,7 @@ public class kkl4Activity extends Activity {
                 LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
         next.setOnClickListener(new View.OnClickListener() {
             @Override public void onClick(View v) {
-                if (!loading && currentPage < PAGES) loadPage(currentPage + 1);
+                if (!loading && ready && currentPage < PAGES) loadPage(currentPage + 1);
             }
         });
         root.addView(navRow, Ui.fullWidth(10));
@@ -185,10 +213,12 @@ public class kkl4Activity extends Activity {
                                 + "① lib/ 下五个 so 是一套编队，先摸清谁在算、谁在守；\n"
                                 + "② 这台虚拟机的指令一条压一条地加密，\n"
                                 + "   静态段里看不到钥匙，硬解也得按顺序来；\n"
-                                + "③ 环境一旦可疑，服务端会静默拒绝，不会报错给你看；\n"
-                                + "④ 两个标记一真一假，拼写只差一点，仔细比对。\n\n"
-                                + "取证方向：把取数跑通的每一步摸清楚，或者干脆在干净环境里\n"
-                                + "把派生链整条复刻出来——答案只有数字之和的摘要。")
+                                + "③ 钥匙出 VM 门就拆成两把：一把开壳（一簇散开的类），\n"
+                                + "   一把开九片薄甲——先过 VM，才有这两把钥匙；\n"
+                                + "④ 业务片里的取数方法是 native 的，要门面 so 显式绑定才跑得起来；\n"
+                                + "⑤ 两个标记一真一假，拼写只差一点，仔细比对。\n\n"
+                                + "取证方向：FART 只能 dump 到外壳——先把壳这簇类认全、把 VM 的\n"
+                                + "主钥派生复刻出来，再逐层解开九片，最后读取数入口复刻整条链。")
                         .setPositiveButton("知道了", null)
                         .show();
             }
@@ -198,11 +228,121 @@ public class kkl4Activity extends Activity {
 
         setContentView(Ui.wrapScroll(root));
         ThemeKit.apply(this);
-        loadPage(1);
+    }
+
+    /** 后台：跑 VM 拿主钥 → 解壳层 w.* → 解九片业务 DEX → 链式装载 → nativeBind → 反射缓存取数入口。 */
+    private void bootBiz() {
+        try {
+            setStatus("破塔：过 VM 门禁、取钥匙…");
+            // ① 壳层 DEX（w.* 类群）：layer 1
+            byte[] shellDex = Kkl4Native.nativeFold(readAssetBytes(SHELL_ASSET), 1, 0);
+            if (!isDex(shellDex)) throw new IllegalStateException("壳层解出的不是 dex（VM 未过或钥匙错）");
+
+            // ② 九片业务 DEX：layer 2（shard 0..8）
+            final byte[][] biz = new byte[9][];
+            for (int i = 0; i < 9; i++) {
+                biz[i] = Kkl4Native.nativeFold(readAssetBytes(BIZ_ASSETS[i]), 2, i);
+                if (!isDex(biz[i])) {
+                    throw new IllegalStateException("第 " + (i + 1) + " 片业务解出的不是 dex");
+                }
+            }
+            setStatus("壳与九片已解开，链式装载中…");
+
+            // ③ 链式 InMemoryDexClassLoader：九片业务按序挂 parent（4a→…→4i），
+            //    壳层 loader 挂在业务链末端（壳是"最外层"，靠双亲委派往里找业务类）。
+            ClassLoader cur = makeLoader(biz[0]);
+            for (int i = 1; i < 9; i++) {
+                cur = makeLoader(biz[i], cur);
+            }
+            ClassLoader shellLoader = makeLoader(shellDex, cur);
+            final Class<?> clsH = Class.forName("com.fatdog.reverse.kkl4.GateKeeper4h", true, cur);
+            final Class<?> clsBiz = Class.forName(BIZ, true, cur);
+
+            // ④ 壳类群职责核对（多类壳：入料/解密/调度/回填各司其职）。
+            //    入口 Wick 保留原名（r8_shell.pro keep），其余壳类已被 R8 改名——
+            //    Wick 内部靠 .class 常量串联它们，R8 改名后仍自洽。
+            final Class<?> clsWick = Class.forName("com.fatdog.reverse.shellw.Wick", true, shellLoader);
+            boolean[] ready9 = new boolean[9];
+            for (int i = 0; i < 9; i++) ready9[i] = true;
+            Class<?> bindCls = (Class<?>) clsWick.getMethod(
+                    "bindingClass", byte[].class, boolean[].class).invoke(null, (Object) biz[8], ready9);
+            if (bindCls != clsH) {
+                throw new IllegalStateException("壳类群职责不齐（可能误入诱饵壳）");
+            }
+
+            // ⑤ nativeBind：把业务片 GateKeeper4h.nativeSign 显式绑定
+            int bound = Kkl4Native.nativeBind(clsH);
+            if (bound != 1) {
+                throw new IllegalStateException("native 绑定失败（子加载器未解析父 so）");
+            }
+
+            // ⑥ 缓存主编排取数入口
+            mFetch = clsBiz.getMethod("fetch", int.class, long.class);
+            String magic = (String) clsBiz.getMethod("magic").invoke(null);
+            ready = true;
+            runOnUiThread(new Runnable() {
+                @Override public void run() {
+                    status.setText("破塔成功：" + magic + "（九片 + 壳类群已就位）— 可以翻页取数了");
+                    Toast.makeText(kkl4Activity.this, "破塔成功，取数就绪", Toast.LENGTH_SHORT).show();
+                }
+            });
+            loadPage(1);
+        } catch (final Throwable t) {
+            runOnUiThread(new Runnable() {
+                @Override public void run() {
+                    status.setText("破塔失败：" + t);
+                    Toast.makeText(kkl4Activity.this, "失败：" + t.getMessage(), Toast.LENGTH_SHORT).show();
+                }
+            });
+        }
+    }
+
+    private static boolean isDex(byte[] b) {
+        return b != null && b.length >= 8 && b[0] == 'd' && b[1] == 'e' && b[2] == 'x' && b[3] == '\n';
+    }
+
+    private byte[] readAssetBytes(String path) {
+        try {
+            InputStream is = getAssets().open(path);
+            java.io.ByteArrayOutputStream bos = new java.io.ByteArrayOutputStream();
+            byte[] buf = new byte[8192];
+            int n;
+            while ((n = is.read(buf)) > 0) bos.write(buf, 0, n);
+            is.close();
+            return bos.toByteArray();
+        } catch (java.io.IOException e) {
+            throw new IllegalStateException("读资源失败：" + path, e);
+        }
+    }
+
+    private ClassLoader makeLoader(byte[] dex) {
+        return makeLoader(dex, getClassLoader());
+    }
+
+    private ClassLoader makeLoader(byte[] dex, ClassLoader parent) {
+        if (android.os.Build.VERSION.SDK_INT >= 26) {
+            return new InMemoryDexClassLoader(ByteBuffer.wrap(dex), parent);
+        }
+        java.io.File tmp = new java.io.File(getCacheDir(), "kkl4_shard_" + System.nanoTime() + ".dex");
+        try {
+            java.io.FileOutputStream fos = new java.io.FileOutputStream(tmp);
+            fos.write(dex);
+            fos.close();
+        } catch (java.io.IOException e) {
+            throw new IllegalStateException(e);
+        }
+        return new dalvik.system.DexClassLoader(tmp.getAbsolutePath(),
+                getCacheDir().getAbsolutePath(), null, parent);
+    }
+
+    private void setStatus(final String s) {
+        runOnUiThread(new Runnable() {
+            @Override public void run() { status.setText(s); }
+        });
     }
 
     private void loadPage(final int page) {
-        if (loading) return;
+        if (loading || !ready) return;
         loading = true;
         runOnUiThread(new Runnable() {
             @Override public void run() { status.setText("正在请求第 " + page + " 页…"); }
@@ -211,7 +351,7 @@ public class kkl4Activity extends Activity {
             @Override public void run() {
                 try {
                     final long ts = System.currentTimeMillis() / 1000;
-                    final String token = Kkl4Native.nativeSign(page, ts);
+                    final String token = (String) mFetch.invoke(null, page, ts);
                     final int bar = token == null ? -1 : token.indexOf('|');
                     if (bar <= 0) {
                         throw new IllegalStateException("取数内核未就绪（五 so 缺一或主钥已被污染）");

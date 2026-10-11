@@ -28,6 +28,12 @@ public final class Kkl5Native {
     /** 复合解密：assets 业务 DEX 与服务端响应共用同一把派生主钥。 */
     public static native byte[] nativeUnseal(byte[] sealed);
 
+    /** 壳层/业务 DEX 解密：layer 1=外层壳、2=壳 A、3=壳 B、4=业务（shard 0..12）。 */
+    public static native byte[] nativeFold(byte[] enc, int layer, int shard);
+
+    /** 把业务片 GateKeeper5l.nativeSign 显式绑到加载它的 ClassLoader。 */
+    public static native int nativeBind(Class<?> target);
+
     /** 只读自检：报告五 so 在位情况 + 守卫命中项 + 主钥状态，不判胜、不投毒。 */
     public static native String nativeStatus();
 

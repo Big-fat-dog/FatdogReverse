@@ -1,10 +1,20 @@
-/**
- * moose.cpp — L52 冰封雪域（魔改 SM4 + 深层调用栈 + HMAC-SHA256）
+/*
+ * libmoose.so — L52 冰封雪域（Native大陆第 5 关）
  *
- * 魔改 SM4：S 盒 4 处换值（0x3A/0x7F/0xB2/0xE8），FK 2 处异或，CK 循环左移 1 位
- * 深层调用栈：JNI → k52_dispatch → k52_process → Sm52Cipher::encryptBlock → k52_sm4_round × 32 → k52_sub_bytes
- * 签名：HMAC-SHA256
- * 密钥从 libcobra.so 通过 dlopen 获取
+ * 主入口 · 魔改 SM4-ECB · 跨 so（dlopen libcobra）+ 跨层（回调 Java）双拼装
+ *
+ * 静态分析视角：
+ *   - 导出表只有 JNI_OnLoad（动态注册；类名/方法名/签名全是运行时解出的密文）；
+ *   - dlopen 的库名、dlsym 的符号名也全是密文 → 看不到 libcobra.so / cb_seed 之类；
+ *   - 算法类 Pillar 落在匿名命名空间，vtable/析构不进 .dynsym。
+ *
+ * 跨 so + 跨层密钥拼装：
+ *   SM4 密钥 = 头段 ← libcobra.so 的 cb_seed()（12 字节）
+ *            + 尾段 ← Java（本 so bindHolder 缓存实例 → 回调 trim(int) 取 byte[]）
+ *   → enc = SM52(SM4 密钥, "page=N&ts=T")；少任何一段 → 服务端 403。
+ *   签名 = HMAC-MD5(密钥, "page=N&ts=T")，密钥整把来自 libcobra 的 cb_mark()。
+ *
+ * 协议：GET /api/l52?enc=密文&sign=签名&ts=T（秒级 ts）
  * flag：FLAG_18_L52{frozen_snowfield}
  */
 
@@ -14,10 +24,35 @@
 #include <cstdint>
 #include <dlfcn.h>
 #include <pthread.h>
-#include <android/log.h>
 
-#define LOG_TAG "moose"
-#define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
+/* ============================================================
+ * 字符串密文化（掩码走 volatile，防 -O2 常量折叠成明文）
+ * ============================================================ */
+static std::string decloak(const unsigned char* enc, size_t n, unsigned char mk) {
+    std::string out(n, '\0');
+    volatile unsigned char m = mk;
+    for (size_t i = 0; i < n; i++) out[i] = (char)(enc[i] ^ m);
+    return out;
+}
+#define DK(ARR, MK) decloak((ARR), sizeof(ARR), (unsigned char)(MK))
+
+/* 类名 / 方法名 / 签名 / 回调锚点 / 库名 / dlsym 名 —— 构建期 XOR ^0x57 密文化 */
+static const unsigned char B_CLS[] = { 0x34,0x38,0x3A,0x78,0x31,0x36,0x23,0x33,0x38,0x30,0x78,0x25,0x32,0x21,0x32,0x25,0x24,0x32,0x78,0x15,0x3C,0x62,0x65 };  // com/fatdog/reverse/Bk52
+static const unsigned char B_M1[] = { 0x39,0x36,0x23,0x3E,0x21,0x32,0x12,0x39,0x34 };  // nativeEnc
+static const unsigned char B_G1[] = { 0x7F,0x1B,0x3D,0x36,0x21,0x36,0x78,0x3B,0x36,0x39,0x30,0x78,0x04,0x23,0x25,0x3E,0x39,0x30,0x6C,0x7E,0x1B,0x3D,0x36,0x21,0x36,0x78,0x3B,0x36,0x39,0x30,0x78,0x04,0x23,0x25,0x3E,0x39,0x30,0x6C };  // (Ljava/lang/String;)Ljava/lang/String;
+static const unsigned char B_M2[] = { 0x39,0x36,0x23,0x3E,0x21,0x32,0x04,0x3E,0x30,0x39 };  // nativeSign
+static const unsigned char B_G2[] = { 0x7F,0x1E,0x1E,0x7E,0x1B,0x3D,0x36,0x21,0x36,0x78,0x3B,0x36,0x39,0x30,0x78,0x04,0x23,0x25,0x3E,0x39,0x30,0x6C };  // (II)Ljava/lang/String;
+static const unsigned char B_M4[] = { 0x35,0x3E,0x39,0x33,0x1F,0x38,0x3B,0x33,0x32,0x25 };  // bindHolder
+static const unsigned char B_G4[] = { 0x7F,0x1B,0x3D,0x36,0x21,0x36,0x78,0x3B,0x36,0x39,0x30,0x78,0x18,0x35,0x3D,0x32,0x34,0x23,0x6C,0x7E,0x01 };  // (Ljava/lang/Object;)V
+static const unsigned char B_CB[] = { 0x23,0x25,0x3E,0x3A };  // trim
+static const unsigned char B_GB[] = { 0x7F,0x1E,0x7E,0x0C,0x15 };  // (I)[B
+static const unsigned char B_LIB[] = { 0x3B,0x3E,0x35,0x34,0x38,0x35,0x25,0x36,0x79,0x24,0x38 };  // libcobra.so
+static const unsigned char B_LIBD[] = { 0x3B,0x3E,0x35,0x25,0x32,0x30,0x3E,0x24,0x23,0x25,0x2E,0x79,0x24,0x38 };  // libregistry.so
+static const unsigned char B_D1[] = { 0x34,0x35,0x08,0x24,0x32,0x32,0x33 };  // cb_seed
+static const unsigned char B_D2[] = { 0x34,0x35,0x08,0x3A,0x36,0x25,0x3C };  // cb_mark
+
+/* 诱饵标记（明文可见，strings 可抓） */
+static const char FAKE_MARK[] = "Fatdog_frost";
 
 // ==================== 魔改 SM4 S 盒（4 处换值） ====================
 static uint8_t SM52_SBOX[256] = {
@@ -142,21 +177,23 @@ static void k52_encrypt_block(const uint8_t in[16], uint8_t out[16], const uint3
     }
 }
 
-// ==================== Sm52Cipher 类 ====================
-class Sm52Cipher {
+// ==================== Pillar 类（匿名命名空间：类名/vtable 不进 .dynsym） ====================
+namespace {
+
+class Pillar {
 public:
     uint32_t rk_[32];
-    bool initialized_;
+    bool loaded_;
 
-    Sm52Cipher() : initialized_(false) {}
+    Pillar() : loaded_(false) {}
 
-    void init(const uint8_t key[16]) {
+    void load(const uint8_t key[16]) {
         k52_key_expand(key, rk_);
-        initialized_ = true;
+        loaded_ = true;
     }
 
-    std::string encrypt(const std::string& data) {
-        if (!initialized_) return "";
+    std::string mint(const std::string& data) {
+        if (!loaded_) return "";
         size_t pad_len = 16 - (data.size() % 16);
         std::string padded = data + std::string(pad_len, (char)pad_len);
         std::string out(padded.size(), '\0');
@@ -168,6 +205,8 @@ public:
         return out;
     }
 };
+
+} /* anonymous namespace */
 
 // ==================== HMAC-SHA256 ====================
 static uint32_t sha256_k[64] = {
@@ -349,97 +388,102 @@ static std::string hmac_sha256(const std::string& key, const std::string& msg) {
     return sha256_hash(opad + sha256_hash(ipad + msg));
 }
 
-// ==================== XOR 密钥数组 → HMAC key ====================
-uint8_t K52_HMAC_XOR[] = {
-    0x7a,0x5d,0x48,0x58,0x53,0x5b,0x63,0x4f,
-    0x52,0x53,0x4b,0x63,0x57,0x59,0x45,0x1d
+// ==================== 密钥拼装（跨 so + 跨层） ====================
+/* 本地兜底：SM4 头段（"Fatdog_snow_" ^0x3C，12 字节）—— 与 libcobra 的 cb_seed 同源 */
+static const uint8_t K52_SM4_HEAD_XOR[] = {
+    0x7A,0x5D,0x48,0x58,0x53,0x5B,0x63,0x4F,0x52,0x53,0x4B,0x63
 };
-static const int K52_HMAC_XOR_LEN = 16;
-static const uint8_t K52_HMAC_KEY_XOR = 0x3C;
+/* 本地兜底：签名密钥（"Fatdog_snow_key!" ^0x3C，16 字节） */
+static const uint8_t K52_MARK_XOR[] = {
+    0x7A,0x5D,0x48,0x58,0x53,0x5B,0x63,0x4F,
+    0x52,0x53,0x4B,0x63,0x57,0x59,0x45,0x1D
+};
+static const uint8_t K52_XOR = 0x3C;
 
-static std::string get_key_from_so(const char* so_name, const char* func_name);
-
-static std::string get_hmac_key() {
-    std::string key = get_key_from_so("libcobra.so", "getHmacKey");
-    if (!key.empty()) return key;
-    std::string fallback(K52_HMAC_XOR_LEN, '\0');
-    for (int i = 0; i < K52_HMAC_XOR_LEN; i++)
-        fallback[i] = K52_HMAC_XOR[i] ^ K52_HMAC_KEY_XOR;
-    return fallback;
-}
-
-// ==================== dlopen 获取密钥 ====================
 typedef const uint8_t* (*get_key_func)();
 
-static std::string get_key_from_so(const char* so_name, const char* func_name) {
-    void* handle = dlopen(so_name, RTLD_NOW);
-    if (!handle) return "";
-    get_key_func fn = (get_key_func)dlsym(handle, func_name);
-    if (!fn) { dlclose(handle); return ""; }
+/* 从辅助 so 取一段密钥（库名/符号名均来自密文表） */
+static std::string get_blob_from_so(const std::string& so_name, const std::string& func_name, int n) {
+    void* handle = dlopen(so_name.c_str(), RTLD_NOW);
+    if (!handle) return std::string();
+    get_key_func fn = (get_key_func)dlsym(handle, func_name.c_str());
+    if (!fn) { dlclose(handle); return std::string(); }
     const uint8_t* raw = fn();
-    if (!raw) { dlclose(handle); return ""; }
-    std::string key(reinterpret_cast<const char*>(raw), 16);
+    if (!raw) { dlclose(handle); return std::string(); }
+    std::string key(reinterpret_cast<const char*>(raw), (size_t)n);
     dlclose(handle);
     return key;
+}
+
+/* 签名密钥：整把来自 libcobra 的 cb_mark()，取不到则本地兜底 */
+static std::string get_mark_key() {
+    std::string key = get_blob_from_so(DK(B_LIB, 0x57), DK(B_D2, 0x57), 16);
+    if (key.size() == 16) return key;
+    std::string fb(16, '\0');
+    volatile uint8_t m = K52_XOR;
+    for (int i = 0; i < 16; i++) fb[i] = (char)(K52_MARK_XOR[i] ^ m);
+    return fb;
 }
 
 // ==================== JNI 函数（静态命名 → RegisterNatives 动态绑定） ====================
 static JavaVM* g_jvm = nullptr;
 
-static jstring nativeSign52(JNIEnv* env, jobject, jint page, jint ts) {
-    // 深层调用栈：JNI → k52_dispatch → k52_process → encrypt → hmac
-    std::string payload = "page=" + std::to_string(page) + "&ts=" + std::to_string(ts);
+/* ---------- 跨层回调：SM4 密钥尾段（"sm4_"）由 Java 侧供给 ---------- */
+static jobject g_obj = NULL;
+static jmethodID g_tail = NULL;
 
-    // 从 libcobra 获取 HMAC key
-    std::string hmac_key = get_hmac_key();
-    if (hmac_key.empty()) {
-        // fallback: 本地 XOR
-        hmac_key = std::string(K52_HMAC_XOR_LEN, '\0');
-        for (int i = 0; i < K52_HMAC_XOR_LEN; i++) {
-            hmac_key[i] = K52_HMAC_XOR[i] ^ K52_HMAC_KEY_XOR;
-        }
-    }
+/* so 侧常量掩码：Java 侧少一个比特，解出来的就是乱码 */
+static const jint K52_MASK = 0x2C7E91A6;
 
-    std::string sig = hmac_md5(hmac_key, payload);
-    // 转 hex
-    std::string hex_sig;
-    for (unsigned char c : sig) {
-        char buf[3];
-        snprintf(buf, sizeof(buf), "%02x", c);
-        hex_sig += buf;
-    }
-    return env->NewStringUTF(hex_sig.c_str());
+static JNIEnv* cur_env() {
+    if (g_jvm == NULL) return NULL;
+    JNIEnv* env = NULL;
+    if (g_jvm->GetEnv(reinterpret_cast<void**>(&env), JNI_VERSION_1_6) != JNI_OK) return NULL;
+    return env;
 }
 
-static jstring nativeEnc52(JNIEnv* env, jobject, jstring data) {
+/* 回调 Java 实例方法 trim(int mask) → byte[4]（本 so 缓存了实例的全局引用） */
+static std::string fetch_tail(JNIEnv* env) {
+    if (env == NULL) env = cur_env();
+    if (env == NULL || g_obj == NULL || g_tail == NULL) return std::string();
+    jbyteArray ja = (jbyteArray) env->CallObjectMethod(g_obj, g_tail, K52_MASK);
+    if (ja == NULL) return std::string();
+    jsize n = env->GetArrayLength(ja);
+    jbyte* b = env->GetByteArrayElements(ja, NULL);
+    std::string out;
+    if (b != NULL && n > 0) {
+        out.assign(reinterpret_cast<const char*>(b), (size_t)n);
+        env->ReleaseByteArrayElements(ja, b, JNI_ABORT);
+    }
+    env->DeleteLocalRef(ja);
+    return out;
+}
+
+/* 拼齐 16 字节 SM4 主密钥：头段 12B（cobra 或本地兜底）+ 尾段 4B（Java） */
+static std::string sm4_key(JNIEnv* env) {
+    std::string head = get_blob_from_so(DK(B_LIB, 0x57), DK(B_D1, 0x57), 12);
+    if (head.size() != 12) {
+        std::string fb(12, '\0');
+        volatile uint8_t m = K52_XOR;
+        for (int i = 0; i < 12; i++) fb[i] = (char)(K52_SM4_HEAD_XOR[i] ^ m);
+        head = fb;
+    }
+    std::string tail = fetch_tail(env);
+    if (tail.size() != 4) return std::string();
+    return head + tail;
+}
+
+static jstring nativeEncImpl(JNIEnv* env, jobject, jstring data) {
     const char* cdata = env->GetStringUTFChars(data, nullptr);
-    std::string input(cdata);
-    env->ReleaseStringUTFChars(data, cdata);
+    std::string input = (cdata != nullptr) ? std::string(cdata) : std::string();
+    if (cdata != nullptr) env->ReleaseStringUTFChars(data, cdata);
 
-    // 获取 SM4 key（从 libcobra.so 或本地 XOR）
-    std::string sm4_key;
-    void* handle = dlopen("libcobra.so", RTLD_NOW);
-    if (handle) {
-        get_key_func fn = (get_key_func)dlsym(handle, "getSm4Key");
-        if (fn) {
-            const uint8_t* raw = fn();
-            if (raw) sm4_key = std::string(reinterpret_cast<const char*>(raw), 16);
-        }
-        dlclose(handle);
-    }
-    if (sm4_key.empty()) {
-        // 本地 fallback: XOR 还原
-        static const uint8_t K52_SM4_XOR[] = {
-            0x7a,0x5d,0x48,0x58,0x53,0x5b,0x63,0x4f,
-            0x52,0x53,0x4b,0x63,0x4f,0x51,0x08,0x63
-        };
-        sm4_key = std::string(16, '\0');
-        for (int i = 0; i < 16; i++) sm4_key[i] = K52_SM4_XOR[i] ^ 0x3C;
-    }
+    std::string key = sm4_key(env);
+    if (key.size() != 16) return env->NewStringUTF("");
 
-    Sm52Cipher cipher;
-    cipher.init(reinterpret_cast<const uint8_t*>(sm4_key.c_str()));
-    std::string enc = cipher.encrypt(input);
+    Pillar cipher;
+    cipher.load(reinterpret_cast<const uint8_t*>(key.c_str()));
+    std::string enc = cipher.mint(input);
 
     std::string hex_enc;
     for (unsigned char c : enc) {
@@ -450,24 +494,63 @@ static jstring nativeEnc52(JNIEnv* env, jobject, jstring data) {
     return env->NewStringUTF(hex_enc.c_str());
 }
 
+static jstring nativeSignImpl(JNIEnv* env, jobject, jint page, jint ts) {
+    std::string payload = "page=" + std::to_string(page) + "&ts=" + std::to_string(ts);
+    std::string sig = hmac_md5(get_mark_key(), payload);
+    std::string hex_sig;
+    for (unsigned char c : sig) {
+        char buf[3];
+        snprintf(buf, sizeof(buf), "%02x", c);
+        hex_sig += buf;
+    }
+    return env->NewStringUTF(hex_sig.c_str());
+}
+
+/* 跨层桥：Bk52 反射造出的取件器实例交进来，本 so 缓存成全局引用 + methodID */
+static void implBind(JNIEnv* env, jclass, jobject holder) {
+    if (g_obj != NULL) { env->DeleteGlobalRef(g_obj); g_obj = NULL; }
+    g_tail = NULL;
+    if (holder == NULL) return;
+    g_obj = env->NewGlobalRef(holder);
+    if (g_obj == NULL) return;
+    jclass local = env->GetObjectClass(holder);
+    if (local == NULL) return;
+    std::string cb = DK(B_CB, 0x57);
+    std::string gb = DK(B_GB, 0x57);
+    g_tail = env->GetMethodID(local, cb.c_str(), gb.c_str());
+    env->DeleteLocalRef(local);
+}
+
+/* 诱饵导出：Java 侧根本没声明这个方法 —— 纯误导 */
+extern "C" JNIEXPORT jstring JNICALL
+Java_com_fatdog_reverse_Bk52_nativeMoose(JNIEnv* env, jclass) {
+    return env->NewStringUTF(FAKE_MARK);
+}
+
 // ==================== RegisterNatives 动态绑定 ====================
-
-static const JNINativeMethod gMethods52[] = {
-    {"nativeSign", "(II)Ljava/lang/String;", (void*)nativeSign52},
-    {"nativeEnc",  "(Ljava/lang/String;)Ljava/lang/String;", (void*)nativeEnc52},
-};
-
 extern "C" JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void*) {
     g_jvm = vm;
     init_ck();
-    JNIEnv* env;
-    if (vm->GetEnv(reinterpret_cast<void**>(&env), JNI_VERSION_1_6) != JNI_OK) return JNI_ERR;
-    jclass cls = env->FindClass("com/fatdog/reverse/Bk52");
-    if (!cls) return JNI_ERR;
-    if (env->RegisterNatives(cls, gMethods52, 2) != JNI_OK) return JNI_ERR;
-    LOGI("JNI_OnLoad: L52 initialized (RegisterNatives dynamic)");
-    /* 干扰 so：仅 dlopen 进进程（出现于 /proc/self/maps、可被 dlopen-trace 捕获），
-     * 不 dlsym、不调用其中任何符号（纯诱饵，不影响通关逻辑） */
-    (void)dlopen("libregistry.so", RTLD_NOW);
+    JNIEnv* env = cur_env();
+    if (env != NULL) {
+        std::string cls = DK(B_CLS, 0x57);
+        jclass c = env->FindClass(cls.c_str());
+        if (c != NULL) {
+            std::string n1 = DK(B_M1, 0x57), g1 = DK(B_G1, 0x57);
+            std::string n2 = DK(B_M2, 0x57), g2 = DK(B_G2, 0x57);
+            std::string n3 = DK(B_M4, 0x57), g3 = DK(B_G4, 0x57);
+            JNINativeMethod m[3];
+            m[0].name = const_cast<char*>(n1.c_str()); m[0].signature = const_cast<char*>(g1.c_str()); m[0].fnPtr = (void*)nativeEncImpl;
+            m[1].name = const_cast<char*>(n2.c_str()); m[1].signature = const_cast<char*>(g2.c_str()); m[1].fnPtr = (void*)nativeSignImpl;
+            m[2].name = const_cast<char*>(n3.c_str()); m[2].signature = const_cast<char*>(g3.c_str()); m[2].fnPtr = (void*)implBind;
+            if (env->RegisterNatives(c, m, 3) != JNI_OK && env->ExceptionCheck())
+                env->ExceptionClear();
+        } else if (env->ExceptionCheck()) {
+            env->ExceptionClear();
+        }
+    }
+    /* 干扰 so：仅 dlopen 进进程（/proc/self/maps 可见、dlopen-trace 可捕获），不 dlsym 不调用 */
+    std::string decoy = DK(B_LIBD, 0x57);
+    (void)dlopen(decoy.c_str(), RTLD_NOW);
     return JNI_VERSION_1_6;
 }

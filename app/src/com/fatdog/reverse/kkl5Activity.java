@@ -19,8 +19,12 @@ import android.widget.Toast;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
+import java.io.InputStream;
+import java.lang.reflect.Method;
+import java.nio.ByteBuffer;
 import java.util.concurrent.TimeUnit;
 
+import dalvik.system.InMemoryDexClassLoader;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.Response;
@@ -29,11 +33,25 @@ import okhttp3.Response;
 // 这里的机关不是壳，是一台自造的虚拟机：它一步步把钥匙从标记里算出来，
 // 指令密文按前一条自反馈加密——解得开第 N 条，才有第 N+1 条。
 // 取数走两层加密复合（内层分组 + 外层流式）叠一层摘要签名；五个 so 缺一不可。
+// 主钥只出 VM 的门，就立刻被拆成四层钥匙：三层壳（外层 y.* → 壳 A → 壳 B）
+// 再加十三片业务 DEX，逐层解开；业务片里的取数方法是 native 的，得门面 so 显式绑定。
 // 完整性守卫一旦命中，主钥被静默污染，服务端全程不给你报错。
 public class kkl5Activity extends Activity {
     static final String SUM_HASH = "206125c6e7523ba7c0301144ac24eea9";
     static final int PAGES = 100;
     static final int PER_PAGE = 10;
+
+    // 三级壳（外层 y.* + 壳 A + 壳 B）+ 13 片业务 DEX（5a..5m）的密文资源
+    static final String OUTER_ASSET = "kkl5/outer_lock.bin";
+    static final String SHELL_A_ASSET = "kkl5/shell_a_lock.bin";
+    static final String SHELL_B_ASSET = "kkl5/shell_b_lock.bin";
+    static final String[] BIZ_ASSETS = {
+            "kkl5/5a_vein.bin", "kkl5/5b_vein.bin", "kkl5/5c_vein.bin",
+            "kkl5/5d_vein.bin", "kkl5/5e_vein.bin", "kkl5/5f_vein.bin",
+            "kkl5/5g_vein.bin", "kkl5/5h_vein.bin", "kkl5/5i_vein.bin",
+            "kkl5/5j_vein.bin", "kkl5/5k_vein.bin", "kkl5/5l_vein.bin",
+            "kkl5/5m_vein.bin"};
+    static final String BIZ = "com.fatdog.reverse.kkl5.GateKeeper5";
 
     private TextView status;
     private final TextView[] cells = new TextView[10];
@@ -42,8 +60,11 @@ public class kkl5Activity extends Activity {
     private int currentPage = 1;
     private boolean loading = false;
     private boolean gateOk = false;
+    private boolean ready = false;
     private String base;
     private OkHttpClient client;
+
+    private Method mFetch;
 
     @Override
     protected void onCreate(Bundle b) {
@@ -206,47 +227,138 @@ public class kkl5Activity extends Activity {
         final String gate = Kkl5Native.nativeOnCreate(this);
         gateOk = gate != null && gate.startsWith("OK");
         if (gateOk) {
-            final String dexInfo = loadBusinessDex();
-            status.setText("onCreate 门禁通过，" + dexInfo + "，准备取数。");
-            loadPage(1);
+            status.setText("onCreate 门禁通过，破塔解壳中…");
+            bootBiz();
         } else {
             status.setText("门禁未通过：" + gate + "\nso 可能被 patch / 环境被 hook。");
         }
     }
 
-    /** 内存加载 assets/kkl5 的加密业务 DEX（不落盘）。 */
-    private String loadBusinessDex() {
+    /** 后台：跑 VM 拿主钥 → 解三层壳（外层 y.* / 壳 A / 壳 B）→ 解 13 业务 DEX
+     *  → 链式装载 → nativeBind → 反射缓存取数入口。 */
+    private void bootBiz() {
         try {
-            java.io.InputStream is = getAssets().open("kkl5/ascension_altar.bin");
-            byte[] sealed = readAll(is);
-            byte[] dex = Kkl5Native.nativeUnseal(sealed);
-            if (dex == null || dex.length < 8) return "业务 DEX 未解封";
-            java.io.File tmp = new java.io.File(getCacheDir(), "kkl5_biz.dex");
-            java.io.FileOutputStream fos = new java.io.FileOutputStream(tmp);
-            fos.write(dex);
-            fos.close();
-            ClassLoader cl = getClassLoader();
-            dalvik.system.DexClassLoader loader = new dalvik.system.DexClassLoader(
-                    tmp.getAbsolutePath(), getCacheDir().getAbsolutePath(), null, cl);
-            Class<?> c = loader.loadClass("com.fatdog.reverse.kkl5.GateKeeper5");
-            Object magic = c.getMethod("magic").invoke(null);
-            return "业务 DEX 已内存加载（" + magic + "）";
-        } catch (Throwable t) {
-            return "业务 DEX 加载失败：" + t.getMessage();
+            setStatus("破塔：过 VM 门禁、取钥匙…");
+            // ① 外层壳（y.*）：layer 1
+            byte[] outerDex = Kkl5Native.nativeFold(readAssetBytes(OUTER_ASSET), 1, 0);
+            if (!isDex(outerDex)) throw new IllegalStateException("外层壳解出的不是 dex（VM 未过或钥匙错）");
+
+            // ② 壳 DEX A：layer 2
+            byte[] shellADex = Kkl5Native.nativeFold(readAssetBytes(SHELL_A_ASSET), 2, 0);
+            if (!isDex(shellADex)) throw new IllegalStateException("壳 A 解出的不是 dex");
+
+            // ③ 壳 DEX B：layer 3
+            byte[] shellBDex = Kkl5Native.nativeFold(readAssetBytes(SHELL_B_ASSET), 3, 0);
+            if (!isDex(shellBDex)) throw new IllegalStateException("壳 B 解出的不是 dex");
+
+            // ④ 13 片业务 DEX：layer 4（shard 0..12）
+            final byte[][] biz = new byte[13][];
+            for (int i = 0; i < 13; i++) {
+                biz[i] = Kkl5Native.nativeFold(readAssetBytes(BIZ_ASSETS[i]), 4, i);
+                if (!isDex(biz[i])) {
+                    throw new IllegalStateException("第 " + (i + 1) + " 片业务解出的不是 dex");
+                }
+            }
+            setStatus("三层壳与十三片已解开，链式装载中…");
+
+            // ⑤ 链式 InMemoryDexClassLoader：13 业务按序挂 parent（5a→…→5m），
+            //    三层壳 loader 挂在业务链末端（壳是最外层，靠双亲委派往里找业务类）。
+            ClassLoader cur = makeLoader(biz[0]);
+            for (int i = 1; i < 13; i++) {
+                cur = makeLoader(biz[i], cur);
+            }
+            ClassLoader shellBLoader = makeLoader(shellBDex, cur);
+            ClassLoader shellALoader = makeLoader(shellADex, shellBLoader);
+            ClassLoader outerLoader = makeLoader(outerDex, shellALoader);
+
+            final Class<?> clsL = Class.forName("com.fatdog.reverse.kkl5.GateKeeper5l", true, cur);
+            final Class<?> clsBiz = Class.forName(BIZ, true, cur);
+
+            // ⑥ 壳类群职责核对（三级壳：外层 y.* → 壳 A → 壳 B，逐层 .class 常量串联）。
+            final Class<?> clsOuter = Class.forName("com.fatdog.reverse.shelly.Wick", true, outerLoader);
+            boolean outerOk = (Boolean) clsOuter.getMethod("sane", byte[].class).invoke(null, (Object) biz[0]);
+            Class<?> next1 = (Class<?>) clsOuter.getMethod("nextClass").invoke(null);
+            if (!outerOk || next1 == null) throw new IllegalStateException("外层壳职责不齐（可能误入诱饵）");
+
+            Class<?> next2 = (Class<?>) next1.getMethod("nextClass").invoke(null);
+            boolean aOk = (Boolean) next1.getMethod("sane", byte[].class).invoke(null, (Object) biz[1]);
+            if (!aOk || next2 == null) throw new IllegalStateException("壳 A 职责不齐");
+
+            boolean bOk = (Boolean) next2.getMethod("sane", byte[].class).invoke(null, (Object) biz[2]);
+            Class<?> bindCls = (Class<?>) next2.getMethod("bindingClass").invoke(null);
+            if (!bOk || bindCls != clsL) throw new IllegalStateException("壳 B 职责不齐（绑定目标错）");
+
+            // ⑦ nativeBind：把业务片 GateKeeper5l.nativeSign 显式绑定
+            int bound = Kkl5Native.nativeBind(clsL);
+            if (bound != 1) throw new IllegalStateException("native 绑定失败（子加载器未解析父 so）");
+
+            // ⑧ 缓存主编排取数入口
+            mFetch = clsBiz.getMethod("fetch", int.class, long.class);
+            String magic = (String) clsBiz.getMethod("magic").invoke(null);
+            ready = true;
+            runOnUiThread(new Runnable() {
+                @Override public void run() {
+                    status.setText("破塔成功：" + magic + "（三层壳 + 十三片已就位）— 可以翻页取数了");
+                    Toast.makeText(kkl5Activity.this, "破塔成功，取数就绪", Toast.LENGTH_SHORT).show();
+                }
+            });
+            loadPage(1);
+        } catch (final Throwable t) {
+            runOnUiThread(new Runnable() {
+                @Override public void run() {
+                    status.setText("破塔失败：" + t);
+                    Toast.makeText(kkl5Activity.this, "失败：" + t.getMessage(), Toast.LENGTH_SHORT).show();
+                }
+            });
         }
     }
 
-    private static byte[] readAll(java.io.InputStream is) throws java.io.IOException {
-        java.io.ByteArrayOutputStream bos = new java.io.ByteArrayOutputStream();
-        byte[] buf = new byte[8192];
-        int n;
-        while ((n = is.read(buf)) > 0) bos.write(buf, 0, n);
-        is.close();
-        return bos.toByteArray();
+    private static boolean isDex(byte[] b) {
+        return b != null && b.length >= 8 && b[0] == 'd' && b[1] == 'e' && b[2] == 'x' && b[3] == '\n';
+    }
+
+    private byte[] readAssetBytes(String path) {
+        try {
+            InputStream is = getAssets().open(path);
+            java.io.ByteArrayOutputStream bos = new java.io.ByteArrayOutputStream();
+            byte[] buf = new byte[8192];
+            int n;
+            while ((n = is.read(buf)) > 0) bos.write(buf, 0, n);
+            is.close();
+            return bos.toByteArray();
+        } catch (java.io.IOException e) {
+            throw new IllegalStateException("读资源失败：" + path, e);
+        }
+    }
+
+    private ClassLoader makeLoader(byte[] dex) {
+        return makeLoader(dex, getClassLoader());
+    }
+
+    private ClassLoader makeLoader(byte[] dex, ClassLoader parent) {
+        if (android.os.Build.VERSION.SDK_INT >= 26) {
+            return new InMemoryDexClassLoader(ByteBuffer.wrap(dex), parent);
+        }
+        java.io.File tmp = new java.io.File(getCacheDir(), "kkl5_shard_" + System.nanoTime() + ".dex");
+        try {
+            java.io.FileOutputStream fos = new java.io.FileOutputStream(tmp);
+            fos.write(dex);
+            fos.close();
+        } catch (java.io.IOException e) {
+            throw new IllegalStateException(e);
+        }
+        return new dalvik.system.DexClassLoader(tmp.getAbsolutePath(),
+                getCacheDir().getAbsolutePath(), null, parent);
+    }
+
+    private void setStatus(final String s) {
+        runOnUiThread(new Runnable() {
+            @Override public void run() { status.setText(s); }
+        });
     }
 
     private void loadPage(final int page) {
-        if (loading || !gateOk) return;
+        if (loading || !gateOk || !ready) return;
         loading = true;
         runOnUiThread(new Runnable() {
             @Override public void run() { status.setText("正在请求第 " + page + " 页…"); }
@@ -255,7 +367,7 @@ public class kkl5Activity extends Activity {
             @Override public void run() {
                 try {
                     final long ts = System.currentTimeMillis() / 1000;
-                    final String token = Kkl5Native.nativeSign(page, ts);
+                    final String token = (String) mFetch.invoke(null, page, ts);
                     final int bar = token == null ? -1 : token.indexOf('|');
                     if (bar <= 0) {
                         throw new IllegalStateException("取数内核未就绪（五 so 缺一或主钥已被污染）");

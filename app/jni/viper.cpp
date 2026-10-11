@@ -1,10 +1,18 @@
-/**
- * viper.cpp — L53 焚天火域（加密核心 + 密钥 + 魔改 AES）
+/*
+ * libviper.so — L53 焚天火域（加密核心 + 密钥供给）
  *
- * 魔改 AES：4 处 S 盒替换 + 4 组 FK 常量异或 + 3 组循环左移密钥扩展
- * Feistel 轮函数：8 轮，每轮 3 个子密钥，轮函数用 AES 加密
- * RC4 响应加密 + HMAC-SHA256 签名
- * 密钥分散在 3 个混淆数组 + 2 个 XOR 数组
+ * 静态分析视角（导出表只留中性词根）：
+ *   vp_mark   → 签名密钥【头段 12 字节】；尾段 "k53\0" 在 Java（跨层回调拼装）
+ *   vp_seed   → 主密钥（16 字节，魔改 AES / Feistel 共用）
+ *   vp_pad    → 响应流密钥（16 字节）
+ *   vp_seal   → 主路径分组加密
+ *   vp_wrap   → 变体分组加密
+ *   vp_stream → 流式加解密（响应）
+ *   原来直白的 getHmacKey/getAesKeyC/getRc4KeyC/k53FeistelEncrypt/
+ *   k53AesVariantEncrypt/k53Rc4Crypt 全部改名；内部自由函数 aesEncrypt /
+ *   rc4Encrypt 降为 static（不再进导出表）。
+ *
+ * 密钥仍分散在 XOR(^0x3C) 数组里，运行时按需还原。
  */
 
 #include <cstdint>
@@ -271,57 +279,42 @@ static std::string rc4_crypt(const uint8_t* key, int key_len, const std::string&
 }
 
 // ==================== 密钥分散存储 ====================
-// 混淆数组 A：^0x3C 还原 = "Fatdog_aes_key_\x00"（16 bytes）
-uint8_t K53_AES_OBFUSC_A[] = {
+// 主密钥：^0x3C 还原 = "Fatdog_aes_key_\x00"（16 bytes）
+static const uint8_t K53_AES_OBFUSC[] = {
     0x7a,0x5d,0x48,0x58,0x53,0x5b,0x63,0x5d,
     0x59,0x4f,0x63,0x57,0x59,0x45,0x63,0x3c
 };
-static const uint8_t K53_AES_XOR_A = 0x3C;
-
-// 混淆数组 B：^0x3C 还原 = "Fatdog_hmac_k53\x00"（16 bytes）
-uint8_t K53_HMAC_OBFUSC_B[] = {
+// 签名密钥头段：^0x3C 还原 = "Fatdog_hmac_"（12 bytes；尾段 "k53\0" 在 Java）
+static const uint8_t K53_MARK_HEAD_OBFUSC[] = {
     0x7a,0x5d,0x48,0x58,0x53,0x5b,0x63,0x54,
-    0x51,0x5d,0x5f,0x63,0x57,0x09,0x0f,0x3c
+    0x51,0x5d,0x5f,0x63
 };
-static const uint8_t K53_HMAC_XOR_B = 0x3C;
-
-// 混淆数组 C：^0x3C 还原 = "Fatdog_rc4_k53\x00\x00"（16 bytes）
-uint8_t K53_RC4_OBFUSC_C[] = {
+// 响应流密钥：^0x3C 还原 = "Fatdog_rc4_k53\x00\x00"（16 bytes）
+static const uint8_t K53_RC4_OBFUSC[] = {
     0x7a,0x5d,0x48,0x58,0x53,0x5b,0x63,0x4e,
     0x5f,0x08,0x63,0x57,0x09,0x0f,0x3c,0x3c
 };
-static const uint8_t K53_RC4_XOR_C = 0x3C;
+static const uint8_t K53_XOR = 0x3C;
 
-static std::string get_key_a() {
-    std::string k(16, '\0');
-    for (int i = 0; i < 16; i++) k[i] = K53_AES_OBFUSC_A[i] ^ K53_AES_XOR_A;
-    return k;
+/* volatile 掩码：防 -O2 把 XOR 表折叠回明文常量写进 .rodata */
+static void unmark(const uint8_t* src, int n, uint8_t* dst) {
+    volatile uint8_t m = K53_XOR;
+    for (int i = 0; i < n; i++) dst[i] = (uint8_t)(src[i] ^ m);
 }
 
-static std::string get_key_b() {
-    std::string k(16, '\0');
-    for (int i = 0; i < 16; i++) k[i] = K53_HMAC_OBFUSC_B[i] ^ K53_HMAC_XOR_B;
-    return k;
-}
-
-static std::string get_key_c() {
-    std::string k(16, '\0');
-    for (int i = 0; i < 16; i++) k[i] = K53_RC4_OBFUSC_C[i] ^ K53_RC4_XOR_C;
-    return k;
-}
+static void get_mark_head(uint8_t out[12]) { unmark(K53_MARK_HEAD_OBFUSC, 12, out); }
+static void get_key_a(uint8_t out[16]) { unmark(K53_AES_OBFUSC, 16, out); }
+static void get_key_c(uint8_t out[16]) { unmark(K53_RC4_OBFUSC, 16, out); }
 
 // ==================== 内部接口（C++，被 tapir dlsym 调用） ====================
-static uint8_t g_hmac_key[16], g_aes_key[16], g_rc4_key[16];
+static uint8_t g_mark_head[12], g_aes_key[16], g_rc4_key[16];
 static bool g_keys_init = false;
 
 static void ensure_keys() {
     if (g_keys_init) return;
-    std::string hb = get_key_b();
-    memcpy(g_hmac_key, hb.c_str(), 16);
-    std::string ab = get_key_a();
-    memcpy(g_aes_key, ab.c_str(), 16);
-    std::string cb = get_key_c();
-    memcpy(g_rc4_key, cb.c_str(), 16);
+    get_mark_head(g_mark_head);
+    get_key_a(g_aes_key);
+    get_key_c(g_rc4_key);
     g_keys_init = true;
 }
 
@@ -343,41 +336,41 @@ static void build_feistel_key(uint8_t aes_key[16]) {
     }
 }
 
-// 魔改 AES 加密（SubBytes + ShiftRows + 变体列混合 + 轮密钥异或）
-std::string aesEncrypt(const std::string& data) {
+// 魔改 AES 加密（SubBytes + ShiftRows + 变体列混合 + 轮密钥异或）—— 仅内部使用，static
+static std::string aesEncrypt(const std::string& data) {
     uint8_t aes_key[16];
     build_feistel_key(aes_key);
     return aes_variant_encrypt(data, aes_key);
 }
 
-// RC4 响应加密
-std::string rc4Encrypt(const std::string& data) {
+// RC4 响应加密 —— 仅内部使用，static
+static std::string rc4Encrypt(const std::string& data) {
     ensure_keys();
     return rc4_crypt(g_rc4_key, 16, data);
 }
 
-// ==================== C 导出接口（dlsym 可用） ====================
+// ==================== C 导出接口（dlsym 可用；中性词根，不带算法名） ====================
 extern "C" {
 
-// HMAC key（返回 16 字节 buffer）
-const uint8_t* getHmacKey() {
+// 签名密钥【头段 12 字节】（尾段在 Java，跨层回调拼装）
+const uint8_t* vp_mark() {
     ensure_keys();
-    return g_hmac_key;
+    return g_mark_head;
 }
 
-// AES key
-const uint8_t* getAesKeyC() {
+// 主密钥（魔改 AES / Feistel 共用）
+const uint8_t* vp_seed() {
     ensure_keys();
     return g_aes_key;
 }
 
-// RC4 key
-const uint8_t* getRc4KeyC() {
+// 响应流密钥
+const uint8_t* vp_pad() {
     ensure_keys();
     return g_rc4_key;
 }
 
-int k53FeistelEncrypt(const uint8_t* in, int inLen, uint8_t* out, int outCap, int* outLen) {
+int vp_seal(const uint8_t* in, int inLen, uint8_t* out, int outCap, int* outLen) {
     ensure_keys();
     if (!out || !outLen || inLen < 0) return -1;
     uint8_t aes_key[16];
@@ -390,7 +383,7 @@ int k53FeistelEncrypt(const uint8_t* in, int inLen, uint8_t* out, int outCap, in
     return 0;
 }
 
-int k53AesVariantEncrypt(const uint8_t* in, int inLen, uint8_t* out, int outCap, int* outLen) {
+int vp_wrap(const uint8_t* in, int inLen, uint8_t* out, int outCap, int* outLen) {
     ensure_keys();
     if (!out || !outLen || inLen < 0) return -1;
     uint8_t aes_key[16];
@@ -403,7 +396,7 @@ int k53AesVariantEncrypt(const uint8_t* in, int inLen, uint8_t* out, int outCap,
     return 0;
 }
 
-int k53Rc4Crypt(const uint8_t* in, int inLen, uint8_t* out, int outCap, int* outLen) {
+int vp_stream(const uint8_t* in, int inLen, uint8_t* out, int outCap, int* outLen) {
     ensure_keys();
     if (!out || !outLen || inLen < 0 || inLen > outCap) return -1;
     std::string raw(inLen > 0 ? (const char*)in : "", inLen > 0 ? inLen : 0);

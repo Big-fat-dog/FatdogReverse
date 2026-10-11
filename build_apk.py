@@ -189,72 +189,254 @@ def main():
     shutil.rmtree(BUILD, ignore_errors=True)
     os.makedirs(os.path.join(BUILD, 'classes'))
 
-    # 0a) KKL1 玄冥渊：业务 DEX 独立编译（源码在 app/kkl1dex，不进主 dex）
-    #     + gen_kkl1.py 整体加密烘焙 assets（必须在 aapt2 link -A assets 之前完成）。
+    # 0a) KKL1 玄冥渊：业务拆两片（p1a/p1b）+ 明文诱饵（pdecoy），三个源根
+    #     各自独立编译成一个 dex（源码在 app/kkl1dex 下，不进主 dex）；
+    #     再 gen_kkl1.py 烘焙 assets（p1a/p1b 加密、pdecoy 明文；必须在
+    #     aapt2 link -A assets 之前完成）。
     kkl1_src = os.path.join(APP, 'kkl1dex')
     if os.path.isdir(kkl1_src):
-        k1_cls = os.path.join(BUILD, 'kkl1dex', 'classes')
-        k1_dex_dir = os.path.join(BUILD, 'kkl1dex', 'dex')
-        os.makedirs(k1_cls, exist_ok=True)
-        os.makedirs(k1_dex_dir, exist_ok=True)
-        k1_java = sorted(glob.glob(os.path.join(kkl1_src, '**', '*.java'), recursive=True))
-        run([javac, '-encoding', 'UTF-8', '-source', '8', '-target', '8',
-             '-bootclasspath', android_jar, '-d', k1_cls] + k1_java)
-        k1_jar = os.path.join(BUILD, 'kkl1dex', 'classes.jar')
-        with zipfile.ZipFile(k1_jar, 'w', zipfile.ZIP_DEFLATED) as zj:
-            for cf in sorted(glob.glob(os.path.join(k1_cls, '**', '*.class'), recursive=True)):
-                zj.write(cf, os.path.relpath(cf, k1_cls).replace('\\', '/'))
-        run([d8, '--release', '--min-api', '21', '--output', k1_dex_dir, k1_jar])
-        k1_dex = os.path.join(k1_dex_dir, 'classes.dex')
-        if os.path.isfile(k1_dex):
-            run([sys.executable, os.path.join(HERE, 'gen_kkl1.py'), '--bake', k1_dex])
+        k1_dexes = {}
+        for part in ('p1a', 'p1b', 'pdecoy'):
+            src_root = os.path.join(kkl1_src, part)
+            if not os.path.isdir(src_root):
+                print('警告: 缺少 kkl1 源根: ' + src_root)
+                continue
+            p_cls = os.path.join(BUILD, 'kkl1dex', part, 'classes')
+            p_dex_dir = os.path.join(BUILD, 'kkl1dex', part, 'dex')
+            os.makedirs(p_cls, exist_ok=True)
+            os.makedirs(p_dex_dir, exist_ok=True)
+            p_java = sorted(glob.glob(os.path.join(src_root, '**', '*.java'), recursive=True))
+            run([javac, '-encoding', 'UTF-8', '-source', '8', '-target', '8',
+                 '-bootclasspath', android_jar, '-d', p_cls] + p_java)
+            p_jar = os.path.join(BUILD, 'kkl1dex', part, 'classes.jar')
+            with zipfile.ZipFile(p_jar, 'w', zipfile.ZIP_DEFLATED) as zj:
+                for cf in sorted(glob.glob(os.path.join(p_cls, '**', '*.class'), recursive=True)):
+                    zj.write(cf, os.path.relpath(cf, p_cls).replace('\\', '/'))
+            run([d8, '--release', '--min-api', '21', '--output', p_dex_dir, p_jar])
+            p_dex = os.path.join(p_dex_dir, 'classes.dex')
+            if os.path.isfile(p_dex):
+                k1_dexes[part] = p_dex
+            else:
+                print('警告: 未找到 kkl1(%s) dex 输出: %s' % (part, p_dex))
+        if all(k in k1_dexes for k in ('p1a', 'p1b', 'pdecoy')):
+            run([sys.executable, os.path.join(HERE, 'gen_kkl1.py'), '--bake',
+                 k1_dexes['p1a'], k1_dexes['p1b'], k1_dexes['pdecoy']])
         else:
-            print('警告: 未找到 kkl1 业务 dex 输出: ' + k1_dex)
+            print('警告: kkl1 三个业务 dex 不齐，跳过烘焙')
 
-    # 0b) KKL2 万剑冢：业务 DEX 独立编译（源码在 app/kkl2dex，不进主 dex）
-    #     + gen_kkl2.py 加密烘焙 assets（必须在 aapt2 link -A assets 之前完成）。
+    # 0b) KKL2 万剑冢：业务拆三片（p2a/p2b/p2c），三个源根各自独立编译成一个 dex
+    #     （源码在 app/kkl2dex 下，不进主 dex）；再 gen_kkl2.py 烘焙 assets（三片各自
+    #     AES-128-CBC 加密；必须在 aapt2 link -A assets 之前完成）。
     kkl2_src = os.path.join(APP, 'kkl2dex')
     if os.path.isdir(kkl2_src):
-        k2_cls = os.path.join(BUILD, 'kkl2dex', 'classes')
-        k2_dex_dir = os.path.join(BUILD, 'kkl2dex', 'dex')
-        os.makedirs(k2_cls, exist_ok=True)
-        os.makedirs(k2_dex_dir, exist_ok=True)
-        k2_java = sorted(glob.glob(os.path.join(kkl2_src, '**', '*.java'), recursive=True))
-        run([javac, '-encoding', 'UTF-8', '-source', '8', '-target', '8',
-             '-bootclasspath', android_jar, '-d', k2_cls] + k2_java)
-        k2_jar = os.path.join(BUILD, 'kkl2dex', 'classes.jar')
-        with zipfile.ZipFile(k2_jar, 'w', zipfile.ZIP_DEFLATED) as zj:
-            for cf in sorted(glob.glob(os.path.join(k2_cls, '**', '*.class'), recursive=True)):
-                zj.write(cf, os.path.relpath(cf, k2_cls).replace('\\', '/'))
-        run([d8, '--release', '--min-api', '21', '--output', k2_dex_dir, k2_jar])
-        k2_dex = os.path.join(k2_dex_dir, 'classes.dex')
-        if os.path.isfile(k2_dex):
-            run([sys.executable, os.path.join(HERE, 'gen_kkl2.py'), '--bake', k2_dex])
+        k2_dexes = {}
+        for part in ('p2a', 'p2b', 'p2c'):
+            src_root = os.path.join(kkl2_src, part)
+            if not os.path.isdir(src_root):
+                print('警告: 缺少 kkl2 源根: ' + src_root)
+                continue
+            p_cls = os.path.join(BUILD, 'kkl2dex', part, 'classes')
+            p_dex_dir = os.path.join(BUILD, 'kkl2dex', part, 'dex')
+            os.makedirs(p_cls, exist_ok=True)
+            os.makedirs(p_dex_dir, exist_ok=True)
+            p_java = sorted(glob.glob(os.path.join(src_root, '**', '*.java'), recursive=True))
+            run([javac, '-encoding', 'UTF-8', '-source', '8', '-target', '8',
+                 '-bootclasspath', android_jar, '-d', p_cls] + p_java)
+            p_jar = os.path.join(BUILD, 'kkl2dex', part, 'classes.jar')
+            with zipfile.ZipFile(p_jar, 'w', zipfile.ZIP_DEFLATED) as zj:
+                for cf in sorted(glob.glob(os.path.join(p_cls, '**', '*.class'), recursive=True)):
+                    zj.write(cf, os.path.relpath(cf, p_cls).replace('\\', '/'))
+            run([d8, '--release', '--min-api', '21', '--output', p_dex_dir, p_jar])
+            p_dex = os.path.join(p_dex_dir, 'classes.dex')
+            if os.path.isfile(p_dex):
+                k2_dexes[part] = p_dex
+            else:
+                print('警告: 未找到 kkl2(%s) dex 输出: %s' % (part, p_dex))
+        if all(k in k2_dexes for k in ('p2a', 'p2b', 'p2c')):
+            run([sys.executable, os.path.join(HERE, 'gen_kkl2.py'), '--bake',
+                 k2_dexes['p2a'], k2_dexes['p2b'], k2_dexes['p2c']])
         else:
-            print('警告: 未找到 kkl2 业务 dex 输出: ' + k2_dex)
+            print('警告: kkl2 三个业务 dex 不齐，跳过烘焙')
 
-    # 0c) KKL5 诛仙台：业务 DEX 独立编译（源码在 app/kkl5dex，不进主 dex）
-    #     + gen_kkl5.py 用复合算法（内层 SM4-CBC / 外层 AES-128-CTR）加密烘焙
-    #     assets/kkl5/ascension_altar.bin（必须在 aapt2 link -A assets 之前完成）。
+    # 0c) KKL5 诛仙台：三级壳中壳（外层 y.* + 壳 A + 壳 B）+ 13 业务 DEX（5a..5m）+ 明文诱饵
+    #     （源码在 app/kkl5dex 与 app/kkl5shell，不进主 dex）；壳类群走 r8_shell.pro（R8 混淆）；
+    #     片间按拓扑序编译；再 gen_kkl5.py --bake 做壳层/业务分片复合加密埋 assets/kkl5/。
     kkl5_src = os.path.join(APP, 'kkl5dex')
+    kkl5_shell_src = os.path.join(APP, 'kkl5shell')
     if os.path.isdir(kkl5_src):
-        k5_cls = os.path.join(BUILD, 'kkl5dex', 'classes')
-        k5_dex_dir = os.path.join(BUILD, 'kkl5dex', 'dex')
-        os.makedirs(k5_cls, exist_ok=True)
-        os.makedirs(k5_dex_dir, exist_ok=True)
-        k5_java = sorted(glob.glob(os.path.join(kkl5_src, '**', '*.java'), recursive=True))
-        run([javac, '-encoding', 'UTF-8', '-source', '8', '-target', '8',
-             '-bootclasspath', android_jar, '-d', k5_cls] + k5_java)
-        k5_jar = os.path.join(BUILD, 'kkl5dex', 'classes.jar')
-        with zipfile.ZipFile(k5_jar, 'w', zipfile.ZIP_DEFLATED) as zj:
-            for cf in sorted(glob.glob(os.path.join(k5_cls, '**', '*.class'), recursive=True)):
-                zj.write(cf, os.path.relpath(cf, k5_cls).replace('\\', '/'))
-        run([d8, '--release', '--min-api', '21', '--output', k5_dex_dir, k5_jar])
-        k5_dex = os.path.join(k5_dex_dir, 'classes.dex')
-        if os.path.isfile(k5_dex):
-            run([sys.executable, os.path.join(HERE, 'gen_kkl5.py'), '--bake', k5_dex])
+        # 外层 y.*（app/kkl5dex/p_outer）+ 壳 A（app/kkl5shell/a）+ 壳 B（app/kkl5shell/b）
+        # + 13 业务（app/kkl5dex/p5a..p5m）+ 诱饵（app/kkl5dex/pdecoy）
+        # 编译顺序按拓扑序（依赖在前）；bake 顺序单独指定（outer/shell_a/shell_b 在前）。
+        k5_compile_order = (['p5a', 'p5b', 'p5c', 'p5d', 'p5f', 'p5h', 'p5i', 'p5j', 'p5l',
+                             'p5e', 'p5g', 'p5k', 'p5m', 'shell_b', 'shell_a', 'p_outer', 'pdecoy'])
+        k5_bake_order = (['p_outer', 'shell_a', 'shell_b'] +
+                         ['p5%s' % c for c in 'abcdefghijklm'] + ['pdecoy'])
+        k5_root = {}   # part -> 源根目录
+        k5_root['p_outer'] = os.path.join(kkl5_src, 'p_outer')
+        k5_root['shell_a'] = os.path.join(kkl5_shell_src, 'a')
+        k5_root['shell_b'] = os.path.join(kkl5_shell_src, 'b')
+        for c in 'abcdefghijklm':
+            k5_root['p5%s' % c] = os.path.join(kkl5_src, 'p5%s' % c)
+        k5_root['pdecoy'] = os.path.join(kkl5_src, 'pdecoy')
+        # 片间依赖：5e 依赖 5b、5k 依赖 5d、5g 依赖 5f、5m 依赖 5a/5b/5c/5h/5l、
+        #           壳 B 依赖业务片 5l（bindingClass 返回 GateKeeper5l.class）、
+        #           壳 A 依赖壳 B（nextClass 返回 shellz.Wick.class）、
+        #           外层依赖壳 A（nextClass 返回 shellx.Wick.class）。
+        k5_deps = {
+            'p5e': ['p5b'], 'p5k': ['p5d'], 'p5g': ['p5f'],
+            'p5m': ['p5a', 'p5b', 'p5c', 'p5h', 'p5l'],
+            'shell_b': ['p5l'],
+            'shell_a': ['shell_b'],
+            'p_outer': ['shell_a'],
+        }
+        k5_dexes = {}
+        for part in k5_compile_order:
+            src_root = k5_root[part]
+            if not os.path.isdir(src_root):
+                print('警告: 缺少 kkl5 源根: ' + src_root)
+                continue
+            p_cls = os.path.join(BUILD, 'kkl5dex', part, 'classes')
+            p_dex_dir = os.path.join(BUILD, 'kkl5dex', part, 'dex')
+            os.makedirs(p_cls, exist_ok=True)
+            os.makedirs(p_dex_dir, exist_ok=True)
+            p_java = sorted(glob.glob(os.path.join(src_root, '**', '*.java'), recursive=True))
+            cp = android_jar
+            for dep in k5_deps.get(part, []):
+                dep_cls = os.path.join(BUILD, 'kkl5dex', dep, 'classes')
+                if os.path.isdir(dep_cls):
+                    cp += os.pathsep + dep_cls
+            run([javac, '-encoding', 'UTF-8', '-source', '8', '-target', '8',
+                 '-bootclasspath', android_jar, '-classpath', cp, '-d', p_cls] + p_java)
+            p_jar = os.path.join(BUILD, 'kkl5dex', part, 'classes.jar')
+            with zipfile.ZipFile(p_jar, 'w', zipfile.ZIP_DEFLATED) as zj:
+                for cf in sorted(glob.glob(os.path.join(p_cls, '**', '*.class'), recursive=True)):
+                    zj.write(cf, os.path.relpath(cf, p_cls).replace('\\', '/'))
+            if part in ('p_outer', 'shell_a', 'shell_b'):
+                # 壳类群走 R8 混淆（r8_shell.pro：keep 入口 Wick，其余壳类改名）
+                r8_shell_pro = os.path.join(HERE, 'r8_shell.pro')
+                shell_r8_jar = os.path.join(bt, 'lib', 'd8.jar')
+                lib_args = ['--lib', android_jar]
+                for dep in k5_deps.get(part, []):
+                    dep_cls = os.path.join(BUILD, 'kkl5dex', dep, 'classes')
+                    if os.path.isdir(dep_cls):
+                        lib_args += ['--lib', dep_cls]
+                run([os.path.join(java_bin, 'java.exe'), '-cp', shell_r8_jar,
+                     'com.android.tools.r8.R8',
+                     '--release', '--min-api', '21'] +
+                     lib_args +
+                     ['--pg-conf', r8_shell_pro,
+                      '--output', p_dex_dir, p_jar])
+            else:
+                run([d8, '--release', '--min-api', '21', '--output', p_dex_dir, p_jar])
+            p_dex = os.path.join(p_dex_dir, 'classes.dex')
+            if os.path.isfile(p_dex):
+                k5_dexes[part] = p_dex
+            else:
+                print('警告: 未找到 kkl5(%s) dex 输出: %s' % (part, p_dex))
+        if all(k in k5_dexes for k in k5_bake_order):
+            # bake 期望顺序：outer + shell_a + shell_b + 5a..5m + decoy
+            run([sys.executable, os.path.join(HERE, 'gen_kkl5.py'), '--bake'] +
+                [k5_dexes[k] for k in k5_bake_order])
         else:
-            print('警告: 未找到 kkl5 业务 dex 输出: ' + k5_dex)
+            print('警告: kkl5 十七个 dex 不齐，跳过烘焙')
+
+    # 0d) KKL3 断魂谷：业务拆五片（p3a..p3e）+ 明文诱饵（pdecoy），六个源根各自编译成一个 dex
+    #     （源码在 app/kkl3dex 下，不进主 dex）；片间有引用，按拓扑序编译（3a/3b/3c → 3d(依赖3c)
+    #     → 3e(依赖3a/3b/3d) → pdecoy）；再 gen_kkl3.py --bake 做方法体抽取（3d/3e）+ SM4 加密埋 assets。
+    kkl3_src = os.path.join(APP, 'kkl3dex')
+    if os.path.isdir(kkl3_src):
+        k3_order = ['p3a', 'p3b', 'p3c', 'p3d', 'p3e', 'pdecoy']
+        k3_deps = {'p3d': ['p3c'], 'p3e': ['p3a', 'p3b', 'p3d']}
+        k3_dexes = {}
+        for part in k3_order:
+            src_root = os.path.join(kkl3_src, part)
+            if not os.path.isdir(src_root):
+                print('警告: 缺少 kkl3 源根: ' + src_root)
+                continue
+            p_cls = os.path.join(BUILD, 'kkl3dex', part, 'classes')
+            p_dex_dir = os.path.join(BUILD, 'kkl3dex', part, 'dex')
+            os.makedirs(p_cls, exist_ok=True)
+            os.makedirs(p_dex_dir, exist_ok=True)
+            p_java = sorted(glob.glob(os.path.join(src_root, '**', '*.java'), recursive=True))
+            cp = android_jar
+            for dep in k3_deps.get(part, []):
+                dep_cls = os.path.join(BUILD, 'kkl3dex', dep, 'classes')
+                if os.path.isdir(dep_cls):
+                    cp += os.pathsep + dep_cls
+            run([javac, '-encoding', 'UTF-8', '-source', '8', '-target', '8',
+                 '-bootclasspath', android_jar, '-classpath', cp, '-d', p_cls] + p_java)
+            p_jar = os.path.join(BUILD, 'kkl3dex', part, 'classes.jar')
+            with zipfile.ZipFile(p_jar, 'w', zipfile.ZIP_DEFLATED) as zj:
+                for cf in sorted(glob.glob(os.path.join(p_cls, '**', '*.class'), recursive=True)):
+                    zj.write(cf, os.path.relpath(cf, p_cls).replace('\\', '/'))
+            run([d8, '--release', '--min-api', '21', '--output', p_dex_dir, p_jar])
+            p_dex = os.path.join(p_dex_dir, 'classes.dex')
+            if os.path.isfile(p_dex):
+                k3_dexes[part] = p_dex
+            else:
+                print('警告: 未找到 kkl3(%s) dex 输出: %s' % (part, p_dex))
+        if all(k in k3_dexes for k in k3_order):
+            run([sys.executable, os.path.join(HERE, 'gen_kkl3.py'), '--bake'] +
+                [k3_dexes[k] for k in k3_order])
+        else:
+            print('警告: kkl3 六个业务 dex 不齐，跳过烘焙')
+
+    # 0e) KKL4 锁妖塔：多类壳（w.* 壳类群）+ 九片业务 DEX（4a..4i）+ 明文诱饵（pdecoy）。
+    #     十一个源根各自编译成一个 dex（源码在 app/kkl4dex 下，不进主 dex）；
+    #     壳类群走 r8_shell.pro（R8 混淆）；片间按拓扑序编译；
+    #     再 gen_kkl4.py --bake 做壳层/业务分片 AES-128-CTR 加密埋 assets/kkl4/。
+    kkl4_src = os.path.join(APP, 'kkl4dex')
+    if os.path.isdir(kkl4_src):
+        k4_order = ['p4a', 'p4b', 'p4c', 'p4d', 'p4e', 'p4f', 'p4g', 'p4h', 'p4i', 'pshell', 'pdecoy']
+        k4_deps = {'p4e': ['p4b'], 'p4g': ['p4f'],
+                   'p4i': ['p4a', 'p4b', 'p4c', 'p4h'], 'pshell': ['p4h']}
+        k4_dexes = {}
+        for part in k4_order:
+            src_root = os.path.join(kkl4_src, part)
+            if not os.path.isdir(src_root):
+                print('警告: 缺少 kkl4 源根: ' + src_root)
+                continue
+            p_cls = os.path.join(BUILD, 'kkl4dex', part, 'classes')
+            p_dex_dir = os.path.join(BUILD, 'kkl4dex', part, 'dex')
+            os.makedirs(p_cls, exist_ok=True)
+            os.makedirs(p_dex_dir, exist_ok=True)
+            p_java = sorted(glob.glob(os.path.join(src_root, '**', '*.java'), recursive=True))
+            cp = android_jar
+            for dep in k4_deps.get(part, []):
+                dep_cls = os.path.join(BUILD, 'kkl4dex', dep, 'classes')
+                if os.path.isdir(dep_cls):
+                    cp += os.pathsep + dep_cls
+            run([javac, '-encoding', 'UTF-8', '-source', '8', '-target', '8',
+                 '-bootclasspath', android_jar, '-classpath', cp, '-d', p_cls] + p_java)
+            p_jar = os.path.join(BUILD, 'kkl4dex', part, 'classes.jar')
+            with zipfile.ZipFile(p_jar, 'w', zipfile.ZIP_DEFLATED) as zj:
+                for cf in sorted(glob.glob(os.path.join(p_cls, '**', '*.class'), recursive=True)):
+                    zj.write(cf, os.path.relpath(cf, p_cls).replace('\\', '/'))
+            if part == 'pshell':
+                # 壳类群走 R8 混淆（r8_shell.pro：keep 入口 Wick，其余 shellw 类改名）
+                r8_shell_pro = os.path.join(HERE, 'r8_shell.pro')
+                shell_r8_jar = os.path.join(bt, 'lib', 'd8.jar')
+                run([os.path.join(java_bin, 'java.exe'), '-cp', shell_r8_jar,
+                     'com.android.tools.r8.R8',
+                     '--release', '--min-api', '21',
+                     '--lib', android_jar,
+                     '--lib', os.path.join(BUILD, 'kkl4dex', 'p4h', 'classes'),
+                     '--pg-conf', r8_shell_pro,
+                     '--output', p_dex_dir, p_jar])
+            else:
+                run([d8, '--release', '--min-api', '21', '--output', p_dex_dir, p_jar])
+            p_dex = os.path.join(p_dex_dir, 'classes.dex')
+            if os.path.isfile(p_dex):
+                k4_dexes[part] = p_dex
+            else:
+                print('警告: 未找到 kkl4(%s) dex 输出: %s' % (part, p_dex))
+        if all(k in k4_dexes for k in k4_order):
+            # bake 期望顺序：shell(pshell) 第一，然后 4a..4i，最后 decoy
+            bake_order = ['pshell'] + [k for k in k4_order if k not in ('pshell', 'pdecoy')] + ['pdecoy']
+            run([sys.executable, os.path.join(HERE, 'gen_kkl4.py'), '--bake'] +
+                [k4_dexes[k] for k in bake_order])
+        else:
+            print('警告: kkl4 十一个业务 dex 不齐，跳过烘焙')
     # 1) aapt2：编译资源 + 链接生成未签名 APK 与 R.java
     res_zip = os.path.join(BUILD, 'res.zip')
     res_dir = os.path.join(APP, 'res')

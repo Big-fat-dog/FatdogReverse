@@ -1,8 +1,15 @@
 /*
- * libturtle.so — L51 雷霆山巅（哈希 + HMAC + 密钥）
+ * libturtle.so — L51 雷霆山巅（密钥体 + 盐头段 + 摘要，名字不体现算法）
  *
- * 编译期常量展开 + SM3 哈希 + HMAC-SHA256 + XOR 密钥数组
- * 被 libshark.so 通过 dlopen/dlsym 加载
+ * 被 libshark.so 通过 dlopen/dlsym 加载。导出名一律中性化，
+ * 只看导出表看不出这里装的是 3DES 密钥 / SM3 盐 / 摘要实现。
+ *
+ * 跨 so + 跨层拼装：
+ *   tt_seed → 24 字节密钥体（只在本关内部使用）
+ *   tt_salt → 盐**头段** 12 字节；尾段 5 字节在 Java（shark 侧跨层回调取件）
+ *   tt_slen → 盐头段长度
+ *   tt_mark → 摘要
+ * 所有密钥/盐数据符号都是 static（不进 .dynsym）。
  */
 
 #include <string>
@@ -92,31 +99,36 @@ static std::string sm3_hex(const uint8_t* data, size_t len) {
 
 extern "C" {
 
-// 24 字节 3DES key：Fatdog_thunder_2026 + 5 x \x00（XOR ^0x4B 藏匿）
-unsigned char DES_KEY_XOR[24] = {
+/* 24 字节密钥体（XOR ^0x4B 藏匿）；static → 不进导出表 */
+static const unsigned char DES_KEY_XOR[24] = {
     0x0d,0x2a,0x3f,0x2f,0x24,0x2c,0x14,0x3f,0x23,0x3e,0x25,0x2f,
     0x2e,0x39,0x14,0x79,0x7b,0x79,0x7d,0x4b,0x4b,0x4b,0x4b,0x4b
 };
-unsigned char SM3_SALT_XOR[17] = {
-    0x6b,0x4c,0x59,0x49,0x42,0x4a,0x72,0x5d,0x48,0x4c,0x46,0x72,
-    0x5e,0x4c,0x41,0x59,0x0c
+/* 盐**头段** 12 字节（XOR ^0x2D 藏匿）；尾段 5 字节在 Java（shark 回调取件） */
+static const unsigned char SALT_HEAD_XOR[12] = {
+    0x6b,0x4c,0x59,0x49,0x42,0x4a,0x72,0x5d,0x48,0x4c,0x46,0x72
 };
-unsigned char DES_KEY[24];
-unsigned char SM3_SALT[17];
-bool KEY51_READY = false;
 
-static void init_keys51h() {
-    if (KEY51_READY) return;
-    for (int i = 0; i < 24; i++) DES_KEY[i] = DES_KEY_XOR[i] ^ 0x4B;
-    for (int i = 0; i < 17; i++) SM3_SALT[i] = SM3_SALT_XOR[i] ^ 0x2D;
-    KEY51_READY = true;
+static unsigned char DES_KEY[24];
+static unsigned char SALT_HEAD[12];
+static bool MARKS_READY = false;
+
+static void prime_marks() {
+    if (MARKS_READY) return;
+    /* 掩码走 volatile：否则 -O2 会把异或折叠成明文常量写进 .rodata */
+    volatile unsigned char k1 = 0x4B;
+    volatile unsigned char k2 = 0x2D;
+    for (int i = 0; i < 24; i++) DES_KEY[i] = (unsigned char)(DES_KEY_XOR[i] ^ k1);
+    for (int i = 0; i < 12; i++) SALT_HEAD[i] = (unsigned char)(SALT_HEAD_XOR[i] ^ k2);
+    MARKS_READY = true;
 }
 
-const unsigned char* getDesKey() { init_keys51h(); return DES_KEY; }
-const unsigned char* getSm3Salt() { init_keys51h(); return SM3_SALT; }
-int getSm3SaltLen() { init_keys51h(); return 17; }
+/* —— 中性导出名（供 libshark.so 运行时 dlsym） —— */
+const unsigned char* tt_seed() { prime_marks(); return DES_KEY; }
+const unsigned char* tt_salt() { prime_marks(); return SALT_HEAD; }
+int tt_slen() { prime_marks(); return 12; }
 
-const char* sm3Compute(const unsigned char* data, int len) {
+const char* tt_mark(const unsigned char* data, int len) {
     static std::string result;
     result = sm3_hex(data, len);
     return result.c_str();

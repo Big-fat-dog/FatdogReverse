@@ -1,34 +1,39 @@
 # -*- coding: utf-8 -*-
-"""KKL3 断魂谷：5 个 so 的生成器。
+"""KKL3 断魂谷：so 生成器（§4.4 整改后 · 二代壳 · 多 DEX + 方法体抽取）。
 
-        ┌── libbeacon.so   JNI 门面（唯一暴露 Java_ 符号）；dlsym 其余四个内核
-        ├── liblattice.so  虚拟机内核：滚动异或解密 + 寄存器 VM 解释执行
+整改（2026-10-11，v3.1 §4.4）：
+  - **撤 VM**：原「寄存器机 liblattice.so」下沉为素材（见 §11），本关不再有 VM。
+    主钥派生逻辑从 VM 字节码迁到 Java 业务片 `3e`（`GateKeeper3.derive`，纯 Java 复刻
+    derive_key 的 mix_byte 逐位一致）；「方法体抽取」作为 FART 三步脱壳法的主战场落在
+    3d/3e 两个方法上。
+  - **so 编队收编为四 so**（门面 + 国密 + 摘要 + 守卫）：
+        ┌── libbeacon.so   JNI 门面（唯一导出 Java_ 符号；dlsym 其余三个内核）
         ├── libbasalt.so   SM4-ECB(PKCS#7) 加解密 + 十六进制编码
         ├── libingot.so    MD5 摘要（取数签名，零 HMAC）
         └── libharbor.so   完整性守卫：TracerPid / 段权限 / 断点 / 模拟器（阈值 2）
+    主钥改由 Java `3e.derive()` 算出后**作为参数**传给门面 `nativeSign(seed, page, ts)`。
 
-五者缺一：门面 dlsym 拿不到内核指针 → 自检报"内核缺失"、签名返回空 → 服务端 403。
-
-数据链（全网络取数，`GET /api/kkl3`）：
-    seed(16B) = VM(真标记 Fatdog_quell + "|kkl3_valley")      ← 只有 VM 字节码里有标记
+数据链（全网络取数，`GET /api/kkl3`，server 口径零改动）：
+    seed(16B) = GateKeeper3.derive()  （= derive_key(Fatdog_quell, "|kkl3_valley")）
     enc       = hex( SM4-ECB(seed, "page=N&ts=T") )
     sign      = md5( hex(seed) + enc )
 服务端：SM4-ECB 解 enc 必须还原出 "page=N&ts=T"，且 sign 必须对得上。
 
-标记：真 = Fatdog_quell（UTF-16 码元作 VM 立即数，加密字节码里不可见）
-      假 = mZ7~qB3#nV9!（诱饵程序另派生一组主钥，服务端不认）
+标记：真 = Fatdog_quell（码元散在 3a.glyph()）；假 = mZ7~qB3#nV9!（pdecoy 诱饵，服务端不认）。
 
 用法：
-    python gen_kkl3.py                     # 生成 5 个 so 源 + 自测
+    python gen_kkl3.py                     # 生成 4 个 so 源 + 自测
     python gen_kkl3.py --selftest          # 只跑自测
+    python gen_kkl3.py --bake <3a.dex> <3b.dex> <3c.dex> <3d.dex> <3e.dex> <decoy.dex>
 """
 import os
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 JNI = os.path.join(HERE, 'app', 'jni')
+APP = os.path.join(HERE, 'app')
 
-# ─────────────── 与 tools/gen_kkl3_vm_program.py 的共享事实（硬约束） ───────────────
+# ─────────────── 与 tools/gen_kkl3_vm_program.py 的共享事实（硬约束，derive 逻辑下沉 Java 后仍保留做对拍） ───────────────
 MARKER = b"Fatdog_quell"
 DECOY = b"mZ7~qB3#nV9!"
 SALT = b"|kkl3_valley"
@@ -36,11 +41,31 @@ PAGES, PER_PAGE, SEED = 100, 10, 20260916
 
 sys.path.insert(0, os.path.join(HERE, 'tools'))
 sys.path.insert(0, os.path.join(HERE, 'tools', ''))
-import gen_kkl3_vm_program as vmgen  # noqa: E402
+import gen_kkl3_vm_program as vmgen  # noqa: E402  （下沉后仅用于对拍 derive_key 与自测）
 
 assert vmgen.MARKER_REAL == MARKER and vmgen.MARKER_DECOY == DECOY and vmgen.SALT_KEY == SALT, \
     '标记/salt 与 VM 生成器不一致'
-TRUE_SEED = vmgen.derive_key(MARKER, SALT, 16)
+TRUE_SEED = vmgen.derive_key(MARKER, SALT, 16)   # 必须 == server KEY_KKL3 = 099e5c5f...0ac7cb
+
+# 方法体抽取目标（3d.mixByte 与 3e.derive 桩化，真实 code_item 进独立 bin）
+import dex_extract  # noqa: E402
+
+EXTRACT_TARGETS = {
+    '3d': [('Lcom/fatdog/reverse/kkl3/GateKeeper3d;', 'mixByte')],
+    '3e': [('Lcom/fatdog/reverse/kkl3/GateKeeper3;', 'derive')],
+}
+
+# 五片加密盐（与 KKL2 风格一致：key 盐/iv 盐各自 MD5 派生，片号用词中性）
+SHARDS = ['edge', 'guard', 'grip', 'blade', 'hilt']
+ASSET_DIR = 'kkl3'
+
+
+def _k_salt(i):
+    return '|kkl3_' + SHARDS[i] + '_vein'
+
+
+def _v_salt(i):
+    return '|kkl3_' + SHARDS[i] + '_frost'
 
 
 # ─────────────────────────── 纯 Python SM4（自测 + 供 server.py 参考） ───────────────────────────
@@ -137,112 +162,6 @@ def sbox_c():
         rows.append('    ' + ', '.join('0x%02X' % b for b in SBOX[i:i + 16]) + ',')
     return 'static const uint8_t SBOX[256] = {\n' + '\n'.join(rows) + '\n};'
 
-
-T_LATTICE = r'''/*
- * lattice —— 太玄之初 KKL3 断魂谷的虚拟机内核。
- *
- * 只做一件事：把滚动异或加密的自定义字节码解密后，用 switch 解释器逐条执行，
- * 把结果寄存器回吐给上层。真标记不在本文件出现——它只以 VM 立即数的形式
- * 潜伏在（加密的）字节码里。
- *
- * 指令编码： word = (imm16 << 16) | (rd << 12) | (rs << 8) | op
- * 跳转语义： 绝对目标（JMP/JEQ/JNE 的 imm16 即目标下标）
- * 由 tools/gen_kkl3_vm_program.py 生成对应字节码，二者必须同步修改。
- */
-#include <stdint.h>
-#include <stdlib.h>
-#include <string.h>
-
-#define LT_VIS __attribute__((visibility("default")))
-
-enum {
-    VM_LDI = 0x01, VM_LDIH = 0x02, VM_MOV = 0x03, VM_ADD = 0x04, VM_ADDK = 0x05,
-    VM_SUB = 0x06, VM_SUBK = 0x07, VM_EOR = 0x08, VM_EORK = 0x09, VM_AND = 0x0A,
-    VM_ANDK = 0x0B, VM_ORR = 0x0C, VM_SHL = 0x0D, VM_SHR = 0x0E, VM_ROR = 0x0F,
-    VM_MULK = 0x10, VM_CMP = 0x11, VM_JMP = 0x12, VM_JEQ = 0x13, VM_JNE = 0x14,
-    VM_NOP = 0x15, VM_HALT = 0x16
-};
-
-/*
- * 解释执行。enc 为滚动异或密文，rolling 为其周期密钥。
- * 返回 true 表示正常 HALT；regs 为 16 个 32 位通用寄存器终值。
- */
-extern "C" LT_VIS bool lt_vm_exec(const uint8_t *enc, size_t enc_len,
-                                  const uint8_t *rolling, size_t roll_len,
-                                  uint32_t regs[16], int *steps_out) {
-    if (!enc || !rolling || roll_len == 0) return false;
-    size_t n = enc_len / 4;
-    if (n == 0) return false;
-    uint32_t *words = (uint32_t *)calloc(n, sizeof(uint32_t));
-    if (!words) return false;
-    for (size_t i = 0; i < enc_len; i++) {
-        uint8_t b = (uint8_t)(enc[i] ^ rolling[i % roll_len]);
-        words[i / 4] |= ((uint32_t)b) << ((i % 4) * 8);
-    }
-    memset(regs, 0, sizeof(uint32_t) * 16);
-    int pc = 0, steps = 0;
-    bool halted = false;
-    while (pc >= 0 && (size_t)pc < n && steps < 500000) {
-        uint32_t w = words[pc];
-        uint32_t op = w & 0xFFu, rs = (w >> 8) & 0xFu, rd = (w >> 12) & 0xFu, imm = (w >> 16) & 0xFFFFu;
-        steps++;
-        bool jumped = false;
-        switch (op) {
-        case VM_LDI:  regs[rd] = (regs[rd] & 0xFFFF0000u) | imm; break;
-        case VM_LDIH: regs[rd] = (regs[rd] & 0x0000FFFFu) | (imm << 16); break;
-        case VM_MOV:  regs[rd] = regs[rs]; break;
-        case VM_ADD:  regs[rd] += regs[rs]; break;
-        case VM_ADDK: regs[rd] += imm; break;
-        case VM_SUB:  regs[rd] -= regs[rs]; break;
-        case VM_SUBK: regs[rd] -= imm; break;
-        case VM_EOR:  regs[rd] ^= regs[rs]; break;
-        case VM_EORK: regs[rd] ^= imm; break;
-        case VM_AND:  regs[rd] &= regs[rs]; break;
-        case VM_ANDK: regs[rd] &= imm; break;
-        case VM_ORR:  regs[rd] |= regs[rs]; break;
-        case VM_SHL:  regs[rd] <<= (imm & 0xFF); break;
-        case VM_SHR:  regs[rd] >>= (imm & 0xFF); break;
-        case VM_ROR: {
-            uint32_t r = imm & 7, v = regs[rd] & 0xFF;
-            regs[rd] = ((v >> r) | (v << (8 - r))) & 0xFF;
-            break;
-        }
-        case VM_MULK: regs[rd] *= imm; break;
-        case VM_CMP:  regs[0] = (regs[rd] == regs[rs]) ? 1u : 0u; break;
-        case VM_JMP:  pc = (int)imm; jumped = true; break;
-        case VM_JEQ:  if (regs[rd] == 0) { pc = (int)imm; jumped = true; } break;
-        case VM_JNE:  if (regs[rd] != 0) { pc = (int)imm; jumped = true; } break;
-        case VM_NOP:  break;
-        case VM_HALT: halted = true; break;
-        default: free(words); return false;
-        }
-        if (halted) break;
-        if (!jumped) pc++;
-    }
-    free(words);
-    if (steps_out) *steps_out = steps;
-    return halted;
-}
-
-/* 取 base_reg 起 nbytes 字节（小端拼装）作为派生结果。 */
-extern "C" LT_VIS bool lt_vm_seed(const uint8_t *enc, size_t enc_len,
-                                  const uint8_t *rolling, size_t roll_len,
-                                  int base_reg, uint8_t *out, int nbytes) {
-    uint32_t regs[16];
-    if (!lt_vm_exec(enc, enc_len, rolling, roll_len, regs, 0)) return false;
-    if (base_reg < 0 || base_reg * 4 + nbytes > 64) return false;
-    for (int i = 0; i < nbytes; i++) {
-        uint32_t v = regs[base_reg + (i / 4)];
-        out[i] = (uint8_t)(v >> ((i % 4) * 8));
-    }
-    return true;
-}
-
-/* 诱饵：同一 VM 里程程序解出的另一组主钥（服务端不认）。 */
-extern "C" LT_VIS void lt_decoy_head(uint8_t *out, int n) {
-    for (int i = 0; i < n && i < 16; i++) out[i] = (uint8_t)(0x5A ^ (i * 0x13));
-}
-'''
 
 T_BASALT = r'''/*
  * basalt —— 太玄之初 KKL3 断魂谷的国密原语内核。
@@ -527,11 +446,11 @@ T_BEACON = r'''/*
  * beacon —— 太玄之初 KKL3 断魂谷的 JNI 门面。
  *
  * 本 so 是全关**唯一**导出 Java_ 符号的库；它自身不含任何算法，
- * 全部内核靠 dlsym(RTLD_DEFAULT) 从其它四个 so 取：
- *     lt_vm_seed  （lattice）  虚拟机派生主钥
+ * 全部内核靠 dlsym(RTLD_DEFAULT) 从其它三个 so 取：
  *     bs_seal/bs_hex（basalt）国密 SM4-ECB 与十六进制
  *     ig_tally    （ingot）    MD5 摘要
  *     hb_scan     （harbor）   完整性守卫
+ * 主钥由 Java 业务片派生后作为参数传入（本关 VM 已下沉，见 gen 文档）。
  * 缺任一内核 → 自检报"内核缺失"，签名返回空串。
  */
 #include <jni.h>
@@ -540,10 +459,8 @@ T_BEACON = r'''/*
 #include <stdio.h>
 #include <string.h>
 #include <string>
+#include <vector>
 
-#include "kkl3_vm_program.h"
-
-typedef bool (*fn_vm_seed)(const uint8_t *, size_t, const uint8_t *, size_t, int, uint8_t *, int);
 typedef int  (*fn_seal)(const uint8_t *, const uint8_t *, size_t, uint8_t *);
 typedef int  (*fn_unseal)(const uint8_t *, const uint8_t *, size_t, uint8_t *);
 typedef void (*fn_hex)(const uint8_t *, size_t, char *);
@@ -551,7 +468,6 @@ typedef void (*fn_tally)(const uint8_t *, size_t, uint8_t *);
 typedef void (*fn_ihex)(const uint8_t *, int, char *);
 typedef int  (*fn_scan)(int *);
 
-static fn_vm_seed g_vm = NULL;
 static fn_seal    g_seal = NULL;
 static fn_unseal  g_unseal = NULL;
 static fn_hex     g_hex = NULL;
@@ -563,8 +479,7 @@ static volatile int g_poisoned = 0;
 static volatile int g_last_bits = 0;
 
 static void bind_kernels(void) {
-    if (g_vm) return;
-    g_vm     = (fn_vm_seed)dlsym(RTLD_DEFAULT, "lt_vm_seed");
+    if (g_seal) return;
     g_seal   = (fn_seal)   dlsym(RTLD_DEFAULT, "bs_seal");
     g_unseal = (fn_unseal) dlsym(RTLD_DEFAULT, "bs_unseal");
     g_hex    = (fn_hex)    dlsym(RTLD_DEFAULT, "bs_hex");
@@ -574,7 +489,7 @@ static void bind_kernels(void) {
 }
 
 static int kernel_missing(void) {
-    return !(g_vm && g_seal && g_hex && g_tally && g_ihex && g_scan);
+    return !(g_seal && g_hex && g_tally && g_ihex && g_scan);
 }
 
 /* 翻位投毒：让本地派生出的主钥与服务端不再一致（服务端恒 403）。 */
@@ -590,9 +505,9 @@ Java_com_fatdog_reverse_Kkl3Native_nativeStatus(JNIEnv *env, jclass) {
     char buf[512];
     if (kernel_missing()) {
         snprintf(buf, sizeof(buf),
-                 "内核编队不完整：虚拟机 %s / 国密 %s / 摘要 %s / 守卫 %s\n"
-                 "lib/ 下五个 so 缺一不可。",
-                 g_vm ? "在位" : "缺失", g_seal ? "在位" : "缺失",
+                 "内核编队不完整：国密 %s / 摘要 %s / 守卫 %s\n"
+                 "lib/ 下四个 so 缺一不可。",
+                 g_seal ? "在位" : "缺失",
                  g_tally ? "在位" : "缺失", g_scan ? "在位" : "缺失");
         return env->NewStringUTF(buf);
     }
@@ -615,7 +530,7 @@ Java_com_fatdog_reverse_Kkl3Native_nativeStatus(JNIEnv *env, jclass) {
 }
 
 extern "C" JNIEXPORT jstring JNICALL
-Java_com_fatdog_reverse_Kkl3Native_nativeSign(JNIEnv *env, jclass, jint page, jlong ts) {
+Java_com_fatdog_reverse_Kkl3Native_nativeSign(JNIEnv *env, jclass, jbyteArray seedArr, jint page, jlong ts) {
     bind_kernels();
     if (kernel_missing()) return env->NewStringUTF("");
     int bits = 0;
@@ -624,11 +539,11 @@ Java_com_fatdog_reverse_Kkl3Native_nativeSign(JNIEnv *env, jclass, jint page, jl
     int hit = ((bits & 1) ? 1 : 0) + ((bits & 2) ? 1 : 0) + ((bits & 4) ? 1 : 0) + ((bits & 8) ? 1 : 0);
 
     uint8_t seed[16];
-    if (!g_vm(kKkl3VmProgramEnc, sizeof(kKkl3VmProgramEnc),
-              kKkl3VmRollingSeed, KKL3_VM_SEED_LEN, 1, seed, 16)) {
+    if (seedArr == NULL || env->GetArrayLength(seedArr) != 16) {
         g_poisoned = 1;
         return env->NewStringUTF("");
     }
+    env->GetByteArrayRegion(seedArr, 0, 16, (jbyte *)seed);
     if (hit >= 2) poison(seed);
 
     char payload[64];
@@ -659,12 +574,79 @@ Java_com_fatdog_reverse_Kkl3Native_nativePoisoned(JNIEnv *env, jclass) {
     (void)env;
     return g_poisoned ? 1 : 0;
 }
+
+/* ============ 多 DEX 装载辅助（§4.4 方法体抽取 + 链式加载） ============ */
+
+/* 片 key = MD5(真标记 + 片 key 盐)；key 盐按片号选（edge/guard/grip/blade/hilt）。 */
+static const char *K_SALT[5] = {
+    "|kkl3_edge_vein", "|kkl3_guard_vein", "|kkl3_grip_vein",
+    "|kkl3_blade_vein", "|kkl3_hilt_vein"
+};
+
+static void shard_key(int shard, uint8_t out[16]) {
+    /* MD5("Fatdog_quell" + K_SALT[shard]) */
+    std::string s = std::string("Fatdog_quell") + K_SALT[shard];
+    g_tally((const uint8_t *)s.data(), s.size(), out);
+}
+
+/* 解密一片桩化 dex：SM4-ECB 解 + 去 PKCS7。 */
+extern "C" JNIEXPORT jbyteArray JNICALL
+Java_com_fatdog_reverse_Kkl3Native_nativeFold(JNIEnv *env, jclass, jbyteArray enc, jint shard) {
+    bind_kernels();
+    if (kernel_missing() || shard < 0 || shard >= 5) return NULL;
+    jsize n = env->GetArrayLength(enc);
+    if (n <= 0 || (n % 16) != 0) return NULL;
+    std::vector<uint8_t> raw((size_t)n);
+    env->GetByteArrayRegion(enc, 0, n, (jbyte *)raw.data());
+    uint8_t key[16];
+    shard_key((int)shard, key);
+    std::vector<uint8_t> out((size_t)n);
+    int m = g_unseal(key, raw.data(), (size_t)n, out.data());
+    if (m <= 0) return NULL;
+    jbyteArray r = env->NewByteArray(m);
+    if (r) env->SetByteArrayRegion(r, 0, m, (const jbyte *)out.data());
+    return r;
+}
+
+/* 回填方法体：把抽取 bin 里的真实 code_item 覆盖回桩化 dex 的原位置。 */
+extern "C" JNIEXPORT jbyteArray JNICALL
+Java_com_fatdog_reverse_Kkl3Native_nativeRebind(JNIEnv *env, jclass,
+                                                jbyteArray stubDex, jbyteArray extractBin) {
+    if (stubDex == NULL || extractBin == NULL) return NULL;
+    jsize dn = env->GetArrayLength(stubDex);
+    jsize bn = env->GetArrayLength(extractBin);
+    if (dn <= 0 || bn < 5) return NULL;
+    std::vector<uint8_t> dex((size_t)dn);
+    std::vector<uint8_t> bin((size_t)bn);
+    env->GetByteArrayRegion(stubDex, 0, dn, (jbyte *)dex.data());
+    env->GetByteArrayRegion(extractBin, 0, bn, (jbyte *)bin.data());
+    if (bin[0] != 'k' || bin[1] != 'k' || bin[2] != 'l' || bin[3] != '3' || bin[4] != 'x') {
+        return NULL;
+    }
+    uint32_t count = 0;
+    memcpy(&count, bin.data() + 5, 4);
+    size_t off = 9;
+    for (uint32_t k = 0; k < count; k++) {
+        if (off + 12 > bin.size()) return NULL;
+        uint32_t method_idx, code_off, code_len;
+        memcpy(&method_idx, bin.data() + off, 4); off += 4;
+        memcpy(&code_off, bin.data() + off, 4);   off += 4;
+        memcpy(&code_len, bin.data() + off, 4);   off += 4;
+        if (off + code_len > bin.size()) return NULL;
+        if (code_off + code_len > dex.size()) return NULL;
+        memcpy(dex.data() + code_off, bin.data() + off, code_len);
+        off += code_len;
+    }
+    jbyteArray r = env->NewByteArray((jsize)dn);
+    if (r) env->SetByteArrayRegion(r, 0, (jsize)dn, (const jbyte *)dex.data());
+    return r;
+}
 '''
 
 
 def c_header():
     return ('/* 自动生成：python gen_kkl3.py —— 请勿手改。 */\n'
-            '/* 太玄之初 KKL3 断魂谷 · 五 so 编队（门面/虚拟机/国密/摘要/守卫）。 */\n\n')
+            '/* 太玄之初 KKL3 断魂谷 · 四 so 编队（门面/国密/摘要/守卫）。 */\n\n')
 
 
 def selftest():
@@ -687,12 +669,12 @@ def selftest():
         d = bytes((i * 7 + 3) & 0xFF for i in range(n))
         if sm4_ecb_dec(key, sm4_ecb_enc(key, d)) != d:
             print('FAIL: SM4 往返失败 len=%d' % n); ok = False
-    # ③ VM 生成器一致
-    got = vmgen.vm_seed(vmgen.encode_program(MARKER, SALT, 16, vmgen.ROLLING_KEY)[1])
-    print('VM    seed  = %s' % got.hex())
-    print('pure  seed  = %s' % TRUE_SEED.hex())
-    if got != TRUE_SEED:
-        print('FAIL: VM 与纯函数不一致'); ok = False
+    # ③ VM 生成器一致（下沉后仅对拍：pure derive_key 必须 == server KEY_KKL3）
+    got = vmgen.derive_key(MARKER, SALT, 16)
+    print('derive_key  = %s' % got.hex())
+    print('server KEY = 099e5c5fb3c42780cb700a338d0ac7cb')
+    if got != TRUE_SEED or got.hex() != '099e5c5fb3c42780cb700a338d0ac7cb':
+        print('FAIL: derive_key 与 server KEY_KKL3 不一致'); ok = False
     # ④ 端到端签名形状
     import hashlib
     payload = b'page=3&ts=1700000000'
@@ -704,8 +686,63 @@ def selftest():
     return ok
 
 
+def _shard_key(i):
+    """第 i 片的 SM4-ECB 密钥 = MD5(真标记 + 片 key 盐) 的 16 字节。"""
+    import hashlib
+    return hashlib.md5(MARKER + _k_salt(i).encode()).digest()
+
+
+def _enc_dex(plain, i):
+    """SM4-ECB 加密一片 dex（key = MD5 派生，盐区分片号）。"""
+    return sm4_ecb_enc(_shard_key(i), plain)
+
+
+def _dec_dex(cipher, i):
+    """SM4-ECB 解密（自测回环）。"""
+    return sm4_ecb_dec(_shard_key(i), cipher)
+
+
+def bake(dex_paths):
+    """构建期：五片业务 dex 各自 SM4-ECB 加密 → assets；其中 3d/3e 先做方法体抽取
+    （桩化 dex + 真实 code_item 进独立明文 bin），再加密埋 assets。诱饵明文落盘。"""
+    assert len(dex_paths) == 6, 'KKL3 bake needs 6 dex (3a..3e + decoy)'
+    asset_dir = os.path.join(APP, 'assets', ASSET_DIR)
+    os.makedirs(asset_dir, exist_ok=True)
+
+    for i in range(5):
+        data = open(dex_paths[i], 'rb').read()
+        assert data[:4] == b'dex\n', 'input not dex: %s' % dex_paths[i]
+        shard_key = ['3a', '3b', '3c', '3d', '3e'][i]
+        # 3d/3e 做方法体抽取（dex 桩化 + 独立明文 bin 存真实 code_item）
+        if shard_key in EXTRACT_TARGETS:
+            targets = EXTRACT_TARGETS[shard_key]
+            bin_path = os.path.join(asset_dir, '%s_extract.bin' % shard_key)
+            data, _table = dex_extract.extract2(dex_paths[i], targets, extract_bin_path=bin_path)
+            print('[bake] %s 抽取 %d 个方法 -> %s' % (shard_key, len(_table), bin_path))
+        # SM4-ECB 加密埋 assets
+        cipher = _enc_dex(data, i)
+        assert _dec_dex(cipher, i) == data, 'bake roundtrip mismatch at shard %d' % i
+        real_path = os.path.join(asset_dir, '%s_vein.bin' % SHARDS[i])
+        open(real_path, 'wb').write(cipher)
+        print('[bake] shard %d (%s/%s) plain %d B -> cipher %d B -> %s'
+              % (i, shard_key, SHARDS[i], len(data), len(cipher), real_path))
+        print('[bake]   key(hex): %s' % _shard_key(i).hex())
+    # 诱饵明文落盘
+    decoy = open(dex_paths[5], 'rb').read()
+    assert decoy[:4] == b'dex\n'
+    decoy_path = os.path.join(asset_dir, 'classes_decoy.dex')
+    open(decoy_path, 'wb').write(decoy)
+    print('[bake] decoy -> %s' % decoy_path)
+    print('[bake] seal(hex): %s' % TRUE_SEED.hex())
+    return asset_dir
+
+
 def main():
     args = sys.argv[1:]
+    if '--bake' in args:
+        # usage: gen_kkl3.py --bake <3a.dex> <3b.dex> <3c.dex> <3d.dex> <3e.dex> <decoy.dex>
+        bake([a for a in args if not a.startswith('--')])
+        return
     ok = selftest()
     if '--selftest' in args:
         sys.exit(0 if ok else 1)
@@ -713,7 +750,6 @@ def main():
         sys.exit(1)
 
     files = {
-        'lattice.cpp': T_LATTICE,
         'basalt.cpp': T_BASALT.replace('__SBOX__', sbox_c()),
         'ingot.cpp': T_INGOT,
         'harbor.cpp': T_HARBOR,
@@ -725,10 +761,12 @@ def main():
             f.write(c_header() + body)
         print('写入 %-14s %6d B' % (name, os.path.getsize(path)))
 
-    old = os.path.join(JNI, 'kkl3.cpp')
-    if os.path.exists(old):
-        os.remove(old)
-        print('删除旧模块 kkl3.cpp')
+    # 撤 lattice（VM 下沉为素材，本关不再生成）
+    for stale in ('kkl3.cpp', 'lattice.cpp'):
+        p = os.path.join(JNI, stale)
+        if os.path.exists(p):
+            os.remove(p)
+            print('删除旧模块 ' + stale)
     print('ALL SOURCES OK')
 
 

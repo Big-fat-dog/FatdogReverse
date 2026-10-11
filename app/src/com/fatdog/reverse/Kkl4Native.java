@@ -24,5 +24,13 @@ public final class Kkl4Native {
     /** 主钥是否已被守卫投毒（1 = 已污染） */
     public static native int nativePoisoned();
 
+    /** 多类壳解密：layer 1=壳层 w.*，layer 2=业务 4a..4i（shard 0..8）。
+     *  密钥由 VM 主钥域分离派生，先过 VM 才有钥匙。 */
+    public static native byte[] nativeFold(byte[] enc, int layer, int shard);
+
+    /** 把业务 DEX 里的 GateKeeper4h.nativeSign 显式绑定（RegisterNatives）。
+     *  返回 1=成功，0=失败。 */
+    public static native int nativeBind(Class<?> target);
+
     private Kkl4Native() {}
 }

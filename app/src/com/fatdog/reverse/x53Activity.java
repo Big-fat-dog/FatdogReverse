@@ -47,7 +47,7 @@ import okhttp3.Response;
  * 破解路线：
  *   ① IDA 分析 3 个 SO，识别 Feistel 与独立魔改 AES 两条分支
  *   ② 还原魔改 S 盒、FK 异或、密钥扩展和两种轮结构
- *   ③ Frida hook Bk53.nativeSign/nativeEnc 拿明文 payload 对拍
+ *   ③ Frida hook 实例桥的 nativeSign/nativeEnc（Bk53 的实例方法）拿明文 payload 对拍
  *   ④ Python 复刻全部加密 + HMAC 签名 + RC4 解密响应
  *
  * Flag: FLAG_18_L53{scorched_fireland}
@@ -62,6 +62,7 @@ public class x53Activity extends Activity {
     private String base;
     private boolean loading;
     private int currentPage = 1;
+    private Bk53 bridge;   // 有状态桥：构造即把取件器 Class 交给 native
 
     private TextView status;
     private final TextView[] cells = new TextView[10];
@@ -72,6 +73,7 @@ public class x53Activity extends Activity {
     @Override protected void onCreate(Bundle b) {
         super.onCreate(b);
         base = NetHost.httpsBase();
+        bridge = new Bk53();
         initClient();
 
         LinearLayout box = new LinearLayout(this);
@@ -283,9 +285,9 @@ public class x53Activity extends Activity {
         status.setText("正在请求第 " + page + " 页…");
         final long ts = System.currentTimeMillis() / 1000;
         String payload = "page=" + page + "&ts=" + ts;
-        String enc = Bk53.nativeEnc(payload, 1);
-        String aes = Bk53.nativeEnc(payload, 2);
-        String sign = Bk53.nativeSign(payload);
+        String enc = bridge.nativeEnc(payload, 1);
+        String aes = bridge.nativeEnc(payload, 2);
+        String sign = bridge.nativeSign(payload);
 
         RequestBody body = new FormBody.Builder()
                 .add("page", String.valueOf(page))
@@ -307,7 +309,7 @@ public class x53Activity extends Activity {
                     String rspBody = rsp.body().string();
                     org.json.JSONObject obj = new org.json.JSONObject(rspBody);
                     String hex = obj.optString("d", "");
-                    String json = Bk53.nativeRc4Decrypt(hex);
+                    String json = bridge.nativeRc4Decrypt(hex);
                     org.json.JSONObject pageObj = new org.json.JSONObject(json);
                     org.json.JSONArray arr = pageObj.optJSONArray("nums");
                     final int[] nums = new int[arr.length()];

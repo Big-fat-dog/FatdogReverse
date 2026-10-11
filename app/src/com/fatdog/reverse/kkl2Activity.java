@@ -21,7 +21,7 @@ import org.json.JSONObject;
 
 import java.io.InputStream;
 import java.lang.reflect.Method;
-import java.security.MessageDigest;
+import java.nio.ByteBuffer;
 import java.util.concurrent.TimeUnit;
 
 import dalvik.system.InMemoryDexClassLoader;
@@ -30,25 +30,27 @@ import okhttp3.Request;
 import okhttp3.Response;
 
 // 太玄之初 KKL2 · 万剑冢：二代壳 · DEX 整体加密 + 内存加载不落盘（★★，服务端取数）。
-// 业务 DEX（com.fatdog.reverse.kkl2.GateKeeper2）构建期用 AES-128-CBC 整体加密后埋进
-// assets/kkl2/echoes_of_blades.bin；libkkl2.so 动态注册两个 native：
-//   nativeUnseal(enc)   → AES-128-CBC 解密出明文 dex 字节
-//   nativeDeriveSeal()   → 取数签名 seal（真标记 Fatdog_tense 藏 UTF-16，MD5 派生）
-// 明文 dex 经 InMemoryDexClassLoader 内存加载（不落盘），取数逻辑只在
-// 加载出的 dex 里：GateKeeper2.sign(seal, ts, page) 签 MD5 逐页取数。
-// 玩家需要：① 认 assets 假壳 classes_decoy.dex → ② 还原解密链 / hook unseal
-// ③ dump 出 dex → ④ 拿 seal → ⑤ MD5 取 100 页求和。
+// 业务 DEX 拆三片（com.fatdog.reverse.kkl2.GateKeeper2a/2b/2c），构建期各自 AES-128-CBC
+// 整体加密后埋进 assets/kkl2/{edge,guard,grip}_vein.bin；libkkl2.so 动态注册两个 native：
+//   nativeFold(enc, shard) → 按片号解密出明文 dex 字节
+//   nativeSeed()           → 取数签名 seal（真标记藏 UTF-16，MD5 派生）
+// 三片明文 dex 经 InMemoryDexClassLoader 链式内存加载（2c.parent=2b、2b.parent=2a，不落盘），
+// 取数逻辑只在加载出的第三片里：GateKeeper2c.sign(seal, ts, page) 签 MD5 逐页取数。
+// 玩家需要：① 认 assets 假壳 classes_decoy.dex → ② 还原解密链 / hook nativeFold
+// ③ dump 出三片 dex → ④ 拿 seal → ⑤ MD5 取 100 页求和。
 public class kkl2Activity extends Activity {
     static final String SUM_HASH = "f2137159e2a60cd3abc4a35309aa1839";
     static final int PAGES = 100;
-    static final String ASSET = "kkl2/echoes_of_blades.bin";
-    static final String BIZ_CLASS = "com.fatdog.reverse.kkl2.GateKeeper2";
+    static final String[] ASSETS = {"kkl2/edge_vein.bin", "kkl2/guard_vein.bin", "kkl2/grip_vein.bin"};
+    static final String BIZ_A = "com.fatdog.reverse.kkl2.GateKeeper2a";
+    static final String BIZ_B = "com.fatdog.reverse.kkl2.GateKeeper2b";
+    static final String BIZ_C = "com.fatdog.reverse.kkl2.GateKeeper2c";
 
     private TextView status;
     private final TextView[] cells = new TextView[10];
     private LinearLayout pageBar;
     private int currentPage = 1;
-    private boolean ready = false;      // dex 是否已解密并内存加载
+    private boolean ready = false;      // 三片 dex 是否已解密并内存加载
     private boolean loading = false;
     private String base;
     private OkHttpClient client;
@@ -74,16 +76,15 @@ public class kkl2Activity extends Activity {
 
         TextView tv = new TextView(this);
         tv.setText("KKL2 · 万剑冢（★★）\n\n"
-                + "业务 DEX 被 AES-128-CBC 整体加密埋在 assets（classes_decoy.dex 是假壳）。\n"
-                + "libkkl2.so 导出表没有 Java_ 符号——两个 native 是 JNI_OnLoad\n"
-                + "动态注册的：nativeUnseal 解 dex、nativeDeriveSeal 给签名 seal。\n"
-                + "解出的 dex 不落盘，InMemoryDexClassLoader 直接内存加载。\n"
-                + "取数签名逻辑只在加载出的 dex 里，100 页 × 每页 10 个数求和。");
+                + "渊底封着三片薄甲，各自藏着一层因果，彼此相扣、缺一不可。\n"
+                + "它们不落地，只在虚空中显形；能看见它们全貌的地方，\n"
+                + "既不在盘上，也不在字面里。\n"
+                + "第三片里藏着一道取数的门，100 页 × 每页 10 个数求和。");
         tv.setGravity(Gravity.CENTER);
         box.addView(tv, Ui.wrap(4));
 
         status = new TextView(this);
-        status.setText("未解密：点击「解密并加载」启动。");
+        status.setText("尚未解开：点击「解甲」启动。");
         status.setGravity(Gravity.CENTER);
         status.setTextColor(ThemeKit.muted(ThemeKit.isDark(this)));
         box.addView(status, Ui.wrap(8));
@@ -149,7 +150,7 @@ public class kkl2Activity extends Activity {
 
         // 解密 + 内存加载
         Button boot = new Button(this);
-        boot.setText("解密并加载业务 DEX");
+        boot.setText("解甲");
         Ui.styleButton(boot);
         boot.setOnClickListener(new View.OnClickListener() {
             @Override public void onClick(View v) {
@@ -199,20 +200,18 @@ public class kkl2Activity extends Activity {
                 new AlertDialog.Builder(kkl2Activity.this)
                         .setTitle("提示")
                         .setMessage("万剑冢分析路线：\n\n"
-                                + "① jadx 看 assets：classes_decoy.dex 是假壳（真壳形状假内容），\n"
-                                + "    真密文在 kkl2/echoes_of_blades.bin（二进制，长度是 16 的倍数）；\n"
-                                + "② so：libkkl2.so 导出表只有 JNI_OnLoad，nativeUnseal /\n"
-                                + "    nativeDeriveSeal 是动态注册的（RegisterNatives）；\n"
-                                + "    解密链 = 真标记派生 16B key + 16B IV → AES-128-CBC 解密\n"
-                                + "    → 去 PKCS7 → 偶数下标镜像交换（std::swap）；\n"
-                                + "③ 标记：明文 yT4!pW8@kR2# 是诱饵，真标记 Fatdog_tense 以\n"
-                                + "    UTF-16 码元藏在 .data（strings -el 才见）；\n"
-                                + "④ 抓 dex：Frida hook nativeUnseal 出口 / InMemoryDexClassLoader\n"
-                                + "    构造点 / dex-dump，dump 后 jadx 看 GateKeeper2.sign(seal,page,ts)\n"
-                                + "    与 magic()；\n"
-                                + "⑤ 取数：nativeDeriveSeal 拿 seal → MD5 逐页取 100 页求和。\n\n"
-                                + "Frida 最短路线：hook nativeDeriveSeal 与 nativeUnseal，把 dex 写回\n"
-                                + "文件再 jadx，签名照抄即可取数。")
+                                + "① 先分真假：assets 里有一件是假的（形似而质空），\n"
+                                + "    真正的三片薄甲是二进制密文（长度是 16 的倍数）；\n"
+                                + "② 看装载：so 导出表很干净，两个入口是运行时才挂牌的；\n"
+                                + "    解开薄甲要走「三段因果」——先还原一把轮钥与一缕冷雾，\n"
+                                + "    再去掉尾部的补丁，最后按镜像位两两归位；\n"
+                                + "③ 认标记：字面里躺着的那串只是幌子，真正的标记以\n"
+                                + "    另一种编码藏在数据段（普通翻找看不到）；\n"
+                                + "④ 抓三片：它们不落地，只能从虚空中掏——在「解完、装进」\n"
+                                + "    那一瞬出手，或逐片把明文字节写回再细看；\n"
+                                + "⑤ 取数：拿到第三片里的门 + 派生的印，逐页取 100 页求和。\n\n"
+                                + "最短路线：在入口出口各下一钩，把三片明文都倒出来，\n"
+                                + "签名照抄即可取数。")
                         .setPositiveButton("知道了", null)
                         .show();
             }
@@ -225,31 +224,40 @@ public class kkl2Activity extends Activity {
         loadPage(1);  // 进入即展示第一页（未就绪时提示）
     }
 
-    /** 后台线程：读 assets 密文 → nativeUnseal 解密 → 内存加载 → 反射缓存业务类 */
+    /** 后台线程：读三片密文 → 各自 nativeFold 解密 → 链式内存加载 → 反射缓存业务类 */
     private void bootBiz() {
         try {
-            setStatus("读取 assets 密文…");
-            byte[] enc = readAssetBytes(ASSET);
-            setStatus("nativeUnseal 解密中…");
-            final byte[] dex = Kkl2Native.nativeUnseal(enc);
-            if (dex == null || dex.length < 8 || !(dex[0] == 'd' && dex[1] == 'e' && dex[2] == 'x')) {
-                throw new IllegalStateException("解出的字节不是 dex（magic 不符），检查解密链");
+            setStatus("读取三片密文…");
+            final byte[][] dex = new byte[3][];
+            for (int i = 0; i < 3; i++) {
+                byte[] enc = readAssetBytes(ASSETS[i]);
+                dex[i] = Kkl2Native.nativeFold(enc, i);
+                if (dex[i] == null || dex[i].length < 8
+                        || !(dex[i][0] == 'd' && dex[i][1] == 'e' && dex[i][2] == 'x')) {
+                    throw new IllegalStateException("第 " + (i + 1) + " 片解出的字节不是 dex（magic 不符），检查解密链");
+                }
             }
-            setStatus("dex 就绪 " + dex.length + " B，InMemoryDexClassLoader 加载中…");
-            final ClassLoader loader = makeLoader(dex);
-            Class<?> cls = Class.forName(BIZ_CLASS, true, loader);
-            final String magic = (String) cls.getMethod("magic").invoke(null);
-            mSign = cls.getMethod("sign", byte[].class, long.class, int.class);
-            seal = Kkl2Native.nativeDeriveSeal();
+            setStatus("三片就绪，链式内存装载中…");
+            final ClassLoader l1 = makeLoader(dex[0]);
+            final ClassLoader l2 = makeLoader(dex[1], l1);
+            final ClassLoader l3 = makeLoader(dex[2], l2);
+            final Class<?> clsA = Class.forName(BIZ_A, true, l1);
+            final Class<?> clsB = Class.forName(BIZ_B, true, l2);
+            final Class<?> clsC = Class.forName(BIZ_C, true, l3);
+            final String magic = (String) clsA.getMethod("magic").invoke(null);
+            final Object ok = clsB.getMethod("markLooksValid", byte[].class)
+                    .invoke(null, new Object[]{new byte[16]});
+            mSign = clsC.getMethod("sign", byte[].class, long.class, int.class);
+            seal = Kkl2Native.nativeSeed();
             if (seal == null || seal.length != 16) {
-                throw new IllegalStateException("派生 seal 形状不对（应 16 字节）");
+                throw new IllegalStateException("派生印形状不对（应 16 字节）");
             }
-            biz = cls;
+            biz = clsC;
             ready = true;
             runOnUiThread(new Runnable() {
                 @Override public void run() {
-                    status.setText("业务类已加载：" + magic + "（seal 16B）— 可以翻页取数了");
-                    Toast.makeText(kkl2Activity.this, "DEX 内存加载成功", Toast.LENGTH_SHORT).show();
+                    status.setText("三片已装载：" + magic + "（印 16B）— 可以翻页取数了");
+                    Toast.makeText(kkl2Activity.this, "三片内存装载成功", Toast.LENGTH_SHORT).show();
                 }
             });
             loadPage(1);
@@ -263,25 +271,33 @@ public class kkl2Activity extends Activity {
         }
     }
 
-    private ClassLoader makeLoader(byte[] dex) throws Exception {
+    private ClassLoader makeLoader(byte[] dex) {
+        return makeLoader(dex, getClassLoader());
+    }
+
+    private ClassLoader makeLoader(byte[] dex, ClassLoader parent) {
         if (Build.VERSION.SDK_INT >= 26) {
-            return new InMemoryDexClassLoader(
-                    java.nio.ByteBuffer.wrap(dex), getClassLoader());
+            return new InMemoryDexClassLoader(ByteBuffer.wrap(dex), parent);
         }
         // API 21-25 降级：落盘临时文件（教学提示——低版本 Android 没有 InMemoryDexClassLoader）
-        java.io.File tmp = new java.io.File(getCacheDir(), "kkl2_biz.dex");
-        java.io.FileOutputStream fos = new java.io.FileOutputStream(tmp);
-        fos.write(dex);
-        fos.close();
+        java.io.File tmp = new java.io.File(getCacheDir(), "kkl2_shard_" + System.nanoTime() + ".dex");
+        java.io.FileOutputStream fos;
+        try {
+            fos = new java.io.FileOutputStream(tmp);
+            fos.write(dex);
+            fos.close();
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
         runOnUiThread(new Runnable() {
             @Override public void run() {
                 Toast.makeText(kkl2Activity.this,
-                        "本机 API<26，InMemoryDexClassLoader 不可用，已降级 DexClassLoader 落盘。",
+                        "本机 API<26，内存装载不可用，已降级落盘。",
                         Toast.LENGTH_LONG).show();
             }
         });
         return new dalvik.system.DexClassLoader(tmp.getAbsolutePath(),
-                getCacheDir().getAbsolutePath(), null, getClassLoader());
+                getCacheDir().getAbsolutePath(), null, parent);
     }
 
     private void loadPage(final int page) {
@@ -292,7 +308,7 @@ public class kkl2Activity extends Activity {
                 @Override public void run() {
                     loading = false;
                     currentPage = 1;
-                    status.setText("未解密：点击「解密并加载」后取数。");
+                    status.setText("尚未解开：点击「解甲」后取数。");
                     renderNav(1);
                 }
             });

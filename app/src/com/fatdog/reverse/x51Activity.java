@@ -36,16 +36,21 @@ import okhttp3.Request;
 import okhttp3.Response;
 
 /**
- * Native大陆 L51 雷霆山巅（3 SO 分离 · 模板 + constexpr）
+ * Native大陆 L51 雷霆山巅（3 so 分离 · 全动态注册 · 跨 so + 跨层拼装）
  *
- * libshark.so  — 主入口 + 3DES-EDE-ECB
- * libturtle.so — SM3 + HMAC + 密钥
- * libquota.so — 业务代码干扰（dlopen 加载）
+ * libshark.so  — 主入口 · 3DES-EDE-ECB（导出表只有 JNI_OnLoad + 一个诱饵门）
+ * libturtle.so — 密钥体 + 盐头段 + 摘要（导出名中性：tt_seed/tt_salt/tt_slen/tt_mark）
+ * libquota.so  — 业务代码干扰（只被 dlopen 进进程，不被调用）
+ *
+ * Java 侧实例桥（Bk51）：只把 Spool 的 Class 常量递给 native，
+ * native 侧用 NewObject 直接造实例 → 回调实例方法取"盐尾段"。
+ * 盐 = libturtle 的头段(12B) + Java 的尾段(5B)，少一段服务端即 403。
  *
  * 破解路线：
- *   ① IDA 定位 TemplateCipher<DesTag> 模板实例化符号
- *   ② dlopen 依赖链追踪：shark → turtle（密钥）
- *   ③ 静态复刻：还原 3DES key + SM3 salt
+ *   ① IDA 打开 libshark.so：导出表只有 JNI_OnLoad → 进它看注册与 dlopen/dlsym（库名/符号名皆密文）；
+ *   ② 追到 libturtle.so：导出名中性，需动态 trace 或逐个试调才知道谁给密钥/盐；
+ *   ③ 跨层：NewObject + CallObjectMethod("<某方法名>") 反查 Java 侧回调目标（R8 改名类）；
+ *   ④ 静态复刻：3DES key + 盐头段 + 盐尾段拼齐，逐页取数。
  *
  * Flag: FLAG_18_L51{thunder_peak}
  */
@@ -59,6 +64,7 @@ public class x51Activity extends Activity {
     private String base;
     private boolean loading;
     private int currentPage = 1;
+    private Bk51 bridge;   // 有状态的 JNI 桥：构造时把取件器的 Class 交给 native
 
     private TextView status;
     private final TextView[] cells = new TextView[10];
@@ -70,6 +76,7 @@ public class x51Activity extends Activity {
         super.onCreate(b);
         base = NetHost.httpsBase();
         initClient();
+        bridge = new Bk51();   // 构造即把取件器 Class 交给 native（跨层拼盐尾段）
 
         LinearLayout box = new LinearLayout(this);
         box.setOrientation(LinearLayout.VERTICAL);
@@ -279,8 +286,8 @@ public class x51Activity extends Activity {
         loading = true;
         status.setText("正在请求第 " + page + " 页…");
         final long ts = System.currentTimeMillis() / 1000;
-        String enc = Bk51.nativeEnc(page, ts);
-        String sig = Bk51.nativeSign(enc);
+        String enc = bridge.nativeEnc(page, ts);
+        String sig = bridge.nativeSign(enc);
         String url = base + "/api/l51?enc=" + enc + "&sig=" + sig + "&ts=" + ts;
         Request req = new Request.Builder().url(url).get().build();
         client.newCall(req).enqueue(new Callback() {

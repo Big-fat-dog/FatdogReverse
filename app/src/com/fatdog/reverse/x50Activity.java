@@ -36,17 +36,22 @@ import okhttp3.Request;
 import okhttp3.Response;
 
 /**
- * Native大陆 L50 幽暗深渊（vtable 虚函数表分发 · AES-128-ECB + SHA-256 + HMAC-SHA256）
+ * Native大陆 L50 幽暗深渊（vtable 分发 · 全动态注册 · 跨层回调 · AES-128-ECB + SHA-256）
  *
- * libcrane.so 导出：
- *   String nativeEnc(int page, long ts)  — AES-128-ECB 加密（返回 hex）
- *   String nativeSign(String enc_hex)    — SHA-256 签名
- *   String getKeyHint()                 — 密钥提示
+ * libcrane.so 的导出表**只剩 JNI_OnLoad**（原有的 Java_* 静态命名导出已改成
+ * RegisterNatives 动态注册，注册用的类名/方法名/签名全是运行时解出的密文）；
+ * 真正的算法类收在匿名命名空间里，nm -D 看不到任何算法名。
+ *
+ * Java 侧实例桥（Bk50）：
+ *   构造函数用反射造出一个 R8 改名类的实例 → bindHolder 交给 so 缓存 →
+ *   so 侧加密时回调该实例的实例方法取 AES 密钥尾段。
+ *   三个主力方法是**实例 native**：nativeEnc / nativeSign / getKeyHint。
  *
  * 破解路线：
- *   ① IDA 定位 vtable → 找到 AesEngine::encrypt 和 Sha256Signer::sign
- *   ② frida 枚举 vtable 指针 → 只 hook 真正被调用的虚函数
- *   ③ 静态复刻：还原 AES key + SHA-256 签名逻辑
+ *   ① IDA 打开 libcrane.so：导出表只有 JNI_OnLoad → 进它看注册了哪几个名字（密文解出）；
+ *   ② 顺 bindHolder → GetMethodID → CallObjectMethod 反查 Java 侧回调目标；
+ *   ③ jadx：Bk50 反射造了 R8 改名类的实例，找到密文数组 + 私有解密函数；
+ *   ④ 掩码常量在 so 里、盐在 Java 里 —— 缺一解出乱码；Frida hook CallObjectMethod 逐页取数。
  *
  * Flag: FLAG_18_L50{abyssal_depths}
  */
@@ -60,6 +65,7 @@ public class x50Activity extends Activity {
     private String base;
     private boolean loading;
     private int currentPage = 1;
+    private Bk50 bridge;   // 有状态的 JNI 桥：构造时反射造取件器实例并交给 native
 
     private TextView status;
     private final TextView[] cells = new TextView[10];
@@ -71,6 +77,7 @@ public class x50Activity extends Activity {
         super.onCreate(b);
         base = NetHost.httpsBase();
         initClient();
+        bridge = new Bk50();
 
         LinearLayout box = new LinearLayout(this);
         box.setOrientation(LinearLayout.VERTICAL);
@@ -307,8 +314,8 @@ public class x50Activity extends Activity {
         status.setText("正在请求第 " + page + " 页…");
 
         final long ts = System.currentTimeMillis() / 1000;
-        String enc = Bk50.nativeEnc(page, ts);
-        String sign = Bk50.nativeSign(enc);
+        String enc = bridge.nativeEnc(page, ts);
+        String sign = bridge.nativeSign(enc);
 
         // GET 请求：enc, sign, ts
         String url = base + "/api/l50?enc=" + enc + "&sign=" + sign + "&ts=" + ts;

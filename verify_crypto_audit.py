@@ -427,78 +427,134 @@ k49_hmac_expected = KEY49_HMAC_SERVER
 check("L49 K49_HMAC XOR ^0x5A decodes to server key", k49_hmac_decoded == k49_hmac_expected,
       f"client={k49_hmac_decoded!r} server={k49_hmac_expected!r}")
 
-# ─── L50: AES + SHA256 (crane.cpp) ───
+# ─── L50: AES + SHA256 (crane.cpp，跨层拼钥) ───
 print("\n=== L50: AES + SHA256 (crane.cpp) ===")
 KEY50_AES_SERVER = b"Fatdog_abys_2026"
-KEY50_HMAC_SERVER = b"Fatdog_depths_2026"
-# crane.cpp: getAesKey() XOR ^0x2A, getHmacKey() XOR ^0x3D.
-K50_AES_NATIVE = [0x6C, 0x4B, 0x5E, 0x4E, 0x45, 0x4D, 0x75, 0x4B,
-                  0x48, 0x53, 0x59, 0x75, 0x18, 0x1A, 0x18, 0x1C]
-K50_HMAC_NATIVE = [0x7B, 0x5C, 0x49, 0x59, 0x52, 0x5A, 0x62, 0x59, 0x58,
-                   0x4D, 0x49, 0x55, 0x4E, 0x62, 0x0F, 0x0D, 0x0F, 0x0B]
-k50_aes_decoded = bytes([b ^ 0x2A for b in K50_AES_NATIVE])
-check("L50 AES key: client XOR ^0x2A decodes to server key", k50_aes_decoded == KEY50_AES_SERVER,
-      f"client={k50_aes_decoded!r} server={KEY50_AES_SERVER!r}")
+# crane.cpp 只存 AES 钥**头段** 12B（XOR ^0x2A）；HMAC 已整体移除（签名改纯 SHA-256）。
+# 尾段 "2026" 在 Java：com.fatdog.reverse.s.Sift.d()（反射 + 私有解密）。
+K50_AES_HEAD_NATIVE = [0x6C, 0x4B, 0x5E, 0x4E, 0x45, 0x4D, 0x75, 0x4B,
+                       0x48, 0x53, 0x59, 0x75]
+k50_head = bytes([b ^ 0x2A for b in K50_AES_HEAD_NATIVE])
+check("L50 AES key head: crane XOR ^0x2A decodes to 'Fatdog_abys_'",
+      k50_head == KEY50_AES_SERVER[:12],
+      f"client={k50_head!r} server_head={KEY50_AES_SERVER[:12]!r}")
+
+# 复刻 Java 侧解密：o[i] = ((c[i]-salt-i*step)&0xFFFF) ^ ((mask>>(i*shift))&0xFF)
+def _java_xor_unpack(c, salt, mask, shift, step):
+    return "".join(
+        chr((((c[i] - salt - i * step) & 0xFFFF) ^ ((mask >> (i * shift)) & 0xFF)))
+        for i in range(len(c))
+    )
+
+def _java_byte_unpack(c, salt, mask, shift, step):
+    """Replicate the Java picker d(): byte-tail variant (values are bytes, not chars)."""
+    return bytes(
+        (((c[i] - salt - i * step) & 0xFF) ^ ((mask >> (i * shift)) & 0xFF)) & 0xFF
+        for i in range(len(c))
+    )
+
+SIFT_A = [0x2E62, 0x2D99, 0x2DC2, 0x2E21]   # Sift 实例字段 a
+SIFT_SALT = 0x2D71                           # Bk50 反射构造 Sift 时传入的 salt
+SIFT_MASK = 0x4B1D27C3                       # crane.cpp K50_MASK（so 侧常量）
+k50_tail = _java_xor_unpack(SIFT_A, SIFT_SALT, SIFT_MASK, 8, 17)
+check("L50 AES key tail: Java Sift decodes to '2026'", k50_tail == "2026",
+      f"client={k50_tail!r}")
+check("L50 AES key = crane 头段 + Java 尾段 == server key",
+      k50_head + k50_tail.encode() == KEY50_AES_SERVER,
+      f"client={k50_head + k50_tail.encode()!r} server={KEY50_AES_SERVER!r}")
 check("L50 AES key is 16 bytes", len(KEY50_AES_SERVER) == 16,
       "AES-128 requires exactly 16 bytes")
-k50_hmac_decoded = bytes([b ^ 0x3D for b in K50_HMAC_NATIVE])
-check("L50 HMAC key: client XOR ^0x3D decodes to server key", k50_hmac_decoded == KEY50_HMAC_SERVER,
-      f"client={k50_hmac_decoded!r} server={KEY50_HMAC_SERVER!r}")
 
-# ─── L51: 3DES + SM3 (turtle.cpp) ───
-print("\n=== L51: 3DES + SM3 (turtle.cpp) ===")
+# ─── L51: 3DES + SM3 (turtle.cpp / shark.cpp，跨 so + 跨层拼盐) ───
+print("\n=== L51: 3DES + SM3 (turtle.cpp / shark.cpp) ===")
 KEY51_3DES_SERVER = b"Fatdog_thunder_2026" + b"\x00" * 5  # 24 bytes
 KEY51_SM3_SALT_SERVER = b"Fatdog_peak_salt!"
-# turtle.cpp: DES_KEY_XOR[] XOR ^0x4B, SM3_SALT_XOR[] XOR ^0x2D
+# turtle.cpp: DES 钥整把（XOR ^0x4B）；盐只存**头段** 12B（XOR ^0x2D）。
 K51_DES_NATIVE = [0x0d,0x2a,0x3f,0x2f,0x24,0x2c,0x14,0x3f,
                   0x23,0x3e,0x25,0x2f,0x2e,0x39,0x14,0x79,
                   0x7b,0x79,0x7d,0x4b,0x4b,0x4b,0x4b,0x4b]
-K51_SALT_NATIVE = [0x6b,0x4c,0x59,0x49,0x42,0x4a,0x72,0x5d,
-                   0x48,0x4c,0x46,0x72,0x5e,0x4c,0x41,0x59,0x0c]
+K51_SALT_HEAD_NATIVE = [0x6b,0x4c,0x59,0x49,0x42,0x4a,0x72,0x5d,
+                        0x48,0x4c,0x46,0x72]
 k51_des_decoded = bytes([b ^ 0x4B for b in K51_DES_NATIVE])
 check("L51 3DES key: client XOR ^0x4B decodes to server key", k51_des_decoded == KEY51_3DES_SERVER,
       f"client={k51_des_decoded!r} server={KEY51_3DES_SERVER!r}")
-k51_salt_decoded = bytes([b ^ 0x2D for b in K51_SALT_NATIVE])
-check("L51 SM3 salt: client XOR ^0x2D decodes to server key", k51_salt_decoded == KEY51_SM3_SALT_SERVER,
-      f"client={k51_salt_decoded!r} server={KEY51_SM3_SALT_SERVER!r}")
+k51_salt_head = bytes([b ^ 0x2D for b in K51_SALT_HEAD_NATIVE])
+check("L51 SM3 salt head: turtle XOR ^0x2D decodes to 'Fatdog_peak_'",
+      k51_salt_head == KEY51_SM3_SALT_SERVER[:12],
+      f"client={k51_salt_head!r} server_head={KEY51_SM3_SALT_SERVER[:12]!r}")
+
+# 盐尾段 "salt!" 在 Java：com.fatdog.reverse.t.Spool.d()
+# （shark 用 NewObject 造实例 → CallObjectMethod("tail") 回调取件）
+SPOOL_T = [0x3B02, 0x3A9B, 0x3B5A, 0x3B84, 0x3B70]
+SPOOL_SALT = 0x3A5C           # shark.cpp SALT_SPOOL
+SPOOL_MASK = 0x71E9B4D5       # shark.cpp MASK_TAIL
+k51_salt_tail = _java_xor_unpack(SPOOL_T, SPOOL_SALT, SPOOL_MASK, 4, 19)
+check("L51 SM3 salt tail: Java Spool decodes to 'salt!'", k51_salt_tail == "salt!",
+      f"client={k51_salt_tail!r}")
+check("L51 SM3 salt = turtle 头段 + Java 尾段 == server key",
+      k51_salt_head + k51_salt_tail.encode() == KEY51_SM3_SALT_SERVER,
+      f"client={k51_salt_head + k51_salt_tail.encode()!r} server={KEY51_SM3_SALT_SERVER!r}")
 
 # ─── L52: Modified SM4 + HMAC (cobra.cpp) ───
 print("\n=== L52: Modified SM4 + HMAC (cobra.cpp) ===")
 KEY52_SM4_SERVER = b"Fatdog_snow_sm4_"
 KEY52_HMAC_SERVER = b"Fatdog_snow_key!"
-# cobra.cpp: K52_SM4_XOR[] XOR ^0x3C, K52_HMAC_XOR[] XOR ^0x3C
-K52_SM4_NATIVE = [0x7a,0x5d,0x48,0x58,0x53,0x5b,0x63,0x4f,
-                  0x52,0x53,0x4b,0x63,0x4f,0x51,0x08,0x63]
+# cobra.cpp 只存 SM4 钥**头段** 12B（XOR ^0x3C）-> cb_seed()
+K52_SM4_HEAD_NATIVE = [0x7a,0x5d,0x48,0x58,0x53,0x5b,0x63,0x4f,
+                       0x52,0x53,0x4b,0x63]
+# cobra.cpp 仍存签名钥整把 16B（XOR ^0x3C）-> cb_mark()
 K52_HMAC_NATIVE = [0x7a,0x5d,0x48,0x58,0x53,0x5b,0x63,0x4f,
                    0x52,0x53,0x4b,0x63,0x57,0x59,0x45,0x1d]
-k52_sm4_decoded = bytes([b ^ 0x3C for b in K52_SM4_NATIVE])
-check("L52 SM4 key: client XOR ^0x3C decodes to server key", k52_sm4_decoded == KEY52_SM4_SERVER,
-      f"client={k52_sm4_decoded!r} server={KEY52_SM4_SERVER!r}")
+k52_sm4_head = bytes([b ^ 0x3C for b in K52_SM4_HEAD_NATIVE])
+check("L52 SM4 head: cobra XOR ^0x3C decodes to Fatdog_snow_",
+      k52_sm4_head == KEY52_SM4_SERVER[:12],
+      f"client={k52_sm4_head!r} server_head={KEY52_SM4_SERVER[:12]!r}")
 k52_hmac_decoded = bytes([b ^ 0x3C for b in K52_HMAC_NATIVE])
-check("L52 HMAC key: client XOR ^0x3C decodes to server key", k52_hmac_decoded == KEY52_HMAC_SERVER,
+check("L52 HMAC key: cobra XOR ^0x3C decodes to server key", k52_hmac_decoded == KEY52_HMAC_SERVER,
       f"client={k52_hmac_decoded!r} server={KEY52_HMAC_SERVER!r}")
+# SM4 钥尾段 "sm4_" 在 Java：com.fatdog.reverse.u.Nip.d()
+NIP_A = [0xE8, 0x1C, 0x77, 0xAD]
+NIP_SALT = 0x5E13
+NIP_MASK = 0x2C7E91A6
+k52_sm4_tail = _java_byte_unpack(NIP_A, NIP_SALT, NIP_MASK, 8, 13)
+check("L52 SM4 tail: Java Nip decodes to sm4_", k52_sm4_tail == KEY52_SM4_SERVER[12:],
+      f"client={k52_sm4_tail!r}")
+check("L52 SM4 key = cobra head + Java tail == server key",
+      k52_sm4_head + k52_sm4_tail == KEY52_SM4_SERVER,
+      f"client={k52_sm4_head + k52_sm4_tail!r} server={KEY52_SM4_SERVER!r}")
 
 # ─── L53: Modified AES + Feistel + HMAC + RC4 (viper.cpp) ───
 print("\n=== L53: Modified AES + Feistel + HMAC + RC4 (viper.cpp) ===")
 KEY53_AES_SERVER = b"Fatdog_aes_key_\x00"
 KEY53_HMAC_SERVER = b"Fatdog_hmac_k53\x00"
 KEY53_RC4_SERVER = b"Fatdog_rc4_k53\x00\x00"
-# viper.cpp: K53_AES_OBFUSC_A[] XOR ^0x3C, etc.
+# viper.cpp: vp_seed / vp_pad 各存整把 16B；vp_mark 只存**头段** 12B。
 K53_AES_NATIVE = [0x7a,0x5d,0x48,0x58,0x53,0x5b,0x63,0x5d,
                   0x59,0x4f,0x63,0x57,0x59,0x45,0x63,0x3c]
-K53_HMAC_NATIVE = [0x7a,0x5d,0x48,0x58,0x53,0x5b,0x63,0x54,
-                   0x51,0x5d,0x5f,0x63,0x57,0x09,0x0f,0x3c]
+K53_HMAC_HEAD_NATIVE = [0x7a,0x5d,0x48,0x58,0x53,0x5b,0x63,0x54,
+                        0x51,0x5d,0x5f,0x63]
 K53_RC4_NATIVE = [0x7a,0x5d,0x48,0x58,0x53,0x5b,0x63,0x4e,
                   0x5f,0x08,0x63,0x57,0x09,0x0f,0x3c,0x3c]
 k53_aes_decoded = bytes([b ^ 0x3C for b in K53_AES_NATIVE])
-check("L53 AES key: client XOR ^0x3C decodes to server key", k53_aes_decoded == KEY53_AES_SERVER,
+check("L53 AES key: viper vp_seed XOR ^0x3C decodes to server key", k53_aes_decoded == KEY53_AES_SERVER,
       f"client={k53_aes_decoded!r} server={KEY53_AES_SERVER!r}")
-k53_hmac_decoded = bytes([b ^ 0x3C for b in K53_HMAC_NATIVE])
-check("L53 HMAC key: client XOR ^0x3C decodes to server key", k53_hmac_decoded == KEY53_HMAC_SERVER,
-      f"client={k53_hmac_decoded!r} server={KEY53_HMAC_SERVER!r}")
+k53_hmac_head = bytes([b ^ 0x3C for b in K53_HMAC_HEAD_NATIVE])
+check("L53 HMAC head: viper vp_mark XOR ^0x3C decodes to Fatdog_hmac_",
+      k53_hmac_head == KEY53_HMAC_SERVER[:12],
+      f"client={k53_hmac_head!r} server_head={KEY53_HMAC_SERVER[:12]!r}")
 k53_rc4_decoded = bytes([b ^ 0x3C for b in K53_RC4_NATIVE])
-check("L53 RC4 key: client XOR ^0x3C decodes to server key", k53_rc4_decoded == KEY53_RC4_SERVER,
+check("L53 RC4 key: viper vp_pad XOR ^0x3C decodes to server key", k53_rc4_decoded == KEY53_RC4_SERVER,
       f"client={k53_rc4_decoded!r} server={KEY53_RC4_SERVER!r}")
+# HMAC 钥尾段 "k53\x00" 在 Java：com.fatdog.reverse.v.Chime.d()
+CHIME_T = [0xD7, 0x8C, 0xBF, 0x76]
+CHIME_SALT = 0x6B24
+CHIME_MASK = 0x1F4A62D8
+k53_hmac_tail = _java_byte_unpack(CHIME_T, CHIME_SALT, CHIME_MASK, 8, 17)
+check("L53 HMAC tail: Java Chime decodes to k53_00", k53_hmac_tail == KEY53_HMAC_SERVER[12:],
+      f"client={k53_hmac_tail!r}")
+check("L53 HMAC key = viper head + Java tail == server key",
+      k53_hmac_head + k53_hmac_tail == KEY53_HMAC_SERVER,
+      f"client={k53_hmac_head + k53_hmac_tail!r} server={KEY53_HMAC_SERVER!r}")
 
 # ─── L52: Modified SM4 + HMAC ───
 print("\n=== L52: Modified SM4 + HMAC ===")
@@ -753,11 +809,11 @@ try:
     _tapir_src = pathlib.Path("app/jni/tapir.cpp").read_text(encoding="utf-8")
     _viper_src = pathlib.Path("app/jni/viper.cpp").read_text(encoding="utf-8")
     check("L53 native dispatch has separate algo=1/algo=2 paths",
-          "if (algo_id == 1) return new FeistelEngine();" in _tapir_src
-          and "if (algo_id == 2) return new AesVariantEngine();" in _tapir_src)
+          "if (algo_id == 1) return new SealOne();" in _tapir_src
+          and "if (algo_id == 2) return new SealTwo();" in _tapir_src)
     check("L53 native exports independent modified AES variant",
-          "int k53AesVariantEncrypt(" in _viper_src
-          and "return aes_variant_encrypt(data, aes_key);" in _viper_src)
+          "int vp_wrap(" in _viper_src
+          and "aes_variant_encrypt(raw, aes_key)" in _viper_src)
     _des3_src = "\n".join(_server_funcs.get(name, "") for name in (
         "_des3_ecb_encrypt_py", "_des3_ecb_decrypt_py"))
     check("L35 3DES helpers use _DES.new",

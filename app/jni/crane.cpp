@@ -1,20 +1,24 @@
 /*
  * libcrane.so — L50 幽暗深渊（Native大陆第 3 关）
  *
- * 特性：vtable 虚函数表分发 · AES-128-ECB + SHA-256 + HMAC-SHA256
+ * 特性：vtable 虚函数表分发 · AES-128-ECB + SHA-256 · 跨层回调 · 全动态注册
  *
- * 正真逻辑（~250 行）：
- *   - class ICipher { virtual std::string encrypt(const std::string& data) = 0; };
- *   - class AesEngine : public ICipher { ... }; — AES-128-ECB
- *   - class Sha256Signer { std::string sign(const std::string& data); }; — SHA-256
- *   - JNI 入口：通过 vtable 分发加密
+ * 静态分析视角（本关刻意堵死"打开 so 一眼看穿"）：
+ *   - 导出表里**只有 JNI_OnLoad**：原来的 Java_* 静态命名导出已改成
+ *     RegisterNatives 动态注册，注册用的类名/方法名/签名全是密文；
+ *   - 真正的算法类（Seal / SealAlpha / SealBeta / Relay）全部落在
+ *     **匿名命名空间**里 —— 连 vtable 与析构函数都不再进 .dynsym；
+ *   - AES 密钥只有头段在本 so（XOR ^0x2A），尾段在 Java（跨层回调取件）。
  *
- * 业务代码（~750 行）— 全部是真实的业务函数名，无人调用：
- *   - UserSessionManager / OrderService / PaymentProcessor / NotificationSender
- *   - CacheManager / ConfigLoader / LogCollector / RateLimiter / ...
+ * 跨层回调（native → Java）：
+ *   Bk50 构造函数用**反射**造出 com.fatdog.reverse.s 包下某个被 R8 改名的
+ *   类实例 → bindHolder(实例) 交给本 so 存成全局引用 → 加密时按方法名回调
+ *   slice(int mask) 取尾段 "2026"；掩码（K50_MASK）只有本 so 知道。
+ *   少了掩码，Java 侧解出来的是乱码 → AES key 拼错 → 服务端 403。
  *
- * 密钥：XOR 数组 → AES key + HMAC key（split across classes）
- * 协议：GET /api/l50?enc=AES 密文&sign=SHA256 签名&ts=T
+ * 业务代码（~600 行）— 真实业务函数名，无人调用，纯干扰。
+ *
+ * 协议：GET /api/l50?enc=AES 密文&sign=SHA256 签名&ts=T（秒级 ts，System.currentTimeMillis()/1000）
  * flag：FLAG_18_L50{abyssal_depths}
  */
 
@@ -33,6 +37,35 @@
 #include <array>
 #include <mutex>
 #include <thread>
+
+/* ============================================================
+ * 字符串密文化：下表全是 XOR 后的字节，运行时 decloak 还原。
+ * 掩码必须走 volatile —— 否则 -O2 会把整表折叠成明文常量写进 .rodata。
+ * ============================================================ */
+static std::string decloak(const unsigned char* enc, size_t n, unsigned char mk) {
+    std::string out(n, '\0');
+    volatile unsigned char m = mk;
+    for (size_t i = 0; i < n; i++) out[i] = (char)(enc[i] ^ m);
+    return out;
+}
+#define DK(ARR, MK) decloak((ARR), sizeof(ARR), (unsigned char)(MK))
+
+/* 类名 / 方法名 / 签名 / 回调锚点 / 提示串 —— 构建期 XOR ^0x5A 密文化 */
+static const unsigned char A_CLS[] = { 0x39,0x35,0x37,0x75,0x3C,0x3B,0x2E,0x3E,0x35,0x3D,0x75,0x28,0x3F,0x2C,0x3F,0x28,0x29,0x3F,0x75,0x18,0x31,0x6F,0x6A };  // com/fatdog/reverse/Bk50
+static const unsigned char A_M1[] = { 0x34,0x3B,0x2E,0x33,0x2C,0x3F,0x1F,0x34,0x39 };  // nativeEnc
+static const unsigned char A_G1[] = { 0x72,0x13,0x10,0x73,0x16,0x30,0x3B,0x2C,0x3B,0x75,0x36,0x3B,0x34,0x3D,0x75,0x09,0x2E,0x28,0x33,0x34,0x3D,0x61 };  // (IJ)Ljava/lang/String;
+static const unsigned char A_M2[] = { 0x34,0x3B,0x2E,0x33,0x2C,0x3F,0x09,0x33,0x3D,0x34 };  // nativeSign
+static const unsigned char A_G2[] = { 0x72,0x16,0x30,0x3B,0x2C,0x3B,0x75,0x36,0x3B,0x34,0x3D,0x75,0x09,0x2E,0x28,0x33,0x34,0x3D,0x61,0x73,0x16,0x30,0x3B,0x2C,0x3B,0x75,0x36,0x3B,0x34,0x3D,0x75,0x09,0x2E,0x28,0x33,0x34,0x3D,0x61 };  // (Ljava/lang/String;)Ljava/lang/String;
+static const unsigned char A_M3[] = { 0x3D,0x3F,0x2E,0x11,0x3F,0x23,0x12,0x33,0x34,0x2E };  // getKeyHint
+static const unsigned char A_G3[] = { 0x72,0x73,0x16,0x30,0x3B,0x2C,0x3B,0x75,0x36,0x3B,0x34,0x3D,0x75,0x09,0x2E,0x28,0x33,0x34,0x3D,0x61 };  // ()Ljava/lang/String;
+static const unsigned char A_M4[] = { 0x38,0x33,0x34,0x3E,0x12,0x35,0x36,0x3E,0x3F,0x28 };  // bindHolder
+static const unsigned char A_G4[] = { 0x72,0x16,0x30,0x3B,0x2C,0x3B,0x75,0x36,0x3B,0x34,0x3D,0x75,0x15,0x38,0x30,0x3F,0x39,0x2E,0x61,0x73,0x0C };  // (Ljava/lang/Object;)V
+static const unsigned char A_CB[] = { 0x29,0x36,0x33,0x39,0x3F };  // slice
+static const unsigned char A_GB[] = { 0x72,0x13,0x73,0x16,0x30,0x3B,0x2C,0x3B,0x75,0x36,0x3B,0x34,0x3D,0x75,0x09,0x2E,0x28,0x33,0x34,0x3D,0x61 };  // (I)Ljava/lang/String;
+static const unsigned char A_HINT[] = { 0x32,0x33,0x34,0x2E,0x05,0x32,0x33,0x3E,0x3E,0x3F,0x34 };  // hint_hidden
+
+/* AES 密钥头段（"Fatdog_abys_" ^0x2A）；尾段在 Java，跨层回调取件 */
+static const unsigned char K50_AES_HEAD[] = { 0x6C,0x4B,0x5E,0x4E,0x45,0x4D,0x75,0x4B,0x48,0x53,0x59,0x75 };
 
 /* ============================================================
  * AES-128-ECB — 标准实现
@@ -202,28 +235,59 @@ static std::string sha256_hex(const std::string& data) {
 }
 
 /* ============================================================
- * HMAC-SHA256
+ * vtable 接口 + 真实加密引擎
+ * —— 全部落在**匿名命名空间**里：具名空间/全局作用域下的多态类会
+ *    把 vtable 与析构函数写进 .dynsym（nm -D 一眼看到 AesEngine 之类），
+ *    放进匿名命名空间后它们变成内部链接，导出表里什么都不剩。
  * ============================================================ */
+namespace {
 
-static std::string hmac_sha256_hex(const std::string& key, const std::string& msg) {
-    std::vector<uint8_t> k(key.begin(), key.end());
-    if (k.size() > 64) {
-        std::string h = sha256_hex(key);
-        k.assign(h.begin(), h.end());
+class Seal {
+public:
+    virtual ~Seal() = default;
+    virtual std::string run(const std::string& key, const std::string& data) = 0;
+};
+
+class SealAlpha : public Seal {           /* AES-128-ECB */
+public:
+    std::string run(const std::string& key, const std::string& data) override {
+        auto out = aes_ecb_encrypt(
+            reinterpret_cast<const uint8_t*>(key.data()),
+            reinterpret_cast<const uint8_t*>(data.data()),
+            data.size());
+        static const char hexc[] = "0123456789abcdef";
+        std::string hex;
+        hex.reserve(out.size() * 2);
+        for (uint8_t b : out) { hex += hexc[b >> 4]; hex += hexc[b & 0x0f]; }
+        return hex;
     }
-    k.resize(64, 0);
-    std::vector<uint8_t> ipad(64), opad(64);
-    for (int i = 0; i < 64; i++) {
-        ipad[i] = k[i] ^ 0x36;
-        opad[i] = k[i] ^ 0x5c;
+};
+
+class SealBeta : public Seal {            /* 摘要 */
+public:
+    std::string run(const std::string& key, const std::string& data) override {
+        (void) key;
+        return sha256_hex(data);
     }
-    std::string inner(reinterpret_cast<char*>(ipad.data()), 64);
-    inner.append(msg);
-    std::string innerHash = sha256_hex(inner);
-    std::string outer(reinterpret_cast<char*>(opad.data()), 64);
-    outer.append(innerHash);
-    return sha256_hex(outer);
-}
+};
+
+/* vtable 分发器：槽位 0=加密、1=摘要 */
+class Relay {
+    Seal* slots_[2];
+public:
+    Relay() { slots_[0] = new SealAlpha(); slots_[1] = new SealBeta(); }
+    ~Relay() { delete slots_[0]; delete slots_[1]; }
+    Relay(const Relay&) = delete;
+    Relay& operator=(const Relay&) = delete;
+    std::string run(int slot, const std::string& key, const std::string& data) {
+        if (slot < 0 || slot >= 2) return std::string();
+        return slots_[slot]->run(key, data);
+    }
+};
+
+} /* anonymous namespace */
+
+static Relay g_relay;
 
 /* ============================================================
  * 伪随机字符串生成器
@@ -239,97 +303,10 @@ static std::string gen_random_string(int len) {
 }
 
 /* ============================================================
- * 真实密钥（XOR 数组，分散在不同类中）
+ * 密钥与算法类已整体下移：密钥头段走 K50_AES_HEAD 密文表 +
+ * 跨层回调拼尾段；算法类收进上方匿名命名空间。此处不再有任何
+ * 以算法命名的具名类（原 KeyProvider/AesEngine/ICipher/CipherDispatcher 已移除）。
  * ============================================================ */
-
-class KeyProvider {
-public:
-    static std::string getAesKey() {
-        // Obfuscated bytes for Fatdog_abys_2026 (XOR ^0x2A).
-        // Keep the array non-static so the compiler cannot fold the decoded key.
-        volatile uint8_t raw[] = {
-            0x6C, 0x4B, 0x5E, 0x4E, 0x45, 0x4D, 0x75, 0x4B,
-            0x48, 0x53, 0x59, 0x75, 0x18, 0x1A, 0x18, 0x1C
-        };
-        std::string key(sizeof(raw), '\0');
-        for (size_t i = 0; i < sizeof(raw); i++) {
-            key[i] = static_cast<char>(raw[i] ^ 0x2A);
-        }
-        return key;
-    }
-    static std::string getHmacKey() {
-        // Obfuscated bytes for Fatdog_depths_2026 (XOR ^0x3D).
-        volatile uint8_t raw[] = {
-            0x7B, 0x5C, 0x49, 0x59, 0x52, 0x5A, 0x62, 0x59, 0x58,
-            0x4D, 0x49, 0x55, 0x4E, 0x62, 0x0F, 0x0D, 0x0F, 0x0B
-        };
-        std::string key(sizeof(raw), '\0');
-        for (size_t i = 0; i < sizeof(raw); i++) {
-            key[i] = static_cast<char>(raw[i] ^ 0x3D);
-        }
-        return key;
-    }
-};
-
-/* ============================================================
- * vtable 接口 + 真实加密引擎
- * ============================================================ */
-
-class ICipher {
-public:
-    virtual ~ICipher() = default;
-    virtual std::string encrypt(const std::string& data) = 0;
-    virtual std::string getAlgorithmName() const = 0;
-};
-
-class AesEngine : public ICipher {
-public:
-    std::string encrypt(const std::string& data) override {
-        std::string key = KeyProvider::getAesKey();
-        auto encrypted = aes_ecb_encrypt(
-            reinterpret_cast<const uint8_t*>(key.data()),
-            reinterpret_cast<const uint8_t*>(data.data()),
-            data.size()
-        );
-        std::string hex;
-        hex.reserve(encrypted.size() * 2);
-        for (uint8_t b : encrypted) {
-            char buf[3];
-            snprintf(buf, sizeof(buf), "%02x", b);
-            hex += buf;
-        }
-        return hex;
-    }
-    std::string getAlgorithmName() const override { return "AES-128-ECB"; }
-};
-
-class Sha256Signer {
-public:
-    std::string sign(const std::string& data) {
-        return sha256_hex(data);
-    }
-};
-
-/* vtable 分发器 */
-class CipherDispatcher {
-    std::map<std::string, std::function<std::string(const std::string&)>> dispatchMap;
-public:
-    CipherDispatcher() {
-        static AesEngine aes;
-        dispatchMap["aes"] = [](const std::string& data) {
-            return aes.encrypt(data);
-        };
-        dispatchMap["sha256"] = [](const std::string& data) {
-            Sha256Signer signer;
-            return signer.sign(data);
-        };
-    }
-    std::string dispatch(const std::string& algo, const std::string& data) {
-        auto it = dispatchMap.find(algo);
-        if (it != dispatchMap.end()) return it->second(data);
-        return "";
-    }
-};
 
 /* ============================================================
  * 业务代码 — 全部是真实的业务函数名，无人调用
@@ -898,39 +875,119 @@ public:
 };
 
 /* ============================================================
- * JNI 入口 — 通过 vtable 分发加密
+ * 跨层回调：AES 密钥尾段由 Java 侧供给
+ *   Bk50 反射造实例 → bindHolder(实例) → 本 so 存全局引用
+ *   加密时按方法名回调 slice(int mask)，mask 是 so 侧常量
  * ============================================================ */
+static JavaVM *g_vm = NULL;
+static jobject g_obj = NULL;
+static jmethodID g_cb = NULL;
 
-static CipherDispatcher g_dispatcher;
-static AesEngine g_aesEngine;
-static Sha256Signer g_signer;
+/* so 侧常量掩码：Java 侧少一个比特，解出来的就是乱码 */
+static const jint K50_MASK = 0x4B1D27C3;
 
-extern "C" {
+static JNIEnv *cur_env() {
+    if (g_vm == NULL) return NULL;
+    JNIEnv *env = NULL;
+    if (g_vm->GetEnv(reinterpret_cast<void **>(&env), JNI_VERSION_1_6) != JNI_OK) return NULL;
+    return env;
+}
 
-JNIEXPORT jstring JNICALL
-Java_com_fatdog_reverse_Bk50_nativeEnc(JNIEnv* env, jobject, jint page, jlong ts) {
+static std::string fetch_tail(JNIEnv *env) {
+    if (env == NULL) env = cur_env();
+    if (env == NULL || g_obj == NULL || g_cb == NULL) return std::string();
+    jstring js = (jstring) env->CallObjectMethod(g_obj, g_cb, K50_MASK);
+    if (js == NULL) return std::string();
+    const char *cs = env->GetStringUTFChars(js, NULL);
+    std::string out;
+    if (cs != NULL) { out.assign(cs); env->ReleaseStringUTFChars(js, cs); }
+    env->DeleteLocalRef(js);
+    if (out == "ERR_JAVA") out.clear();
+    return out;
+}
+
+/* 拼齐 16 字节 AES key：so 头段 + Java 尾段 */
+static std::string aes_key(JNIEnv *env) {
+    std::string head = DK(K50_AES_HEAD, 0x2A);   // "Fatdog_abys_"
+    std::string tail = fetch_tail(env);          // Sift.slice(K50_MASK) -> "2026"
+    if (tail.empty()) return std::string();
+    return head + tail;
+}
+
+/* 诱饵标记（明文可见，strings 可抓） */
+static const char FAKE_MARK[] = "Fatdog_red";
+
+/* ============================================================
+ * JNI 实现（静态命名一律取消；由 JNI_OnLoad 动态注册）
+ * 以下函数名只是 C 侧的普通标识符，不会出现在 .dynsym 里。
+ * ============================================================ */
+static jstring implEnc(JNIEnv* env, jobject, jint page, jlong ts) {
+    std::string key = aes_key(env);
+    if (key.size() != 16) return env->NewStringUTF("");
     std::string payload = "page=" + std::to_string(page) + "&ts=" + std::to_string(ts);
-    // 通过 vtable 分发到 AesEngine::encrypt
-    std::string enc = g_dispatcher.dispatch("aes", payload);
+    std::string enc = g_relay.run(0, key, payload);   // vtable 槽 0 → 加密
     return env->NewStringUTF(enc.c_str());
 }
 
-JNIEXPORT jstring JNICALL
-Java_com_fatdog_reverse_Bk50_nativeSign(JNIEnv* env, jobject, jstring encHex) {
+static jstring implSign(JNIEnv* env, jobject, jstring encHex) {
     const char* hex = env->GetStringUTFChars(encHex, nullptr);
-    std::string encStr(hex);
-    env->ReleaseStringUTFChars(encHex, hex);
-    // 使用 SHA-256 签名
-    std::string sign = g_dispatcher.dispatch("sha256", encStr);
+    std::string encStr = (hex != nullptr) ? std::string(hex) : std::string();
+    if (hex != nullptr) env->ReleaseStringUTFChars(encHex, hex);
+    std::string sign = g_relay.run(1, std::string(), encStr);   // vtable 槽 1 → 摘要
     return env->NewStringUTF(sign.c_str());
 }
 
-JNIEXPORT jstring JNICALL
-Java_com_fatdog_reverse_Bk50_getKeyHint(JNIEnv* env, jobject) {
-    // 诱饵提示（UTF-16 藏在 .rodata 中，strings 默认搜不到）
-    // strings -el libcrane.so 可见 "Fatdog_red"，但那是诱饵
-    // 真正的密钥在 KeyProvider 类中，通过 XOR 数组解码
-    return env->NewStringUTF("hint_hidden");
+static jstring implHint(JNIEnv* env, jobject) {
+    return env->NewStringUTF(DK(A_HINT, 0x5A).c_str());
 }
 
-} /* extern "C" */
+static void implBind(JNIEnv* env, jclass, jobject holder) {
+    if (g_obj != NULL) { env->DeleteGlobalRef(g_obj); g_obj = NULL; }
+    g_cb = NULL;
+    if (holder == NULL) return;
+    g_obj = env->NewGlobalRef(holder);
+    if (g_obj == NULL) return;
+    jclass local = env->GetObjectClass(holder);
+    if (local == NULL) return;
+    std::string cb = DK(A_CB, 0x5A);
+    std::string gb = DK(A_GB, 0x5A);
+    g_cb = env->GetMethodID(local, cb.c_str(), gb.c_str());
+    env->DeleteLocalRef(local);
+}
+
+/* ============================================================
+ * JNI_OnLoad — 运行时构造 JNINativeMethod 表并 RegisterNatives。
+ * 类名/方法名/签名全部来自密文表 → nm -D 只剩 JNI_OnLoad。
+ * ============================================================ */
+
+/* 诱饵导出：Java 侧根本没声明这个方法 —— 纯误导。
+ * 让 strings/nm 能抓到 "Fatdog_red"，并给符号表添一扇假门。 */
+extern "C" JNIEXPORT jstring JNICALL
+Java_com_fatdog_reverse_Bk50_nativeRed(JNIEnv* env, jclass) {
+    return env->NewStringUTF(FAKE_MARK);
+}
+
+extern "C" JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void*) {
+    g_vm = vm;
+    JNIEnv* env = cur_env();
+    if (env != NULL) {
+        std::string cls = DK(A_CLS, 0x5A);
+        jclass c = env->FindClass(cls.c_str());
+        if (c != NULL) {
+            std::string n1 = DK(A_M1, 0x5A), g1 = DK(A_G1, 0x5A);
+            std::string n2 = DK(A_M2, 0x5A), g2 = DK(A_G2, 0x5A);
+            std::string n3 = DK(A_M3, 0x5A), g3 = DK(A_G3, 0x5A);
+            std::string n4 = DK(A_M4, 0x5A), g4 = DK(A_G4, 0x5A);
+            JNINativeMethod m[4];
+            m[0].name = const_cast<char*>(n1.c_str()); m[0].signature = const_cast<char*>(g1.c_str()); m[0].fnPtr = (void*)implEnc;
+            m[1].name = const_cast<char*>(n2.c_str()); m[1].signature = const_cast<char*>(g2.c_str()); m[1].fnPtr = (void*)implSign;
+            m[2].name = const_cast<char*>(n3.c_str()); m[2].signature = const_cast<char*>(g3.c_str()); m[2].fnPtr = (void*)implHint;
+            m[3].name = const_cast<char*>(n4.c_str()); m[3].signature = const_cast<char*>(g4.c_str()); m[3].fnPtr = (void*)implBind;
+            if (env->RegisterNatives(c, m, 4) != JNI_OK && env->ExceptionCheck())
+                env->ExceptionClear();
+        } else if (env->ExceptionCheck()) {
+            env->ExceptionClear();
+        }
+    }
+    return JNI_VERSION_1_6;
+}

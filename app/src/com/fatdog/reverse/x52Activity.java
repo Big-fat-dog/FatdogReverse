@@ -44,7 +44,7 @@ import okhttp3.Response;
  *
  * 破解路线：
  *   ① IDA 识别魔改 SM4（S盒4处换值 + FK异或 + CK循环左移）
- *   ② Frida hook Bk52.nativeSign/nativeEnc 拿明文 payload 对拍
+ *   ② Frida hook 实例桥的 nativeSign/nativeEnc（Bk52 的实例方法）拿明文 payload 对拍
  *   ③ Python 复刻 SM4 加密 + HMAC-SHA256 签名取数
  *
  * Flag: FLAG_18_L52{frozen_snowfield}
@@ -59,6 +59,7 @@ public class x52Activity extends Activity {
     private String base;
     private boolean loading;
     private int currentPage = 1;
+    private Bk52 bridge;   // 有状态桥：构造即把取件器实例交给 native
 
     private TextView status;
     private final TextView[] cells = new TextView[10];
@@ -69,6 +70,7 @@ public class x52Activity extends Activity {
     @Override protected void onCreate(Bundle b) {
         super.onCreate(b);
         base = NetHost.httpsBase();
+        bridge = new Bk52();
         initClient();
 
         LinearLayout box = new LinearLayout(this);
@@ -280,8 +282,8 @@ public class x52Activity extends Activity {
         loading = true;
         status.setText("正在请求第 " + page + " 页…");
         final long ts = System.currentTimeMillis() / 1000;
-        String enc = Bk52.nativeEnc("page=" + page + "&ts=" + ts);
-        String sign = Bk52.nativeSign(page, (int) ts);
+        String enc = bridge.nativeEnc("page=" + page + "&ts=" + ts);
+        String sign = bridge.nativeSign(page, (int) ts);
         String url = base + "/api/l52?page=" + page + "&ts=" + ts + "&enc=" + enc + "&sign=" + sign;
         Request req = new Request.Builder().url(url).get().build();
         client.newCall(req).enqueue(new Callback() {

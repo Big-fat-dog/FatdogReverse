@@ -1,27 +1,28 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-gen_kkl2.py —— 「万剑冢」（KKL2）so 生成器 + 业务 DEX 整体加密烘焙
+gen_kkl2.py —— 「万剑冢」（KKL2）so 生成器 + 业务 DEX 三片加密烘焙
 （C++17 · 二代壳：DEX 整体加密 · 内存加载不落盘 · AES-128-CBC + MD5）
 
 产出 app/jni/kkl2.cpp（libkkl2.so）：
   - 导出表只有 JNI_OnLoad，两个 native 经 RegisterNatives 动态绑定：
-      nativeUnseal(byte[] enc) -> byte[]   解密 assets 里的业务 DEX 密文
-      nativeDeriveSeal()       -> byte[]   取数签名 seal（16B，MD5 派生）
-  - 加密链：plain → 偶数下标镜像交换（std::swap）→ AES-128-CBC(PKCS7)。
-      密钥 key = MD5(真标记 + salt)      （16B，AES-128 key）
-      IV      = MD5(真标记 + iv_salt)    （16B，CBC 初始向量）
-    两者全由 MD5 派生（本关哈希只用 MD5，不用 HMAC）。
+      nativeFold(byte[] enc, int shard) -> byte[]  解密 assets 里某一片业务 DEX 密文
+      nativeSeed()                     -> byte[]    取数签名 seal（16B，MD5 派生）
+  - 加密链（每片）：plain → 偶数下标镜像交换（std::swap）→ AES-128-CBC(PKCS7)。
+      片 key = MD5(真标记 + 片 key 盐)      （16B，AES-128 key）
+      片 iv  = MD5(真标记 + 片 iv 盐)       （16B，CBC 初始向量）
+    三片各自 key/iv 独立（盐区分 edge/guard/grip），全由 MD5 派生（本关哈希只用 MD5）。
   - salt 拆两段用 std::string 运行时拼装（STL 教学点）。
   - 真标记 Fatdog_tense（UTF-16 码元藏 .data）；明文诱饵 yT4!pW8@kR2# 躺 .rodata，
-    用它拼出的 key/IV 解不开密文、验签恒 403。
+    用它拼出的 key/iv 解不开密文、验签恒 403。
 
-取数：sign = MD5( hex(key) + "page=N&ts=T" )（MD5 古典摘要，非 HMAC）。
+取数：sign = MD5( hex(seal) + "page=N&ts=T" )（MD5 古典摘要，非 HMAC）。
+      seal = MD5(真标记 + "|kkl2_swordfield") —— 与 server.py KEY_KKL2 一致（零改动）。
 
 --bake 模式（构建期调用）：
-  python gen_kkl2.py --bake build/kkl2dex/dex/classes.dex
-  → AES-128-CBC 加密业务 dex 写 app/assets/kkl2/echoes_of_blades.bin（二进制密文），
-    并伪造诱饵壳 app/assets/kkl2/classes_decoy.dex（真壳形状假内容）。
+  python gen_kkl2.py --bake <2a.dex> <2b.dex> <2c.dex>
+  → 三片各自 AES-128-CBC 加密写 assets/kkl2/edge_vein.bin、guard_vein.bin、grip_vein.bin，
+    并伪造诱饵壳 assets/kkl2/classes_decoy.dex（真壳形状假内容）。
 
 自测（默认模式）：FIPS-197 AES-128 向量 + 加解密回环 + 派生与 hashlib 一致 +
   诱饵钥不匹配 + 签名向量稳定。
@@ -36,19 +37,31 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 APP = os.path.join(HERE, 'app')
 
-MARKER = "Fatdog_tense"      # 真标记：参与 key/IV 派生（so 内 UTF-16 藏匿）
-DECOY = "yT4!pW8@kR2#"       # 诱饵标记：明文可见，派生出的 key/IV 解不开密文
-SALT_HEAD = "|kkl2_"         # salt 拆两段：SALT_HEAD + SALT_TAIL（STL 拼装）
-SALT_TAIL = "swordfield"
-IV_SALT = "|kkl2_cbc_iv"     # IV 派生用的 salt
+MARKER = "Fatdog_tense"      # 真标记：参与 key/iv/seal 派生（so 内 UTF-16 藏匿）
+DECOY = "yT4!pW8@kR2#"       # 诱饵标记：明文可见，派生出的 key/iv 解不开密文
+SEAL_HEAD = "|kkl2_"         # seal 盐拆两段：SEAL_HEAD + SEAL_TAIL（STL 拼装）
+SEAL_TAIL = "swordfield"
+# 三片（edge=剑刃 / guard=剑格 / grip=剑柄），每片独立 key 盐 / iv 盐
+SHARDS = ["edge", "guard", "grip"]
 ASSET_DIR = "kkl2"
-ASSET_REAL = "echoes_of_blades.bin"      # AES-128-CBC 密文（剑冢深埋）
-ASSET_DECOY = "classes_decoy.dex"        # 诱饵壳：真壳形状、假内容
+ASSET_REAL = ["edge_vein.bin", "guard_vein.bin", "grip_vein.bin"]   # 三片密文
+ASSET_DECOY = "classes_decoy.dex"                                  # 诱饵壳：真壳形状、假内容
 
 # 服务端数字（与 server.py KKL2 区块一致）
 PAGES_KKL2 = 100
 PER_PAGE_KKL2 = 10
 SEED_KKL2 = 20260909
+
+
+def _k_salt(i):
+    """第 i 片的 key 盐（vein = 密钥脉络）。"""
+    return "|kkl2_" + SHARDS[i] + "_vein"
+
+
+def _v_salt(i):
+    """第 i 片的 iv 盐（frost = 冷启动初始向量）。"""
+    return "|kkl2_" + SHARDS[i] + "_frost"
+
 
 # =========================================================================
 # 纯 Python AES-128（ECB 块 + CBC 模式 + PKCS7）—— 用于烘焙/自测，免第三方依赖
@@ -205,14 +218,19 @@ def aes_cbc_decrypt(key, iv, cipher):
 # =========================================================================
 # 密钥派生 / 混淆层 / 加密管线
 # =========================================================================
-def derive_key():
-    """AES-128 密钥 = MD5('Fatdog_tense' + '|kkl2_swordfield')（三方一致：so / server / 本脚本）。"""
-    return hashlib.md5((MARKER + SALT_HEAD + SALT_TAIL).encode()).digest()
+def derive_seal():
+    """取数签名 seal = MD5('Fatdog_tense' + '|kkl2_swordfield')（= server.py KEY_KKL2，零改动）。"""
+    return hashlib.md5((MARKER + SEAL_HEAD + SEAL_TAIL).encode()).digest()
 
 
-def derive_iv():
-    """CBC IV = MD5('Fatdog_tense' + '|kkl2_cbc_iv')。"""
-    return hashlib.md5((MARKER + IV_SALT).encode()).digest()
+def derive_key(i):
+    """第 i 片 AES-128 密钥 = MD5('Fatdog_tense' + 片 key 盐)。"""
+    return hashlib.md5((MARKER + _k_salt(i)).encode()).digest()
+
+
+def derive_iv(i):
+    """第 i 片 CBC IV = MD5('Fatdog_tense' + 片 iv 盐)。"""
+    return hashlib.md5((MARKER + _v_salt(i)).encode()).digest()
 
 
 def mirror_swap(buf):
@@ -226,19 +244,19 @@ def mirror_swap(buf):
     return bytes(x)
 
 
-def enc_dex(plain):
-    """加密业务 dex：镜像交换 → AES-128-CBC(PKCS7)。返回二进制密文。"""
-    return aes_cbc_encrypt(derive_key(), derive_iv(), mirror_swap(plain))
+def enc_dex(plain, i):
+    """加密第 i 片业务 dex：镜像交换 → AES-128-CBC(PKCS7)。返回二进制密文。"""
+    return aes_cbc_encrypt(derive_key(i), derive_iv(i), mirror_swap(plain))
 
 
-def dec_dex(cipher):
-    """解密（自测用）：AES-CBC 解密 → 去 PKCS7 → 镜像交换还原。"""
-    return mirror_swap(_pkcs7_unpad(aes_cbc_decrypt(derive_key(), derive_iv(), cipher)))
+def dec_dex(cipher, i):
+    """解密第 i 片（自测用）：AES-CBC 解密 → 去 PKCS7 → 镜像交换还原。"""
+    return mirror_swap(_pkcs7_unpad(aes_cbc_decrypt(derive_key(i), derive_iv(i), cipher)))
 
 
 def sign_of(ts, page):
-    """取数签名 = MD5(hex(key) + 'page=N&ts=T')（MD5，非 HMAC）。"""
-    return hashlib.md5((derive_key().hex() + "page=%d&ts=%d" % (page, ts)).encode()).hexdigest()
+    """取数签名 = MD5(hex(seal) + 'page=N&ts=T')（MD5，非 HMAC）。"""
+    return hashlib.md5((derive_seal().hex() + "page=%d&ts=%d" % (page, ts)).encode()).hexdigest()
 
 
 def sum_hash():
@@ -264,27 +282,29 @@ def fmt_list(lst, per_line=16):
 
 def gen_cpp() -> str:
     tpl = r'''/*
- * 太玄之初 KKL2：万剑冢——二代壳（DEX 整体加密 · 内存加载不落盘 + JNI 动态注册）。
+ * 太玄之初 KKL2：万剑冢——二代壳（DEX 三片整体加密 · 内存加载不落盘 + JNI 动态注册）。
  *
- * 业务 DEX（com.fatdog.reverse.kkl2.GateKeeper2）构建期被整体加密成
- * assets/kkl2/echoes_of_blades.bin（AES-128-CBC 二进制密文）埋进 APK；本 so 干两件事：
+ * 业务 DEX 拆三片（com.fatdog.reverse.kkl2.GateKeeper2a/2b/2c），构建期各自用
+ * AES-128-CBC 整体加密成 assets/kkl2/{edge,guard,grip}_vein.bin（二进制密文）埋进 APK；
+ * 本 so 干两件事：
  *
- *   1) nativeUnseal(enc)   —— AES-128-CBC 解密 + 去 PKCS7 + 镜像交换还原出明文
- *                            dex 字节，由 Java 侧 InMemoryDexClassLoader 内存加载
- *                            （不落盘，adb pull / 常规 dump 全部失效）。
- *   2) nativeDeriveSeal()   —— 返回取数签名 seal（16B，MD5 派生）。
+ *   1) nativeFold(enc, shard) —— 按片号选盐派生 key/iv，AES-128-CBC 解密 + 去 PKCS7
+ *                                + 镜像交换还原出明文 dex 字节，由 Java 侧
+ *                                InMemoryDexClassLoader 内存加载（不落盘，常规 dump 失效）。
+ *   2) nativeSeed()            —— 返回取数签名 seal（16B，MD5 派生）。
  *
  * 密钥链（全部 MD5 派生，本关哈希只用 MD5，不用 HMAC）：
- *   key = MD5(真标记 Fatdog_tense + "|kkl2_swordfield")    —— 16B，AES-128 密钥 & 签名 seal
- *   iv  = MD5(真标记 + "|kkl2_cbc_iv")                     —— 16B，CBC 初始向量
+ *   seal    = MD5(真标记 Fatdog_tense + "|kkl2_swordfield")     —— 取数签名，server 口径不变
+ *   片 key  = MD5(真标记 + "|kkl2_<片>_vein")                    —— 16B，AES-128 密钥
+ *   片 iv   = MD5(真标记 + "|kkl2_<片>_frost")                   —— 16B，CBC 初始向量
  * 真标记以 UTF-16 码元藏在 .data（strings 哑火，strings -el 才见）；
  * 明文 yT4!pW8@kR2# 是诱饵，用它派生的 key/iv 解不开密文、验签 403。
- * salt 拆两段（SALT_HEAD + SALT_TAIL）用 std::string 运行时拼装——STL 教学点。
+ * seal 盐拆两段（SEAL_HEAD + SEAL_TAIL）用 std::string 运行时拼装——STL 教学点。
  *
- * 玩家需：① 认清 assets 里 classes_decoy.dex 是假壳 → 找到真密文 bin；
- *         ② 还原解密链（AES-128-CBC + 去填充 + 镜像交换；或 hook nativeUnseal 出口抓明文）；
- *         ③ 内存加载/dump 出 dex → 看 GateKeeper2.sign(key,page,ts) 取数逻辑；
- *         ④ nativeDeriveSeal 拿 seal → MD5 签名取数求和通关。
+ * 玩家需：① 认清 assets 里 classes_decoy.dex 是假壳 → 找到三片真密文 bin；
+ *         ② 还原解密链（AES-128-CBC + 去填充 + 镜像交换；或 hook nativeFold 出口抓明文）；
+ *         ③ 内存加载/dump 出三片 dex → 看 GateKeeper2c.sign(seal,page,ts) 取数逻辑；
+ *         ④ nativeSeed 拿 seal → MD5 签名取数求和通关。
  */
 #include <jni.h>
 #include <stdint.h>
@@ -298,12 +318,18 @@ def gen_cpp() -> str:
 static const volatile jchar MARKER[] = {
     __MARKER_U16__
 };
-static const char DECOY[] = "__DECOY__";     /* 明文诱饵：由 kkl2_seal_tag() 引用，保证进 .rodata */
+__attribute__((used)) static const char SHAM[] = "__DECOY__";   /* 明文诱饵：进 .rodata 供误导，不导出符号 */
 
 /* ================= salt 两段拼装（std::string 教学点） ================= */
-static const char SALT_HEAD[] = "__SALT_HEAD__";
-static const char SALT_TAIL[] = "__SALT_TAIL__";
-static const char IV_SALT[]   = "__IV_SALT__";
+static const char SEAL_HEAD[] = "__SEAL_HEAD__";
+static const char SEAL_TAIL[] = "__SEAL_TAIL__";
+/* 三片 key/iv 盐（vein=密钥脉络 / frost=冷启动向量），按片号索引 */
+static const char K_SALT[3][32] = {
+    "__K0__", "__K1__", "__K2__"
+};
+static const char V_SALT[3][32] = {
+    "__V0__", "__V1__", "__V2__"
+};
 
 /* ================= MD5 ================= */
 static const uint32_t MD5_K[64] = {
@@ -324,7 +350,7 @@ static const uint8_t MD5_S[64] = {
 };
 #define ROTL32(x,c) (((x) << (c)) | ((x) >> (32 - (c))))
 
-static void md5(const uint8_t *m, size_t l, uint8_t out[16]) {
+static void zeta(const uint8_t *m, size_t l, uint8_t out[16]) {
     uint32_t a0 = 0x67452301, b0 = 0xefcdab89, c0 = 0x98badcfe, d0 = 0x10325476;
     size_t with_one = l + 1;
     size_t pad = ((56 - (with_one % 64)) + 64) % 64;
@@ -384,8 +410,8 @@ static uint8_t gmul(uint8_t a, uint8_t b) {
     return p;
 }
 
-static void key_expansion(const uint8_t key[16], uint8_t rk[176]) {
-    for (int i = 0; i < 16; i++) rk[i] = key[i];
+static void spread(const uint8_t pad[16], uint8_t rk[176]) {
+    for (int i = 0; i < 16; i++) rk[i] = pad[i];
     uint8_t rcon = 1;
     for (int i = 4; i < 44; i++) {
         uint8_t t[4];
@@ -429,10 +455,10 @@ static void inv_cipher(const uint8_t in[16], const uint8_t rk[176], uint8_t out[
     for (int i = 0; i < 16; i++) out[i] = s[i];
 }
 
-static void aes128_cbc_decrypt(const uint8_t key[16], const uint8_t iv[16],
-                               const uint8_t *in, size_t n, uint8_t *out) {
+static void unravel_cbc(const uint8_t pad[16], const uint8_t iv[16],
+                        const uint8_t *in, size_t n, uint8_t *out) {
     uint8_t rk[176];
-    key_expansion(key, rk);
+    spread(pad, rk);
     uint8_t prev[16];
     memcpy(prev, iv, 16);
     for (size_t off = 0; off + 16 <= n; off += 16) {
@@ -462,27 +488,34 @@ static std::string marker_ascii() {
     return s;
 }
 
-static std::vector<uint8_t> md5_of(const std::string &s) {
+static std::vector<uint8_t> zeta_of(const std::string &s) {
     std::vector<uint8_t> o(16);
-    md5((const uint8_t *)s.data(), s.size(), o.data());
+    zeta((const uint8_t *)s.data(), s.size(), o.data());
     return o;
 }
 
-static std::vector<uint8_t> derive_key() {
-    std::string salt = std::string(SALT_HEAD) + std::string(SALT_TAIL);  /* STL 拼装 */
-    return md5_of(marker_ascii() + salt);
+static std::vector<uint8_t> vein_of(int shard) {
+    /* 第 shard 片的 AES-128 密钥 = MD5(真标记 + 片 key 盐) */
+    return zeta_of(marker_ascii() + std::string(K_SALT[shard]));
 }
 
-static std::vector<uint8_t> derive_iv() {
-    return md5_of(marker_ascii() + std::string(IV_SALT));
+static std::vector<uint8_t> frost_of(int shard) {
+    /* 第 shard 片的 CBC IV = MD5(真标记 + 片 iv 盐) */
+    return zeta_of(marker_ascii() + std::string(V_SALT[shard]));
+}
+
+static std::vector<uint8_t> seal_of() {
+    /* 取数签名 seal = MD5(真标记 + SEAL_HEAD + SEAL_TAIL)，std::string 拼装 */
+    std::string salt = std::string(SEAL_HEAD) + std::string(SEAL_TAIL);
+    return zeta_of(marker_ascii() + salt);
 }
 
 /* ================= 解密：AES-128-CBC → 去 PKCS7 → 镜像交换 ================= */
-static std::vector<uint8_t> unseal_bytes(const uint8_t *in, size_t n) {
-    std::vector<uint8_t> key = derive_key();
-    std::vector<uint8_t> iv = derive_iv();
+static std::vector<uint8_t> unfold_bytes(const uint8_t *in, size_t n, int shard) {
+    std::vector<uint8_t> pad = vein_of(shard);
+    std::vector<uint8_t> iv = frost_of(shard);
     std::vector<uint8_t> v(n);
-    aes128_cbc_decrypt(key.data(), iv.data(), in, n, v.data());
+    unravel_cbc(pad.data(), iv.data(), in, n, v.data());
     size_t m = pkcs7_unpad(v.data(), n);       /* PKCS7 去填充 */
     v.resize(m);
     for (size_t i = 0; i < m / 2; i++) {       /* 镜像交换还原（std::swap） */
@@ -491,17 +524,14 @@ static std::vector<uint8_t> unseal_bytes(const uint8_t *in, size_t n) {
     return v;
 }
 
-/* ================= 诱饵导出（防剧透噪音 / 误导） ================= */
-extern "C" const char *kkl2_seal_tag(void) { return DECOY; }
-extern "C" void kkl2_fake_key(void) {}
-
 /* ================= JNI 动态注册（导出表无 Java_ 符号） ================= */
-static jbyteArray JNICALL nativeUnseal(JNIEnv *env, jclass, jbyteArray enc) {
+static jbyteArray JNICALL nativeFold(JNIEnv *env, jclass, jbyteArray enc, jint shard) {
+    if (shard < 0 || shard >= 3) return NULL;
     jsize n = env->GetArrayLength(enc);
     if (n <= 0 || (n % 16) != 0) return NULL;   /* CBC 密文必为 16 的倍数 */
     std::vector<uint8_t> raw((size_t)n);
     env->GetByteArrayRegion(enc, 0, n, reinterpret_cast<jbyte *>(raw.data()));
-    std::vector<uint8_t> plain = unseal_bytes(raw.data(), (size_t)n);
+    std::vector<uint8_t> plain = unfold_bytes(raw.data(), (size_t)n, (int)shard);
     jbyteArray out = env->NewByteArray((jsize)plain.size());
     if (out) {
         env->SetByteArrayRegion(out, 0, (jsize)plain.size(),
@@ -510,18 +540,18 @@ static jbyteArray JNICALL nativeUnseal(JNIEnv *env, jclass, jbyteArray enc) {
     return out;
 }
 
-static jbyteArray JNICALL nativeDeriveSeal(JNIEnv *env, jclass) {
-    std::vector<uint8_t> key = derive_key();
+static jbyteArray JNICALL nativeSeed(JNIEnv *env, jclass) {
+    std::vector<uint8_t> seal = seal_of();
     jbyteArray out = env->NewByteArray(16);
     if (out) {
-        env->SetByteArrayRegion(out, 0, 16, reinterpret_cast<const jbyte *>(key.data()));
+        env->SetByteArrayRegion(out, 0, 16, reinterpret_cast<const jbyte *>(seal.data()));
     }
     return out;
 }
 
 static const JNINativeMethod METHODS[] = {
-    {"nativeUnseal",    "([B)[B", (void *) &nativeUnseal},
-    {"nativeDeriveSeal", "()[B",   (void *) &nativeDeriveSeal},
+    {"nativeFold",    "([BI)[B", (void *) &nativeFold},
+    {"nativeSeed",    "()[B",    (void *) &nativeSeed},
 };
 
 JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void *reserved) {
@@ -542,23 +572,34 @@ JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void *reserved) {
 '''
     return (tpl.replace('__MARKER_U16__', u16(MARKER))
                 .replace('__DECOY__', DECOY)
-                .replace('__SALT_HEAD__', SALT_HEAD)
-                .replace('__SALT_TAIL__', SALT_TAIL)
-                .replace('__IV_SALT__', IV_SALT)
+                .replace('__SEAL_HEAD__', SEAL_HEAD)
+                .replace('__SEAL_TAIL__', SEAL_TAIL)
+                .replace('__K0__', _k_salt(0)).replace('__K1__', _k_salt(1)).replace('__K2__', _k_salt(2))
+                .replace('__V0__', _v_salt(0)).replace('__V1__', _v_salt(1)).replace('__V2__', _v_salt(2))
                 .replace('__SBOX__', fmt_list(SBOX))
                 .replace('__INV_SBOX__', fmt_list(INV_SBOX)))
 
 
-def bake(dex_path):
-    """构建期：AES-128-CBC 加密业务 dex → assets 密文 + 伪造诱饵壳。"""
-    plain = open(dex_path, 'rb').read()
-    assert plain[:4] == b'dex\n', 'input is not a dex: %r' % plain[:8]
-    cipher = enc_dex(plain)
+def bake(dex_paths):
+    """构建期：三片业务 dex 各自 AES-128-CBC 加密 → assets 密文 + 伪造诱饵壳。"""
+    assert len(dex_paths) == 3, 'KKL2 bake needs exactly 3 dex files'
+    plains = []
+    for p in dex_paths:
+        data = open(p, 'rb').read()
+        assert data[:4] == b'dex\n', 'input is not a dex: %r' % data[:8]
+        plains.append(data)
     asset_dir = os.path.join(APP, 'assets', ASSET_DIR)
     os.makedirs(asset_dir, exist_ok=True)
-    real_path = os.path.join(asset_dir, ASSET_REAL)
-    with open(real_path, 'wb') as f:
-        f.write(cipher)
+    for i in range(3):
+        cipher = enc_dex(plains[i], i)
+        real_path = os.path.join(asset_dir, ASSET_REAL[i])
+        with open(real_path, 'wb') as f:
+            f.write(cipher)
+        assert dec_dex(cipher, i) == plains[i], 'bake roundtrip mismatch at shard %d!' % i
+        print('[bake] shard %d (%s) plain %d B -> cipher %d B' % (i, SHARDS[i], len(plains[i]), len(cipher)))
+        print('[bake]   -> %s' % real_path)
+        print('[bake]   key(hex): %s' % derive_key(i).hex())
+        print('[bake]   iv(hex) : %s' % derive_iv(i).hex())
     # 诱饵壳：真 dex magic + 假头/垃圾/明文误导串
     junk = bytearray(0x100)
     for i in range(len(junk)):
@@ -568,15 +609,11 @@ def bake(dex_path):
     decoy_path = os.path.join(asset_dir, ASSET_DECOY)
     open(decoy_path, 'wb').write(decoy)
     total, sh = sum_hash()
-    assert dec_dex(cipher) == plain, 'bake roundtrip mismatch!'
-    print('[bake] plain dex %d B -> cipher %d B' % (len(plain), len(cipher)))
-    print('[bake] real : %s' % real_path)
     print('[bake] decoy: %s' % decoy_path)
-    print('[bake] key(hex): %s' % derive_key().hex())
-    print('[bake] iv(hex) : %s' % derive_iv().hex())
+    print('[bake] seal(hex): %s' % derive_seal().hex())
     print('[bake] sum=%d md5=%s' % (total, sh))
     print('[bake] roundtrip OK')
-    return real_path
+    return asset_dir
 
 
 def self_test():
@@ -587,30 +624,38 @@ def self_test():
     rk = _expand_key(key)
     assert aes_encrypt_block(pt, rk).hex() == want, 'AES encrypt vector failed'
     assert aes_decrypt_block(bytes.fromhex(want), rk) == pt, 'AES decrypt vector failed'
-    # 2) CBC 加解密回环（含真实 dex magic）
+    # 2) CBC 加解密回环（含真实 dex magic，三片各自 key/iv）
     sample = (b'dex\n035\0' + bytes(range(256)) * 5)
-    assert dec_dex(enc_dex(sample)) == sample, 'roundtrip failed'
-    # 3) key/iv 派生与 hashlib 一致
-    assert derive_key().hex() == hashlib.md5((MARKER + SALT_HEAD + SALT_TAIL).encode()).hexdigest()
-    assert derive_iv().hex() == hashlib.md5((MARKER + IV_SALT).encode()).hexdigest()
-    assert derive_key() != derive_iv()
-    # 4) 诱饵派生 != 真派生（学员用 yT4!pW8@kR2# 拼不出正确 key）
-    decoy_key = hashlib.md5((DECOY + SALT_HEAD + SALT_TAIL).encode()).digest()
-    assert decoy_key != derive_key()
-    # 5) 签名向量稳定
+    for i in range(3):
+        assert dec_dex(enc_dex(sample, i), i) == sample, 'roundtrip failed at shard %d' % i
+    # 3) key/iv/seal 派生与 hashlib 一致
+    assert derive_seal().hex() == hashlib.md5((MARKER + SEAL_HEAD + SEAL_TAIL).encode()).hexdigest()
+    for i in range(3):
+        assert derive_key(i).hex() == hashlib.md5((MARKER + _k_salt(i)).encode()).hexdigest()
+        assert derive_iv(i).hex() == hashlib.md5((MARKER + _v_salt(i)).encode()).hexdigest()
+    # 4) 三片 key 两两不同、且都不同于 seal
+    ks = [derive_key(i) for i in range(3)]
+    vs = [derive_iv(i) for i in range(3)]
+    assert len(set(ks)) == 3 and len(set(vs)) == 3
+    assert derive_seal() not in ks and derive_seal() not in vs
+    # 5) 诱饵派生 != 真派生（学员用 yT4!pW8@kR2# 拼不出正确 key）
+    decoy_key = hashlib.md5((DECOY + _k_salt(0)).encode()).digest()
+    assert decoy_key != derive_key(0)
+    # 6) 签名向量稳定
     assert sign_of(1780000000, 7) == sign_of(1780000000, 7)
     total, sh = sum_hash()
     print('[self-test] AES FIPS-197 vector OK')
-    print('[self-test] roundtrip OK; key=%s' % derive_key().hex())
-    print('[self-test] iv =%s' % derive_iv().hex())
+    print('[self-test] roundtrip x3 OK; seal=%s' % derive_seal().hex())
+    for i in range(3):
+        print('[self-test] shard %d key=%s iv=%s' % (i, derive_key(i).hex(), derive_iv(i).hex()))
     print('[self-test] decoy key differs OK; sum=%d md5=%s' % (total, sh))
 
 
 def main():
     if len(sys.argv) > 1 and sys.argv[1] == '--bake':
-        if len(sys.argv) < 3:
-            sys.exit('usage: gen_kkl2.py --bake <path/to/classes.dex>')
-        bake(sys.argv[2])
+        if len(sys.argv) != 5:
+            sys.exit('usage: gen_kkl2.py --bake <2a.dex> <2b.dex> <2c.dex>')
+        bake(sys.argv[2:5])
         return
     cpp = gen_cpp()
     out = os.path.join(APP, 'jni', 'kkl2.cpp')

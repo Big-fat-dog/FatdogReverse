@@ -216,6 +216,15 @@ def fmt_words(words, perline=4, indent="        "):
     return "\n".join(rows)
 
 
+def fmt_array(data, perline=12, indent="    "):
+    """生成 C++ std::array 初始化列表（无花括号，外层由模板补全）。"""
+    rows = []
+    for i in range(0, len(data), perline):
+        chunk = data[i:i + perline]
+        rows.append(indent + ",".join("0x%02x" % v for v in chunk) + ",")
+    return "\n".join(rows)
+
+
 C_TEMPLATE = r"""/* libivory.so ——「幽泉之眼」（由 gen_kl8.py 生成，勿手改）
  * 手写 SM4：FK 与 S 盒均为标准——认骨架足够（S 盒开头 d6 90 e9 fe，
  * FK 开头 a3b1bac6）；但轮常量 CK 的最后 8 个值（idx24..31）被换过血，
@@ -630,6 +639,558 @@ int main(void) {
 """
 
 
+CPP_TEMPLATE = r"""/* libivory.so ——「幽泉之眼」（由 gen_kl8.py 生成，勿手改）
+ * 手写 SM4（C++ 版）：FK 与 S 盒均为标准——认骨架足够（S 盒开头 d6 90 e9 fe，
+ * FK 开头 a3b1bac6）；但轮常量 CK 的最后 8 个值（idx24..31）被换过血，
+ * 因此第 25~32 轮的轮密钥全部跑偏，标准 SM4 解不开本关密文。
+ *
+ * 密钥全部运行时派生：
+ *   sm4_key = sha256(<标记>|"sm4") 前 16 字节
+ *   mac     = sha256(<标记>|"mac") 全 32 字节
+ * 真标记存成 UTF-16 码元数组（非 static 非 const 全局），默认 strings 不显示；
+ * 另有一个明文诱饵标记与一段假密文等着粗心的猎物。
+ *
+ * C++ 化要点（算法语义零漂移，仅承载方式升级）：
+ *   - std::array 载 S 盒 / FK / CK（进 .rodata，strings 拿不到）；
+ *   - Sm4Variant 结构体打包换血点 CK，真身=魔改 CK、诱饵=标准 CK，虚派发；
+ *   - Codec 抽象基类（构造派生密钥 / 析构 secure_zero）+ Sm4EcbCodec 真身
+ *     与 StdCkCodec / DecoyCodec 两个诱饵派生类 + 工厂 make_codec；
+ *   - std::vector 载 32 轮轮密钥（静态不可见，须跟运行时构造）；
+ *   - JNI 走 JNI_OnLoad + RegisterNatives 动态注册（导出仅 JNI_OnLoad，
+ *     不泄漏类名/方法名）；内部函数中性化命名。
+ */
+#include <array>
+#include <vector>
+#include <cstring>
+#include <cstdio>
+
+#ifndef M3_HOST_TEST
+#include <jni.h>
+#endif
+
+/* 标准系统参数（共享） */
+static constexpr std::array<unsigned char, 256> SBOX = {
+@SBOX@
+};
+
+static constexpr std::array<unsigned int, 4> FK = {0xa3b1bac6,0x56aa3350,0x677d9197,0xb27022dc};
+
+/* 换血点打包：轮常量 CK（32 个 32 位字）。真身=魔改尾 8 值，诱饵=标准。 */
+struct Sm4Variant {
+    std::array<unsigned int, 32> ck;
+};
+
+/* 魔改 CK：前 24 个标准（=(4i+j)*7 mod 256 规律）；最后 8 个被换血（本关魔改点） */
+static const Sm4Variant SM4_MOD = {
+    { @CKMOD@ },
+};
+
+/* 标准 CK：标准 SM4 的轮常量，解不开本关密文 */
+static const Sm4Variant SM4_STD = {
+    { @CKSTD@ },
+};
+
+/* 真标记 UTF-16 码元：非 static 非 const 全局，防止编译器常量折叠进指令流 */
+unsigned short MARK[@MARKLEN@] = {
+@MARKER@
+};
+
+/* 明文诱饵标记：非 static 保证落盘，strings 一眼可见，一字之差 */
+const char DECOY_MARK[] = "@DECOY@";
+
+/* 假密文：用诱饵标记派生的钥加密的一段"像样"假载荷 */
+static const std::array<unsigned char, 32> DECOY_BLOB = {
+@DBLOB@
+};
+
+/* ---------- SHA-256（任意长度） ---------- */
+
+static constexpr std::array<unsigned int, 64> K256 = {
+    0x428a2f98,0x71374491,0xb5c0fbcf,0xe9b5dba5,0x3956c25b,0x59f111f1,0x923f82a4,0xab1c5ed5,
+    0xd807aa98,0x12835b01,0x243185be,0x550c7dc3,0x72be5d74,0x80deb1fe,0x9bdc06a7,0xc19bf174,
+    0xe49b69c1,0xefbe4786,0x0fc19dc6,0x240ca1cc,0x2de92c6f,0x4a7484aa,0x5cb0a9dc,0x76f988da,
+    0x983e5152,0xa831c66d,0xb00327c8,0xbf597fc7,0xc6e00bf3,0xd5a79147,0x06ca6351,0x14292967,
+    0x27b70a85,0x2e1b2138,0x4d2c6dfc,0x53380d13,0x650a7354,0x766a0abb,0x81c2c92e,0x92722c85,
+    0xa2bfe8a1,0xa81a664b,0xc24b8b70,0xc76c51a3,0xd192e819,0xd6990624,0xf40e3585,0x106aa070,
+    0x19a4c116,0x1e376c08,0x2748774c,0x34b0bcb5,0x391c0cb3,0x4ed8aa4a,0x5b9cca4f,0x682e6ff3,
+    0x748f82ee,0x78a5636f,0x84c87814,0x8cc70208,0x90befffa,0xa4506ceb,0xbef9a3f7,0xc67178f2
+};
+
+static inline unsigned int m3_rotr(unsigned int x, int n) { return (x >> n) | (x << (32 - n)); }
+
+static void m3_sha_block(unsigned int h[8], const unsigned char p[64]) {
+    unsigned int w[64];
+    unsigned int a,b,c,d,e,f,g,hh,t1,t2,S0,S1,mj;
+    int i;
+    for (i = 0; i < 16; i++)
+        w[i] = ((unsigned int)p[4*i]<<24)|((unsigned int)p[4*i+1]<<16)
+             | ((unsigned int)p[4*i+2]<<8)|(unsigned int)p[4*i+3];
+    for (i = 16; i < 64; i++) {
+        unsigned int s0 = m3_rotr(w[i-15],7) ^ m3_rotr(w[i-15],18) ^ (w[i-15]>>3);
+        unsigned int s1 = m3_rotr(w[i-2],17) ^ m3_rotr(w[i-2],19) ^ (w[i-2]>>10);
+        w[i] = w[i-16] + s0 + w[i-7] + s1;
+    }
+    a=h[0];b=h[1];c=h[2];d=h[3];e=h[4];f=h[5];g=h[6];hh=h[7];
+    for (i = 0; i < 64; i++) {
+        S1 = m3_rotr(e,6)^m3_rotr(e,11)^m3_rotr(e,25);
+        t1 = hh + S1 + ((e&f)^((~e)&g)) + K256[i] + w[i];
+        S0 = m3_rotr(a,2)^m3_rotr(a,13)^m3_rotr(a,22);
+        mj = (a&b)^(a&c)^(b&c);
+        t2 = S0 + mj;
+        hh=g; g=f; f=e; e=d+t1; d=c; c=b; b=a; a=t1+t2;
+    }
+    h[0]+=a;h[1]+=b;h[2]+=c;h[3]+=d;h[4]+=e;h[5]+=f;h[6]+=g;h[7]+=hh;
+}
+
+static void m3_sha256(const unsigned char *msg, unsigned int len, unsigned char out[32]) {
+    unsigned int h[8];
+    unsigned int off;
+    unsigned char tail[128];
+    unsigned int rem, tlen, i;
+    unsigned long long bits = (unsigned long long)len * 8ULL;
+    h[0]=0x6a09e667;h[1]=0xbb67ae85;h[2]=0x3c6ef372;h[3]=0xa54ff53a;
+    h[4]=0x510e527f;h[5]=0x9b05688c;h[6]=0x1f83d9ab;h[7]=0x5be0cd19;
+    for (off = 0; off + 64 <= len; off += 64)
+        m3_sha_block(h, msg + off);
+    rem = len - off;
+    std::memset(tail, 0, sizeof(tail));
+    std::memcpy(tail, msg + off, rem);
+    tail[rem] = 0x80;
+    tlen = (rem + 9 <= 64) ? 64 : 128;
+    for (i = 0; i < 8; i++)
+        tail[tlen - 1 - i] = (unsigned char)((bits >> (8 * i)) & 0xFF);
+    m3_sha_block(h, tail);
+    if (tlen == 128) m3_sha_block(h, tail + 64);
+    for (i = 0; i < 8; i++) {
+        out[4*i]   = (unsigned char)(h[i]>>24);
+        out[4*i+1] = (unsigned char)(h[i]>>16);
+        out[4*i+2] = (unsigned char)(h[i]>>8);
+        out[4*i+3] = (unsigned char)(h[i]);
+    }
+}
+
+/* ---------- MD5（供 HMAC-MD5 使用；SHA-256 仍负责密钥派生） ---------- */
+
+static constexpr std::array<unsigned int, 64> m3_md5_k = {
+    0xd76aa478,0xe8c7b756,0x242070db,0xc1bdceee,0xf57c0faf,0x4787c62a,0xa8304613,0xfd469501,
+    0x698098d8,0x8b44f7af,0xffff5bb1,0x895cd7be,0x6b901122,0xfd987193,0xa679438e,0x49b40821,
+    0xf61e2562,0xc040b340,0x265e5a51,0xe9b6c7aa,0xd62f105d,0x02441453,0xd8a1e681,0xe7d3fbc8,
+    0x21e1cde6,0xc33707d6,0xf4d50d87,0x455a14ed,0xa9e3e905,0xfcefa3f8,0x676f02d9,0x8d2a4c8a,
+    0xfffa3942,0x8771f681,0x6d9d6122,0xfde5380c,0xa4beea44,0x4bdecfa9,0xf6bb4b60,0xbebfbc70,
+    0x289b7ec6,0xeaa127fa,0xd4ef3085,0x04881d05,0xd9d4d039,0xe6db99e5,0x1fa27cf8,0xc4ac5665,
+    0xf4292244,0x432aff97,0xab9423a7,0xfc93a039,0x655b59c3,0x8f0ccc92,0xffeff47d,0x85845dd1,
+    0x6fa87e4f,0xfe2ce6e0,0xa3014314,0x4e0811a1,0xf7537e82,0xbd3af235,0x2ad7d2bb,0xeb86d391
+};
+
+static constexpr std::array<unsigned char, 64> m3_md5_s = {
+    7,12,17,22, 7,12,17,22, 7,12,17,22, 7,12,17,22,
+    5, 9,14,20, 5, 9,14,20, 5, 9,14,20, 5, 9,14,20,
+    4,11,16,23, 4,11,16,23, 4,11,16,23, 4,11,16,23,
+    6,10,15,21, 6,10,15,21, 6,10,15,21, 6,10,15,21
+};
+
+#define M3_ROTL(x,n) (((x)<<(n))|((x)>>(32-(n))))
+
+static void m3_md5_block(unsigned int h[4], const unsigned char *p) {
+    unsigned int a=h[0], b=h[1], c=h[2], d=h[3];
+    unsigned int m[16], f, g, tmp, i;
+    for (i = 0; i < 16; i++)
+        m[i] = (unsigned int)p[4*i] | ((unsigned int)p[4*i+1] << 8) |
+               ((unsigned int)p[4*i+2] << 16) | ((unsigned int)p[4*i+3] << 24);
+    for (i = 0; i < 64; i++) {
+        if (i < 16)      { f = (b & c) | ((~b) & d); g = i; }
+        else if (i < 32) { f = (d & b) | ((~d) & c); g = (5*i + 1) & 15; }
+        else if (i < 48) { f = b ^ c ^ d;            g = (3*i + 5) & 15; }
+        else             { f = c ^ (b | (~d));       g = (7*i) & 15; }
+        tmp = d; d = c; c = b;
+        b = b + M3_ROTL(a + f + m3_md5_k[i] + m[g], m3_md5_s[i]);
+        a = tmp;
+    }
+    h[0]+=a; h[1]+=b; h[2]+=c; h[3]+=d;
+}
+
+static void m3_md5(const unsigned char *msg, unsigned int len, unsigned char out[16]) {
+    unsigned int h[4], off, rem, tlen, i;
+    unsigned char tail[128];
+    unsigned long long bits = (unsigned long long)len * 8ULL;
+    h[0]=0x67452301; h[1]=0xefcdab89; h[2]=0x98badcfe; h[3]=0x10325476;
+    for (off = 0; off + 64 <= len; off += 64)
+        m3_md5_block(h, msg + off);
+    rem = len - off;
+    std::memset(tail, 0, sizeof(tail));
+    std::memcpy(tail, msg + off, rem);
+    tail[rem] = 0x80;
+    tlen = (rem + 9 <= 64) ? 64 : 128;
+    /* MD5 长度字段为 64 位【小端】（与 SHA-256 的大端相反，勿照抄） */
+    for (i = 0; i < 8; i++)
+        tail[tlen - 8 + i] = (unsigned char)((bits >> (8 * i)) & 0xFF);
+    m3_md5_block(h, tail);
+    if (tlen == 128) m3_md5_block(h, tail + 64);
+    for (i = 0; i < 4; i++) {
+        out[4*i]   = (unsigned char)(h[i] & 0xFF);
+        out[4*i+1] = (unsigned char)((h[i] >> 8) & 0xFF);
+        out[4*i+2] = (unsigned char)((h[i] >> 16) & 0xFF);
+        out[4*i+3] = (unsigned char)((h[i] >> 24) & 0xFF);
+    }
+}
+
+/* HMAC-MD5：消息不超过 256 字节（本关签 128 字符 hex），栈上拼装即可 */
+static void m3_hmac_md5(const unsigned char *key, unsigned int klen,
+                        const unsigned char *msg, unsigned int mlen,
+                        unsigned char out[16]) {
+    unsigned char k0[64], ipad[64], opad[64], ih[16], buf[384];
+    unsigned int i;
+    std::memset(k0, 0, sizeof(k0));
+    if (klen > 64) m3_md5(key, klen, k0);
+    else std::memcpy(k0, key, klen);
+    for (i = 0; i < 64; i++) { ipad[i] = k0[i] ^ 0x36; opad[i] = k0[i] ^ 0x5c; }
+    if (mlen > 256) mlen = 256;
+    std::memcpy(buf, ipad, 64);
+    std::memcpy(buf + 64, msg, mlen);
+    m3_md5(buf, 64 + mlen, ih);
+    std::memcpy(buf, opad, 64);
+    std::memcpy(buf + 64, ih, 16);
+    m3_md5(buf, 80, out);
+}
+
+
+/* ---------- 魔改 SM4 核心 ---------- */
+
+static inline unsigned int m3_rotl(unsigned int x, int n) {
+    return n ? ((x << n) | (x >> (32 - n))) : x;
+}
+
+static unsigned int m3_tau(unsigned int a) {
+    return ((unsigned int)SBOX[(a >> 24) & 0xFF] << 24)
+         | ((unsigned int)SBOX[(a >> 16) & 0xFF] << 16)
+         | ((unsigned int)SBOX[(a >> 8) & 0xFF] << 8)
+         | (unsigned int)SBOX[a & 0xFF];
+}
+
+static unsigned int m3_t_enc(unsigned int x) {
+    unsigned int b = m3_tau(x);
+    return b ^ m3_rotl(b, 2) ^ m3_rotl(b, 10) ^ m3_rotl(b, 18) ^ m3_rotl(b, 24);
+}
+
+static unsigned int m3_t_rk(unsigned int x) {
+    unsigned int b = m3_tau(x);
+    return b ^ m3_rotl(b, 13) ^ m3_rotl(b, 23);
+}
+
+/* 轮密钥编排：32 轮，结果进 std::vector（静态不可见，须跟运行时构造） */
+static void m3_rk_expand(const unsigned char key[16],
+                         const std::array<unsigned int, 32> &ck,
+                         std::vector<unsigned int> &rk) {
+    unsigned int k[36];
+    int i;
+    rk.clear();
+    for (i = 0; i < 4; i++)
+        k[i] = ((unsigned int)key[4*i]<<24)|((unsigned int)key[4*i+1]<<16)
+             | ((unsigned int)key[4*i+2]<<8)|(unsigned int)key[4*i+3];
+    for (i = 0; i < 4; i++) k[i] ^= FK[i];
+    for (i = 0; i < 32; i++) {
+        k[4+i] = k[i] ^ m3_t_rk(k[i+1] ^ k[i+2] ^ k[i+3] ^ ck[i]);
+        rk.push_back(k[4+i]);
+    }
+}
+
+static void m3_crypt_block(const unsigned char in[16], unsigned char out[16],
+                           const std::vector<unsigned int> &rk, int decrypt) {
+    unsigned int x[36];
+    int i, r;
+    for (i = 0; i < 4; i++)
+        x[i] = ((unsigned int)in[4*i]<<24)|((unsigned int)in[4*i+1]<<16)
+             | ((unsigned int)in[4*i+2]<<8)|(unsigned int)in[4*i+3];
+    for (i = 0; i < 32; i++) {
+        r = decrypt ? (31 - i) : i;
+        x[4+i] = x[i] ^ m3_t_enc(x[i+1] ^ x[i+2] ^ x[i+3] ^ rk[r]);
+    }
+    for (i = 0; i < 4; i++) {
+        unsigned int v = x[35 - i];
+        out[4*i]   = (unsigned char)(v>>24);
+        out[4*i+1] = (unsigned char)(v>>16);
+        out[4*i+2] = (unsigned char)(v>>8);
+        out[4*i+3] = (unsigned char)v;
+    }
+}
+
+/* 标记运行时拼装 + 派生：suffix 形如 "|sm4"/"|mac" */
+static void m3_derive(const char *suffix, unsigned char *out, int outlen) {
+    char mk[32];
+    char msg[48];
+    unsigned char dg[32];
+    int i, n = sizeof(MARK) / sizeof(unsigned short);
+    int slen = (int)std::strlen(suffix);
+    for (i = 0; i < n; i++) mk[i] = (char)(MARK[i] & 0xFF);
+    mk[n] = 0;
+    std::memcpy(msg, mk, (size_t)n);
+    std::memcpy(msg + n, suffix, (size_t)slen);
+    m3_sha256((const unsigned char *)msg, (unsigned int)(n + slen), dg);
+    std::memcpy(out, dg, (size_t)outlen);
+}
+
+/* ---------- hex 工具 ---------- */
+
+static void m3_hex_encode(const unsigned char *d, int n, char *out) {
+    static const char *HEX = "0123456789abcdef";
+    int i;
+    for (i = 0; i < n; i++) {
+        out[2*i]   = HEX[d[i] >> 4];
+        out[2*i+1] = HEX[d[i] & 0xF];
+    }
+    out[2*n] = 0;
+}
+
+/* ---------- C++ 抽象层：Codec 虚派发 + RAII 密钥生命周期 ---------- */
+
+/* 抽象基类：构造时派生密钥，析构时 secure_zero 清场。
+ * 派生类各持一套 Sm4Variant（魔改/标准 CK）与 std::vector 轮密钥，虚派发。 */
+class Codec {
+public:
+    Codec() { std::memset(key_, 0, sizeof(key_)); }
+    virtual ~Codec() { secure_zero(); }
+    virtual const char *sigil() const = 0;
+    virtual void encrypt(const unsigned char *in, size_t n,
+                         unsigned char *out) const = 0;
+    virtual void decrypt(const unsigned char *in, size_t n,
+                         unsigned char *out) const = 0;
+protected:
+    void secure_zero() { volatile unsigned char *p = key_; for (int i = 0; i < 16; i++) p[i] = 0; }
+    unsigned char key_[16];
+};
+
+/* 真身：魔改 CK + 真钥（本关唯一正确路径） */
+class Sm4EcbCodec : public Codec {
+public:
+    Sm4EcbCodec() : ck_(&SM4_MOD) {
+        m3_derive("|sm4", key_, 16);
+        m3_rk_expand(key_, ck_->ck, rk_);
+    }
+    const char *sigil() const override { return "unravel"; }
+    void encrypt(const unsigned char *in, size_t n, unsigned char *out) const override {
+        size_t off;
+        for (off = 0; off + 16 <= n; off += 16)
+            m3_crypt_block(in + off, out + off, rk_, 0);
+    }
+    void decrypt(const unsigned char *in, size_t n, unsigned char *out) const override {
+        size_t off;
+        for (off = 0; off + 16 <= n; off += 16)
+            m3_crypt_block(in + off, out + off, rk_, 1);
+    }
+protected:
+    const Sm4Variant *ck_;
+    std::vector<unsigned int> rk_;
+};
+
+/* 诱饵 1：标准 CK + 真钥——解出来与真身不同（差 CK 尾部换血） */
+class StdCkCodec : public Sm4EcbCodec {
+public:
+    StdCkCodec() {
+        ck_ = &SM4_STD;
+        m3_rk_expand(key_, ck_->ck, rk_);
+    }
+    const char *sigil() const override { return "ravel"; }
+};
+
+/* 诱饵 2：魔改 CK + 明文诱饵钥——解出来是 DECOY_BLOB 那套假载荷 */
+class DecoyCodec : public Codec {
+public:
+    DecoyCodec() : ck_(&SM4_MOD) {
+        /* 诱饵标记是明文串，直接 sha256(诱饵|"sm4") 派生 */
+        char msg[32];
+        int i, n = (int)std::strlen(DECOY_MARK);
+        for (i = 0; i < n; i++) msg[i] = DECOY_MARK[i];
+        std::memcpy(msg + n, "|sm4", 4);
+        unsigned char dg[32];
+        m3_sha256((const unsigned char *)msg, (unsigned int)(n + 4), dg);
+        std::memcpy(key_, dg, 16);
+        m3_rk_expand(key_, ck_->ck, rk_);
+    }
+    const char *sigil() const override { return "decoy"; }
+    void encrypt(const unsigned char *in, size_t n, unsigned char *out) const override {
+        size_t off;
+        for (off = 0; off + 16 <= n; off += 16)
+            m3_crypt_block(in + off, out + off, rk_, 0);
+    }
+    void decrypt(const unsigned char *in, size_t n, unsigned char *out) const override {
+        size_t off;
+        for (off = 0; off + 16 <= n; off += 16)
+            m3_crypt_block(in + off, out + off, rk_, 1);
+    }
+private:
+    const Sm4Variant *ck_;
+    std::vector<unsigned int> rk_;
+};
+
+/* 工厂：kind 决定返回哪个派生类（真身 / 标准 CK / 诱饵钥） */
+static Codec *make_codec(int kind) {
+    if (kind == 1) return new StdCkCodec();
+    if (kind == 2) return new DecoyCodec();
+    return new Sm4EcbCodec();
+}
+
+/* ---------- 业务核心（App 与玩家对拍的是同一套实现） ---------- */
+
+static void m3_core_enc(int page, long long ts, const char *nonce, const char *dev,
+                        char hex[129]) {
+    char payload[160];
+    unsigned char pt[64], ct[64];
+    int n, i;
+    /* payload: multi-field, keys in lexicographic order (dev < nonce < page < ts) */
+    n = std::snprintf(payload, sizeof(payload), "dev=%s&nonce=%s&page=%d&ts=%lld",
+                      dev ? dev : "", nonce ? nonce : "", page, ts);
+    if (n < 0) n = 0;
+    if (n > 63) n = 63;
+    std::memset(pt, 0, sizeof(pt));
+    for (i = 0; i < n; i++) pt[i] = (unsigned char)payload[i];
+    /* 虚派发：真身 Sm4EcbCodec 走魔改 CK */
+    Codec *c = make_codec(0);
+    c->encrypt(pt, 64, ct);
+    delete c;
+    m3_hex_encode(ct, 64, hex);
+}
+
+static void m3_core_sign(const char *enc, char hex[65]) {
+    unsigned char mk[32], dg[16];
+    size_t elen = std::strlen(enc);
+    if (elen > 256) elen = 256;
+    m3_derive("|mac", mk, 32);
+    m3_hmac_md5(mk, 32, (const unsigned char *)enc, (unsigned int)elen, dg);
+    m3_hex_encode(dg, 16, hex);
+}
+
+/* ---------- 导出面 ---------- */
+
+/* 诱饵密文：拿去配真算法会解出一段"像样"的假载荷，别当真 */
+const char *m3_swirl(void) {
+    static char hex[65];
+    m3_hex_encode(DECOY_BLOB.data(), 32, hex);
+    return hex;
+}
+
+/* 噪声导出：无人调用，纯占位混淆（中性命名） */
+static volatile unsigned int m3_sink;
+
+int m3_weave(unsigned int x) {
+    unsigned int v = x;
+    int i;
+    for (i = 0; i < 4; i++) v = (v ^ (v << 3)) + 0x9E3779B9U;
+    m3_sink = v;
+    return (int)(v & 0xFFFF);
+}
+
+unsigned int m3_drift(unsigned int x, int n) {
+    unsigned int v = (n & 31) ? ((x << (n & 31)) | (x >> (32 - (n & 31)))) : x;
+    m3_sink = v ^ m3_sink;
+    return v;
+}
+
+#ifndef M3_HOST_TEST
+
+/* JNI 动态注册：导出仅 JNI_OnLoad，不泄漏类名/方法名 */
+static jstring m3_native_enc(JNIEnv *env, jclass clazz, jint page, jlong ts,
+                             jstring nonce, jstring dev) {
+    char hex[129];
+    const char *n, *d;
+    (void)clazz;
+    if (!nonce || !dev) return env->NewStringUTF("ERR_INPUT");
+    n = env->GetStringUTFChars(nonce, NULL);
+    d = env->GetStringUTFChars(dev, NULL);
+    if (!n || !d) return env->NewStringUTF("ERR_UTF");
+    m3_core_enc((int)page, (long long)ts, n, d, hex);
+    env->ReleaseStringUTFChars(nonce, n);
+    env->ReleaseStringUTFChars(dev, d);
+    return env->NewStringUTF(hex);
+}
+
+static jstring m3_native_sign(JNIEnv *env, jclass clazz, jstring enc) {
+    char hex[65];
+    const char *e;
+    (void)clazz;
+    if (!enc) return env->NewStringUTF("ERR_INPUT");
+    e = env->GetStringUTFChars(enc, NULL);
+    if (!e) return env->NewStringUTF("ERR_UTF");
+    m3_core_sign(e, hex);
+    env->ReleaseStringUTFChars(enc, e);
+    return env->NewStringUTF(hex);
+}
+
+static const JNINativeMethod kMethods[] = {
+    { "nativeEnc", "(IJLjava/lang/String;Ljava/lang/String;)Ljava/lang/String;",
+      (void *)m3_native_enc },
+    { "nativeSign", "(Ljava/lang/String;)Ljava/lang/String;",
+      (void *)m3_native_sign },
+};
+
+extern "C" JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void *reserved) {
+    (void)reserved;
+    JNIEnv *env = NULL;
+    if (vm->GetEnv((void **)&env, JNI_VERSION_1_6) != JNI_OK)
+        return JNI_ERR;
+    jclass clazz = env->FindClass("com/fatdog/reverse/Uq");
+    if (!clazz) return JNI_ERR;
+    if (env->RegisterNatives(clazz, kMethods,
+                             sizeof(kMethods) / sizeof(kMethods[0])) != JNI_OK)
+        return JNI_ERR;
+    return JNI_VERSION_1_6;
+}
+
+#endif /* !M3_HOST_TEST */
+
+#ifdef M3_HOST_TEST
+/* 主机自测：c++ -std=c++17 -DM3_HOST_TEST -o ivorytest ivory.cpp && ./ivorytest */
+int main(void) {
+    char enc[129], sign[65];
+    unsigned char key[16];
+    std::vector<unsigned int> rk;
+    unsigned char back[65];
+    int i, j;
+    m3_core_enc(1, 1787013761LL, "1a2b3c4d", "android-34", enc);
+    m3_core_sign(enc, sign);
+    std::printf("sample_enc  = %s\n", enc);
+    std::printf("sample_sign = %s\n", sign);
+    /* MD5 骨架自测：标准向量，证明骨架正确后再信 HMAC-MD5 */
+    {
+        unsigned char d[16]; char dh[33];
+        m3_md5((const unsigned char *)"abc", 3, d);
+        m3_hex_encode(d, 16, dh);
+        std::printf("md5_abc     = %s (want 900150983cd24fb0d6963f7d28e17f72)\n", dh);
+        m3_md5((const unsigned char *)"abcdefghijklmnopqrstuvwxyz", 26, d);
+        m3_hex_encode(d, 16, dh);
+        std::printf("md5_a2z     = %s (want c3fcd3d76192e4007dfb496cca67e13b)\n", dh);
+    }
+    std::printf("decoy_seal  = %s\n", m3_swirl());
+    /* 回环：用同一把钥匙解开自己的密文 */
+    m3_derive("|sm4", key, 16);
+    m3_rk_expand(key, SM4_MOD.ck, rk);
+    for (i = 0; i < 64; i += 16) {
+        unsigned char ct[16];
+        for (j = 0; j < 16; j++) {
+            char c1 = enc[2*(i+j)], c2 = enc[2*(i+j)+1];
+            int hi = (c1<='9')?(c1-'0'):(c1-'a'+10);
+            int lo = (c2<='9')?(c2-'0'):(c2-'a'+10);
+            ct[j] = (unsigned char)((hi<<4)|lo);
+        }
+        m3_crypt_block(ct, back + i, rk, 1);
+    }
+    back[64] = 0;
+    std::printf("roundtrip   = %s\n", back);
+    /* 虚派发自测：三个派生类各取 sigil，确认 vtable 三份且真身正确 */
+    {
+        Codec *c0 = make_codec(0);
+        Codec *c1 = make_codec(1);
+        Codec *c2 = make_codec(2);
+        std::printf("codec[0].sigil = %s\n", c0->sigil());
+        std::printf("codec[1].sigil = %s\n", c1->sigil());
+        std::printf("codec[2].sigil = %s\n", c2->sigil());
+        delete c0; delete c1; delete c2;
+    }
+    return 0;
+}
+#endif
+"""
+
+
 def main():
     self_test()
 
@@ -645,11 +1206,26 @@ def main():
     with open(out_path, "w", encoding="utf-8", newline="\n") as f:
         f.write(csrc)
 
+    # ---- C++ 版（新，std::array/vector + Sm4Variant + 虚派发 + RAII + 动态注册） ----
+    cppsrc = CPP_TEMPLATE
+    cppsrc = cppsrc.replace("@SBOX@", fmt_array(bytes(SBOX)))
+    cppsrc = cppsrc.replace("@CKMOD@", fmt_words(CK_MOD))
+    cppsrc = cppsrc.replace("@CKSTD@", fmt_words(CK_STD))
+    cppsrc = cppsrc.replace("@MARKLEN@", str(len(MARKER)))
+    cppsrc = cppsrc.replace("@MARKER@", fmt_units([ord(ch) for ch in MARKER]))
+    cppsrc = cppsrc.replace("@DECOY@", DECOY_MARKER)
+    cppsrc = cppsrc.replace("@DBLOB@", fmt_array(DECOY_BLOB))
+
+    cpp_path = "app/jni/ivory.cpp"
+    with open(cpp_path, "w", encoding="utf-8", newline="\n") as f:
+        f.write(cppsrc)
+
     sample_page, sample_ts = 1, 1787013761
     sample_nonce, sample_dev = "1a2b3c4d", "android-34"
     enc = core_enc(sample_page, sample_ts, sample_nonce, sample_dev).hex()
     print()
     print("[emit] %s (%d lines)" % (out_path, csrc.count("\n") + 1))
+    print("[emit] %s (%d lines, C++)" % (cpp_path, cppsrc.count("\n") + 1))
     print("[info] marker       =", MARKER, "(UTF-16 hidden)")
     print("[info] decoy mark   =", DECOY_MARKER, "(plain strings-visible)")
     print("[info] sm4_key      =", SM4_KEY.hex())

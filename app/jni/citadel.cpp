@@ -20,6 +20,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
+#include <vector>
 
 #include "kkl4_vm_program.h"
 
@@ -163,6 +164,130 @@ extern "C" JNIEXPORT jint JNICALL
 Java_com_fatdog_reverse_Kkl4Native_nativePoisoned(JNIEnv *env, jclass) {
     (void)env;
     return g_poisoned ? 1 : 0;
+}
+
+/* ================= 多类壳 · 壳层密钥派生 + 业务 DEX 装载（§4.5 整改） ================= */
+
+/* 业务片盐（9 片，中性词）。 */
+static const char *SHARD_SALT[9] = {
+    "torch", "ember", "cinder", "ash", "spark",
+    "flint", "pyre", "brand", "hearth"
+};
+
+/* 每层 key/iv 由 VM 主钥域分离派生（只用 MD5，铁律）：
+ *   key = MD5(主钥32B ‖ salt ‖ "|key")[:16]
+ *   iv  = MD5(主钥32B ‖ salt ‖ "|iv" )[:16] */
+static void layer_keys(const uint8_t *seed, const char *salt,
+                       uint8_t key[16], uint8_t iv[16]) {
+    uint8_t buf[256];
+    int p = 0;
+    for (int i = 0; i < 32; i++) buf[p++] = seed[i];
+    for (const char *s = salt; *s; s++) buf[p++] = (uint8_t)*s;
+    const char *tk = "|key";
+    for (; *tk; tk++) buf[p++] = (uint8_t)*tk;
+    g_tally(buf, (size_t)p, key);
+
+    p = 0;
+    for (int i = 0; i < 32; i++) buf[p++] = seed[i];
+    for (const char *s = salt; *s; s++) buf[p++] = (uint8_t)*s;
+    const char *ti = "|iv";
+    for (; *ti; ti++) buf[p++] = (uint8_t)*ti;
+    g_tally(buf, (size_t)p, iv);
+}
+
+/* 解密一片 dex（layer 1=壳层 w.*，layer 2=业务 4a..4i）。
+ * 密钥由 VM 主钥域分离派生——先过 VM 才有钥匙，把 VMP 与多类壳焊成一条链。 */
+extern "C" JNIEXPORT jbyteArray JNICALL
+Java_com_fatdog_reverse_Kkl4Native_nativeFold(JNIEnv *env, jclass,
+                                              jbyteArray enc, jint layer, jint shard) {
+    bind_kernels();
+    if (kernel_missing()) return NULL;
+    jsize n = env->GetArrayLength(enc);
+    if (n <= 0) return NULL;
+
+    /* 先过 VM 拿主钥 */
+    uint8_t in[64];
+    int in_len = build_input(in, sizeof(in));
+    uint8_t seed[32];
+    if (!g_vm(kKkl4VmProgram, KKL4_VM_PROGRAM_BYTES,
+              kKkl4VmChainSeed, KKL4_VM_CHAIN_SEED_LEN,
+              in, in_len, seed, 32)) {
+        g_poisoned = 1;
+        return NULL;
+    }
+
+    char salt[64];
+    if (layer == 1) {
+        snprintf(salt, sizeof(salt), "|kkl4_layer1");
+    } else if (layer == 2 && shard >= 0 && shard < 9) {
+        snprintf(salt, sizeof(salt), "|kkl4_layer2|%s", SHARD_SALT[shard]);
+    } else {
+        return NULL;
+    }
+    uint8_t key[16], iv[16];
+    layer_keys(seed, salt, key, iv);
+
+    std::vector<uint8_t> raw((size_t)n);
+    env->GetByteArrayRegion(enc, 0, n, (jbyte *)raw.data());
+    std::vector<uint8_t> out((size_t)n);
+    int m = g_seal(key, iv, raw.data(), (size_t)n, out.data());
+    if (m <= 0) return NULL;
+    jbyteArray r = env->NewByteArray(m);
+    if (r) env->SetByteArrayRegion(r, 0, m, (const jbyte *)out.data());
+    return r;
+}
+
+/* 业务片 GateKeeper4h.nativeSign 的实现：与门面 nativeSign 同一条取数链
+ * （VM 派生主钥 + AES-128-CTR + MD5），只是被 RegisterNatives 绑到子加载器。 */
+static jstring kk4h_native_sign(JNIEnv *env, jclass, jint page, jlong ts) {
+    bind_kernels();
+    if (kernel_missing()) return env->NewStringUTF("");
+    int bits = 0;
+    g_scan(&bits);
+    g_last_bits = bits;
+
+    uint8_t in[64];
+    int in_len = build_input(in, sizeof(in));
+    uint8_t seed[32];
+    if (!g_vm(kKkl4VmProgram, KKL4_VM_PROGRAM_BYTES,
+              kKkl4VmChainSeed, KKL4_VM_CHAIN_SEED_LEN,
+              in, in_len, seed, 32)) {
+        g_poisoned = 1;
+        return env->NewStringUTF("");
+    }
+    if (hit_count(bits) >= 2) poison(seed);
+
+    char payload[64];
+    int pl = snprintf(payload, sizeof(payload), "page=%d&ts=%lld", (int)page, (long long)ts);
+    uint8_t ct[128];
+    int cl = g_seal(seed, seed + 16, (const uint8_t *)payload, (size_t)pl, ct);
+    if (cl <= 0) { g_poisoned = 1; return env->NewStringUTF(""); }
+    char enc[300];
+    g_hex(ct, (size_t)cl, enc);
+
+    char kh[80];
+    g_ihex(seed, 32, kh);
+    char msg[420];
+    snprintf(msg, sizeof(msg), "%s%s", kh, enc);
+    uint8_t mac[16];
+    g_tally((const uint8_t *)msg, strlen(msg), mac);
+    char sign[40];
+    g_ihex(mac, 16, sign);
+
+    char out[400];
+    snprintf(out, sizeof(out), "%s|%s", enc, sign);
+    return env->NewStringUTF(out);
+}
+
+/* nativeBind：把业务 DEX 里的 GateKeeper4h.nativeSign 显式绑到加载它的 ClassLoader。
+ * 子 DexClassLoader 不会自动解析父加载器的 so，必须 RegisterNatives。 */
+extern "C" JNIEXPORT jint JNICALL
+Java_com_fatdog_reverse_Kkl4Native_nativeBind(JNIEnv *env, jclass, jclass target) {
+    if (target == NULL) return 0;
+    JNINativeMethod methods[] = {
+        { (char *)"nativeSign", (char *)"(IJ)Ljava/lang/String;", (void *)kk4h_native_sign },
+    };
+    return env->RegisterNatives(target, methods, 1) == JNI_OK ? 1 : 0;
 }
 
 /* 诱饵标记的出入口：保证 DECOY 进 .rodata，同时给静态分析留一条"假线索"。 */
