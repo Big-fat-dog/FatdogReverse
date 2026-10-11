@@ -20,3 +20,32 @@
 
 # 关卡 31：q 包类整体交给 R8 改名，但 native 回调依赖的方法名必须保留
 -keepclassmembers class com.fatdog.reverse.q.Ke { public static java.lang.String partA(); }
+
+# 关卡 48：k 子包（Grain / Husk）不写 -keep class，自然落进默认重命名（类名被涂掉）。
+# 但两处名字必须保留：
+#   1) native 按名回调 half(int)（GetMethodID 的字符串锚点）；
+#   2) 类内私有解密函数 d(int[],int,int) 被 getDeclaredMethod 按名反射调用。
+-keepclassmembers class com.fatdog.reverse.k.Grain {
+    public java.lang.String half(int);
+    private java.lang.String d(int[], int, int);
+}
+-keepclassmembers class com.fatdog.reverse.k.Husk {
+    public java.lang.String half(int);
+    private java.lang.String d(int[], int, int);
+}
+
+# 关卡 49：m 子包（Warden / Veil）同样不写 -keep class，类名交给 R8 改名。
+# 必须保留的名字：
+#   1) native 按名回调 mistTail(int) / forestHead(int)（GetMethodID 的字符串锚点）；
+#   2) 私有解密函数 d(int[],int) 被 getDeclaredMethod 按名反射调用。
+# 注：native 侧用 NewObject 调 <init>，构造名固定为 "<init>"，无需显式 keep。
+-keepclassmembers class com.fatdog.reverse.m.Warden {
+    public java.lang.String mistTail(int);
+    public int[] forestHead(int);
+    private int[] d(int[], int);
+}
+-keepclassmembers class com.fatdog.reverse.m.Veil {
+    public java.lang.String mistTail(int);
+    public int[] forestHead(int);
+    private int[] d(int[], int);
+}

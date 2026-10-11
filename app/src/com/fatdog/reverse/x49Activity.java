@@ -38,18 +38,20 @@ import okhttp3.RequestBody;
 import okhttp3.Response;
 
 /**
- * Native大陆 L49 迷雾森林（std::map 分发 · RAII）
+ * Native大陆 L49 迷雾森林（std::map 分发 · RAII · 跨层回调）
  *
  * libotter.so 导出：
- *   String nativeEnc(int page, long ts)  — SM4-ECB 加密（返回 hex）
- *   String nativeSign(String enc_hex)    — HMAC-SHA256 签名
- *   String getKeyHint()                 — 密钥提示
+ *   String nativeEnc(int page, long ts)  — SM4-ECB 加密（**实例方法**，返回 hex）
+ *   String nativeSign(String enc_hex)    — HMAC-MD5 签名（**实例方法**）
+ *   String getKeyHint()                  — 密钥提示（**实例方法**）
+ *   void   bindKeys(Class<?>)            — 把 Warden.class 交给 native
  *
  * 破解路线：
  *   ① IDA 定位 CryptoBox::process → 理解 std::map 分发逻辑
- *   ② Frida hook nativeEnc/nativeSign 观察返回值
- *   ③ Memory.scanSync 搜索 std::map 内部红黑树节点
- *   ④ 静态复刻：还原 SM4 密钥 + HMAC 密钥
+ *   ② strings libotter.so：抓到 "mistTail"/"forestHead"/"<init>" 锚点 →
+ *      反查 Java 侧那个被 R8 改过名的类（Bk49 里持有它的 Class 常量）；
+ *   ③ native 用 NewObject 造实例（私有构造），掩码在 so、盐在 Java —— 两边都要；
+ *   ④ Frida：hook NewObject / CallObjectMethod 观察取件，或直接拿返回值逐页取数。
  *
  * Flag: FLAG_18_L49{misty_forest}
  */
@@ -63,6 +65,7 @@ public class x49Activity extends Activity {
     private String base;
     private boolean loading;
     private int currentPage = 1;
+    private Bk49 bridge;   // 有状态的 JNI 桥：构造时把 Warden.class 交给 native
 
     private TextView status;
     private final TextView[] cells = new TextView[10];
@@ -74,6 +77,7 @@ public class x49Activity extends Activity {
         super.onCreate(b);
         base = NetHost.httpsBase();
         initClient();
+        bridge = new Bk49();
 
         LinearLayout box = new LinearLayout(this);
         box.setOrientation(LinearLayout.VERTICAL);
@@ -199,13 +203,16 @@ public class x49Activity extends Activity {
             @Override public void onClick(View v) {
                 new AlertDialog.Builder(x49Activity.this)
                         .setTitle("提示")
-                        .setMessage("那块告示牌，是用一种能自己排序的册子记的，\n"
+                        .setMessage("那本册子，是用一种能自己排序的册子记的，\n"
                                 + "每一页都对上一个暗号、一条路。\n\n"
                                 + "守林人收东西的手段很讲究，\n"
                                 + "东西一离手，就自动归回原处——\n"
                                 + "顺着这个性子，能摸到册子的骨。\n\n"
-                                + "岔路上有两道关卡：一道锁门，一道验人，\n"
-                                + "两道都过了，数字才肯露面。")
+                                + "撕走的半页不在册子里，也不在别处：\n"
+                                + "有人拿着登记簿上的门牌号，\n"
+                                + "领到一间被改了名的屋子里，当场把东西取了出来。\n"
+                                + "屋子的锁认一串口令，口令一半写在墙上、\n"
+                                + "一半攥在守林人手里——两边都得对上。")
                         .setPositiveButton("知道了", null)
                         .show();
             }
@@ -310,8 +317,8 @@ public class x49Activity extends Activity {
         status.setText("正在请求第 " + page + " 页…");
 
         final long ts = System.currentTimeMillis() / 1000;
-        String enc = Bk49.nativeEnc(page, ts);
-        String sign = Bk49.nativeSign(enc);
+        String enc = bridge.nativeEnc(page, ts);
+        String sign = bridge.nativeSign(enc);
 
         // POST 请求：enc, sign, algo=0
         RequestBody body = new FormBody.Builder()

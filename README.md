@@ -70,7 +70,7 @@ FatdogReverse 是一套**完全离线运行**的 Android 逆向工程练习靶�
 | Native 试炼 | `L28-L37`、`L37b` | 11 | 字符串加密、动态注册、指针派发、跨层调用、反调试、CRC 自校验、魔改 MD5 |
 | Xposed 实战 | `L38-L42` | 5 | Hook 返回值、篡改入参、读取私有字段、替换方法体、持久化验证 |
 | 签名校验对抗 | `L43-L47` | 5 | SigningInfo、Native 摘要下沉、APK 自解析、证书派生密钥、综合收官 |
-| Native大陆 | `L48-L53` | 6 | C++ name mangling、STL 容器、vtable、模板、异常控制流、魔改算法 |
+| Native大陆 | `L48-L53` | 6 | C++ name mangling、STL 容器、vtable、模板、异常控制流、魔改算法、**JNI 反向调用（so 回调 Java 实例方法 / `NewObject` 造 Java 对象）** |
 
 > 其中 `L6` 没有入口按钮，藏在 `AndroidManifest.xml` 里，需要自己找。
 
@@ -80,7 +80,7 @@ FatdogReverse 是一套**完全离线运行**的 Android 逆向工程练习靶�
 
 | 分区 | 关卡 | 数量 | 主要内容 |
 |---|---|---:|---|
-| 昆仑山 | `KL1-KL5` | 5 | Native 基础、动态注册、Java 回调、反模拟器、综合入口 |
+| 昆仑山 | `KL1-KL5` | 5 | Native 基础、动态注册、六 so 接力（双类型回调）、菱形分叉六 so（四类回调）+ 反模拟检测、平坦化调度器六 so（五类回调 + 三路体检，须 trace） |
 | 流沙河 | `KL6-KL10` | 5 | 魔改 AES / DES / SM4 / RC4 / SHA-256 五连关 |
 | 幽冥海 | `KL11-KL15` | 5 | SO Patch 对抗：静态 patch、动态 patch、反 patch、多 SO 交叉验证 |
 | 太玄之初 | `KL16-KL20` | 5 | 加固壳分代脱壳：一代壳、二代壳（类抽取 / 方法抽取）、三代壳 |

@@ -1,14 +1,23 @@
 /**
- * otter.cpp — Native大陆 L49 迷雾森林（std::map 分发 · RAII）
+ * otter.cpp — Native大陆 L49 迷雾森林（std::map 分发 · RAII · 跨层回调）
  *
- * 考点：C++ std::map 分发 + RAII 内存管理 + SM4-ECB + HMAC-SHA256
- * CryptoBox 类用 std::map<int, function> 做算法分发
- * ManagedBuffer 类用 RAII 自动管理内存
+ * 考点：
+ *   1. C++ std::map 分发 + RAII 内存管理（CryptoBox / ManagedBuffer）
+ *   2. JNI 反向调用：so 侧用 **NewObject** 直接造 Java 对象（私有构造），
+ *      再回调实例方法取件（GetMethodID + CallObjectMethod）
  *
- * Frida 训练：Memory.scanSync 搜索 std::map 内部红黑树节点
- *           hook std::map::operator[] 观察分发逻辑
+ * 与 L48 的对照：
+ *   L48 —— Java 反射把 Grain 实例造好，交 native 缓存（Java 造对象）；
+ *   L49 —— Java 只把 Warden.class 递进来，native 自己 NewObject 造实例。
  *
- * 标记：真 Fatdog_mist / 诱饵 Fatdog_misty（UTF-16 藏 .rodata）
+ * 密钥两处跨层拼装（交叉拆，与 L48 故意不对称）：
+ *   SM4  : so "Fatdog_mist_"  +  Java Warden.mistTail()  → "2026"
+ *   HMAC : Java Warden.forestHead() "Fatdog_forest_"  +  so "2026"
+ *   掩码是 so 侧常量、盐在 Java 构造里 —— 只读一边只能解出乱码 → 签名错 → 服务端 403。
+ *
+ * Frida 训练：Memory.scanSync 搜 std::map 红黑树节点；hook NewObject 观察造对象时机
+ *
+ * 标记：诱饵 Fatdog_misty（明文可见，strings 可抓）
  */
 
 #include <jni.h>
@@ -18,7 +27,6 @@
 #include <cstdint>
 #include <functional>
 #include <map>
-#include <memory>
 
 /* ============================================================
  * SM4-ECB 常量
@@ -137,116 +145,9 @@ static std::string sm4_ecb_encrypt(const uint8_t key[16], const std::string& dat
 }
 
 /* ============================================================
- * SHA-256 / HMAC-SHA256
- * ============================================================ */
-typedef struct {
-    unsigned int h[8];
-    unsigned char buf[64];
-    unsigned long long total;
-} sha256_ctx;
-
-static const unsigned int K256[64] = {
-    0x428a2f98u, 0x71374491u, 0xb5c0fbcfu, 0xe9b5dba5u,
-    0x3956c25bu, 0x59f111f1u, 0x923f82a4u, 0xab1c5ed5u,
-    0xd807aa98u, 0x12835b01u, 0x243185beu, 0x550c7dc3u,
-    0x72be5d74u, 0x80deb1feu, 0x9bdc06a7u, 0xc19bf174u,
-    0xe49b69c1u, 0xefbe4786u, 0x0fc19dc6u, 0x240ca1ccu,
-    0x2de92c6fu, 0x4a7484aau, 0x5cb0a9dcu, 0x76f988dau,
-    0x983e5152u, 0xa831c66du, 0xb00327c8u, 0xbf597fc7u,
-    0xc6e00bf3u, 0xd5a79147u, 0x06ca6351u, 0x14292967u,
-    0x27b70a85u, 0x2e1b2138u, 0x4d2c6dfcu, 0x53380d13u,
-    0x650a7354u, 0x766a0abbu, 0x81c2c92eu, 0x92722c85u,
-    0xa2bfe8a1u, 0xa81a664bu, 0xc24b8b70u, 0xc76c51a3u,
-    0xd192e819u, 0xd6990624u, 0xf40e3585u, 0x106aa070u,
-    0x19a4c116u, 0x1e376c08u, 0x2748774cu, 0x34b0bcb5u,
-    0x391c0cb3u, 0x4ed8aa4au, 0x5b9cca4fu, 0x682e6ff3u,
-    0x748f82eeu, 0x78a5636fu, 0x84c87814u, 0x8cc70208u,
-    0x90befffau, 0xa4506cebu, 0xbef9a3f7u, 0xc67178f2u
-};
-
-static unsigned int sha256_rotr(unsigned int x, int n) {
-    return (x >> n) | (x << (32 - n));
-}
-
-static void sha256_block(sha256_ctx *c, const unsigned char *p) {
-    unsigned int w[64];
-    int i;
-    for (i = 0; i < 16; i++) {
-        w[i] = ((unsigned int) p[i * 4] << 24) | ((unsigned int) p[i * 4 + 1] << 16)
-             | ((unsigned int) p[i * 4 + 2] << 8) | (unsigned int) p[i * 4 + 3];
-    }
-    for (i = 16; i < 64; i++) {
-        unsigned int s0 = sha256_rotr(w[i - 15], 7) ^ sha256_rotr(w[i - 15], 18) ^ (w[i - 15] >> 3);
-        unsigned int s1 = sha256_rotr(w[i - 2], 17) ^ sha256_rotr(w[i - 2], 19) ^ (w[i - 2] >> 10);
-        w[i] = w[i - 16] + s0 + w[i - 7] + s1;
-    }
-    {
-        unsigned int a = c->h[0], b = c->h[1], cc = c->h[2], d = c->h[3];
-        unsigned int e = c->h[4], f = c->h[5], g = c->h[6], h = c->h[7];
-        for (i = 0; i < 64; i++) {
-            unsigned int S1 = sha256_rotr(e, 6) ^ sha256_rotr(e, 11) ^ sha256_rotr(e, 25);
-            unsigned int ch = (e & f) ^ ((~e) & g);
-            unsigned int t1 = h + S1 + ch + K256[i] + w[i];
-            unsigned int S0 = sha256_rotr(a, 2) ^ sha256_rotr(a, 13) ^ sha256_rotr(a, 22);
-            unsigned int maj = (a & b) ^ (a & cc) ^ (b & cc);
-            unsigned int t2 = S0 + maj;
-            h = g; g = f; f = e; e = d + t1;
-            d = cc; cc = b; b = a; a = t1 + t2;
-        }
-        c->h[0] += a; c->h[1] += b; c->h[2] += cc; c->h[3] += d;
-        c->h[4] += e; c->h[5] += f; c->h[6] += g; c->h[7] += h;
-    }
-}
-
-static void sha256_init(sha256_ctx *c) {
-    c->h[0] = 0x6a09e667u; c->h[1] = 0xbb67ae85u;
-    c->h[2] = 0x3c6ef372u; c->h[3] = 0xa54ff53au;
-    c->h[4] = 0x510e527fu; c->h[5] = 0x9b05688cu;
-    c->h[6] = 0x1f83d9abu; c->h[7] = 0x5be0cd19u;
-    c->total = 0;
-}
-
-static void sha256_update(sha256_ctx *c, const unsigned char *data, size_t len) {
-    size_t used, rem, i;
-    c->total += len;
-    used = (size_t) ((c->total - len) & 63);
-    rem = 64 - used;
-    if (len >= rem) {
-        memcpy(c->buf + used, data, rem);
-        sha256_block(c, c->buf);
-        for (i = rem; i + 64 <= len; i += 64) {
-            sha256_block(c, data + i);
-        }
-        data += i;
-        len -= i;
-        used = 0;
-    }
-    memcpy(c->buf + used, data, len);
-}
-
-static void sha256_final(sha256_ctx *c, unsigned char out[32]) {
-    unsigned long long bits = c->total * 8;
-    unsigned char pad[128];
-    size_t used = (size_t) (c->total & 63);
-    size_t padlen = (used < 56) ? (56 - used) : (120 - used);
-    int i;
-    memset(pad, 0, sizeof(pad));
-    pad[0] = 0x80;
-    for (i = 0; i < 8; i++) {
-        pad[padlen + i] = (unsigned char) (bits >> (56 - 8 * i));
-    }
-    sha256_update(c, pad, padlen + 8);
-    for (i = 0; i < 8; i++) {
-        out[i * 4]     = (unsigned char) (c->h[i] >> 24);
-        out[i * 4 + 1] = (unsigned char) (c->h[i] >> 16);
-        out[i * 4 + 2] = (unsigned char) (c->h[i] >> 8);
-        out[i * 4 + 3] = (unsigned char) (c->h[i]);
-    }
-}
-
-/* ============================================================
- * MD5（供 HMAC-MD5 使用；SHA-256 仍负责 body 摘要）
- * 注意：MD5 是小端（长度字段亦为小端），与 SHA-256 的大端相反
+ * MD5 + HMAC-MD5（本关签名已改走 HMAC-MD5；原先的 SHA-256 / hmac_sha256
+ * 已无调用方，一并删除，避免死代码与编译告警）
+ * 注意：MD5 是小端（长度字段亦为小端）
  * ============================================================ */
 static const unsigned int md5_k[64] = {
     0xd76aa478,0xe8c7b756,0x242070db,0xc1bdceee,0xf57c0faf,0x4787c62a,0xa8304613,0xfd469501,
@@ -331,48 +232,85 @@ static void hmac_md5(const unsigned char *key, size_t klen,
     md5_digest(buf, 80, out);
 }
 
-static void hmac_sha256(const unsigned char *key, size_t klen,
-                        const unsigned char *msg, size_t mlen,
-                        unsigned char out[32]) {
-    unsigned char k[64];
-    unsigned char ipad[64], opad[64], inner[32];
-    sha256_ctx c;
-    int i;
-    memset(k, 0, sizeof(k));
-    if (klen > 64) {
-        sha256_init(&c);
-        sha256_update(&c, key, klen);
-        sha256_final(&c, k);
-    } else {
-        memcpy(k, key, klen);
-    }
-    for (i = 0; i < 64; i++) {
-        ipad[i] = k[i] ^ 0x36;
-        opad[i] = k[i] ^ 0x5c;
-    }
-    sha256_init(&c);
-    sha256_update(&c, ipad, 64);
-    sha256_update(&c, msg, mlen);
-    sha256_final(&c, inner);
-    sha256_init(&c);
-    sha256_update(&c, opad, 64);
-    sha256_update(&c, inner, 32);
-    sha256_final(&c, out);
-}
+/* ============================================================
+ * XOR 数组：只剩片段；其余改由 Java 侧供给（见下方跨层回调）
+ * ============================================================ */
+static const uint8_t K49_SM4_A[] = {
+    0x7A, 0x5D, 0x48, 0x58, 0x53, 0x5B, 0x63, 0x51,
+    0x55, 0x4F, 0x48, 0x63
+};  // ^0x3C → "Fatdog_mist_"（SM4 头段）
+
+static const uint8_t K49_HMAC_B[] = {
+    0x68, 0x6A, 0x68, 0x6C
+};  // ^0x5A → "2026"（HMAC 尾段）
 
 /* ============================================================
- * XOR 数组：三段密钥，运行时解码
+ * 跨层回调：两段密钥由 Java 侧的 Warden 供给
+ *   Java 只递进 Class → 本 so NewObject 调私有构造造实例
+ *   再按方法名回调 mistTail(int) / forestHead(int)，mask 是 so 侧常量
  * ============================================================ */
-static const uint8_t K49_SM4[] = {
-    0x7A, 0x5D, 0x48, 0x58, 0x53, 0x5B, 0x63, 0x51,
-    0x55, 0x4F, 0x48, 0x63, 0x0E, 0x0C, 0x0E, 0x0A
-};  // ^0x3C → "Fatdog_mist_2026"
+static JavaVM   *g_vm     = NULL;   /* JNI_OnLoad 接住，供无 env 时取用 */
+static jclass    g_cls    = NULL;   /* Warden 的全局类引用（Java 递进来的 Class） */
+static jmethodID g_ctor   = NULL;   /* Warden.<init>(int) */
+static jmethodID g_mist   = NULL;   /* Warden.mistTail(int) → String */
+static jmethodID g_forest = NULL;   /* Warden.forestHead(int) → int[] */
 
-static const uint8_t K49_HMAC[] = {
-    0x1C, 0x3B, 0x2E, 0x3E, 0x35, 0x3D, 0x05, 0x3C,
-    0x35, 0x28, 0x3F, 0x29, 0x2E, 0x05, 0x68, 0x6A,
-    0x68, 0x6C
-};  // ^0x5A → "Fatdog_forest_2026"
+/* so 侧常量：盐在 Java 构造里、掩码在这里 —— 两边都要才解得开 */
+static const jint SALT_WARDEN = 0x2C4E;
+static const jint MASK_MIST   = 0x5B3D7F21;
+static const jint MASK_FOREST = 0x7E2A51C9;
+
+static JNIEnv *get_env() {
+    if (g_vm == NULL) return NULL;
+    JNIEnv *env = NULL;
+    if (g_vm->GetEnv(reinterpret_cast<void **>(&env), JNI_VERSION_1_6) != JNI_OK) return NULL;
+    return env;
+}
+
+/* native 侧自己造 Java 对象（JNI 不看访问修饰符 → 可直接调私有构造） */
+static jobject new_warden(JNIEnv *env) {
+    if (env == NULL || g_cls == NULL || g_ctor == NULL) return NULL;
+    return env->NewObject(g_cls, g_ctor, SALT_WARDEN);
+}
+
+static std::string fetch_mist_tail(JNIEnv *env) {
+    if (env == NULL) env = get_env();
+    if (env == NULL || g_mist == NULL) return std::string();
+    jobject obj = new_warden(env);
+    if (obj == NULL) return std::string();
+    jstring js = (jstring) env->CallObjectMethod(obj, g_mist, MASK_MIST);
+    env->DeleteLocalRef(obj);
+    if (js == NULL) return std::string();
+    const char *cs = env->GetStringUTFChars(js, NULL);
+    std::string out;
+    if (cs != NULL) {
+        out.assign(cs);
+        env->ReleaseStringUTFChars(js, cs);
+    }
+    env->DeleteLocalRef(js);
+    if (out == "ERR_JAVA") out.clear();
+    return out;
+}
+
+static std::string fetch_forest_head(JNIEnv *env) {
+    if (env == NULL) env = get_env();
+    if (env == NULL || g_forest == NULL) return std::string();
+    jobject obj = new_warden(env);
+    if (obj == NULL) return std::string();
+    jintArray arr = (jintArray) env->CallObjectMethod(obj, g_forest, MASK_FOREST);
+    env->DeleteLocalRef(obj);
+    if (arr == NULL) return std::string();
+    jsize n = env->GetArrayLength(arr);
+    if (n < 0 || n > 64) n = 0;
+    jint *p = env->GetIntArrayElements(arr, NULL);
+    std::string out;
+    if (p != NULL) {
+        for (jsize i = 0; i < n; i++) out.push_back((char)(p[i] & 0xFF));
+        env->ReleaseIntArrayElements(arr, p, JNI_ABORT);
+    }
+    env->DeleteLocalRef(arr);
+    return out;
+}
 
 /* ============================================================
  * RAII 封装：ManagedBuffer 自动管理内存
@@ -409,22 +347,25 @@ public:
 };
 
 /* ============================================================
- * CryptoBox 类：std::map 分发 + SM4-ECB + HMAC-SHA256
+ * CryptoBox 类：std::map 分发 + SM4-ECB + HMAC-MD5
+ *
+ * 两段跨层密钥在构造时拼齐：
+ *   sm4_key_  = so 头段 12 字节  + Java 尾段 4 字节
+ *   hmac_key_ = Java 头段 14 字节 + so 尾段 4 字节
  *
  * Frida 训练点：
  *   1. std::map 内部红黑树节点结构（_Rb_tree_node）
  *   2. hook std::map::operator[] 观察分发
- *   3. 函数指针表分发（dispatch_[algo_id]）
  * ============================================================ */
 class CryptoBox {
 private:
     // std::map 分发表：algo_id → 处理函数
     std::map<int, std::function<std::string(const std::string&)>> dispatch_;
 
-    // SM4 密钥（XOR 数组解码）
+    // SM4 密钥（so 头段 + Java 尾段）
     uint8_t sm4_key_[16];
 
-    // HMAC 密钥（XOR 数组解码）
+    // HMAC 密钥（Java 头段 + so 尾段）
     uint8_t hmac_key_[18];
 
     // SM4 加密函数（内部）
@@ -432,12 +373,12 @@ private:
         return sm4_ecb_encrypt(sm4_key_, data);
     }
 
-    // HMAC 签名函数（内部）
+    // HMAC 签名函数（内部）—— 对 hex 字符串签名（与 server 口径一致）
     std::string hmac_sign_internal(const std::string& data) {
         unsigned char digest[16];
-        hmac_md5(hmac_key_, 18,
-                    reinterpret_cast<const unsigned char*>(data.data()), data.size(),
-                    digest);
+        hmac_md5(hmac_key_, sizeof(hmac_key_),
+                 reinterpret_cast<const unsigned char*>(data.data()), data.size(),
+                 digest);
 
         static const char hexc[] = "0123456789abcdef";
         char hex[33];
@@ -450,15 +391,27 @@ private:
     }
 
 public:
-    CryptoBox() {
-        // 解码 SM4 密钥（XOR ^0x3C）
-        for (size_t i = 0; i < sizeof(K49_SM4); i++) {
-            sm4_key_[i] = K49_SM4[i] ^ 0x3C;
+    CryptoBox(const std::string& sm4_tail, const std::string& hmac_head) {
+        /* 注意：异或掩码必须走 volatile。K49_* 是 const 数组，若掩码也是字面量，
+         * 优化器会在编译期把整段异或折叠成明文常量摆进 .rodata —— 实测 28.2 的
+         * -O2 就把 SM4 头段还原成了明文串，strings 一击即中。volatile 强制运行时求值。 */
+        volatile uint8_t mk = 0x3C;
+        volatile uint8_t hk = 0x5A;
+
+        // SM4：so 头段（XOR ^0x3C） + Java 尾段
+        for (size_t i = 0; i < sizeof(K49_SM4_A); i++) {
+            sm4_key_[i] = (uint8_t)(K49_SM4_A[i] ^ mk);
+        }
+        for (size_t i = 0; i < 4; i++) {
+            sm4_key_[12 + i] = (uint8_t)(i < sm4_tail.size() ? sm4_tail[i] : 0);
         }
 
-        // 解码 HMAC 密钥（XOR ^0x5A）
-        for (size_t i = 0; i < sizeof(K49_HMAC); i++) {
-            hmac_key_[i] = K49_HMAC[i] ^ 0x5A;
+        // HMAC：Java 头段 + so 尾段（XOR ^0x5A）
+        for (size_t i = 0; i < 14; i++) {
+            hmac_key_[i] = (uint8_t)(i < hmac_head.size() ? hmac_head[i] : 0);
+        }
+        for (size_t i = 0; i < sizeof(K49_HMAC_B); i++) {
+            hmac_key_[14 + i] = (uint8_t)(K49_HMAC_B[i] ^ hk);
         }
 
         // 初始化 std::map 分发表
@@ -495,18 +448,26 @@ public:
 static const char FAKE_MARK[] = "Fatdog_misty";
 
 /* ============================================================
- * 生成请求签名和加密数据
+ * 生成请求密文 / 签名（两段密钥均从 Java 回调取件）
  * ============================================================ */
-static std::string build_enc(int page, long ts) {
-    CryptoBox box;
+static std::string build_enc(JNIEnv *env, int page, long ts) {
+    std::string sm4_tail = fetch_mist_tail(env);       // Warden.mistTail(MASK_MIST) → "2026"
+    std::string hmac_head = fetch_forest_head(env);    // Warden.forestHead(MASK_FOREST) → "Fatdog_forest_"
+    if (sm4_tail.empty() || hmac_head.empty()) return std::string("ERR_BIND");
+
+    CryptoBox box(sm4_tail, hmac_head);
     char payload[128];
     snprintf(payload, sizeof(payload), "page=%d&ts=%ld", page, ts);
-    return box.process(0, std::string(payload));  // algo_id=0 → SM4 加密
+    return box.process(0, std::string(payload));       // algo_id=0 → SM4 加密
 }
 
-static std::string build_sign(const std::string& enc) {
-    CryptoBox box;
-    return box.process(1, enc);  // algo_id=1 → HMAC 签名
+static std::string build_sign(JNIEnv *env, const std::string& enc_hex) {
+    std::string sm4_tail = fetch_mist_tail(env);
+    std::string hmac_head = fetch_forest_head(env);
+    if (sm4_tail.empty() || hmac_head.empty()) return std::string("ERR_BIND");
+
+    CryptoBox box(sm4_tail, hmac_head);
+    return box.process(1, enc_hex);                    // algo_id=1 → HMAC 签名
 }
 
 /* ============================================================
@@ -514,9 +475,41 @@ static std::string build_sign(const std::string& enc) {
  * ============================================================ */
 extern "C" {
 
+JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void *reserved) {
+    (void) reserved;
+    g_vm = vm;
+    return JNI_VERSION_1_6;
+}
+
+/* 诱饵导出：Java 侧根本没有声明这个方法 —— 纯误导。
+ * 作用有两个：让 strings/nm 能抓到 "Fatdog_misty"；
+ * 让符号表里多一个看起来像"密钥入口"的假门。 */
 JNIEXPORT jstring JNICALL
-Java_com_fatdog_reverse_Bk49_nativeEnc(JNIEnv *env, jclass clazz, jint page, jlong ts) {
-    std::string enc = build_enc(page, static_cast<long>(ts));
+Java_com_fatdog_reverse_Bk49_nativeMisty(JNIEnv *env, jclass clazz) {
+    (void) clazz;
+    return env->NewStringUTF(FAKE_MARK);
+}
+
+/* Java 只递进 Warden.class；native 侧自己 NewObject 造实例 */
+JNIEXPORT void JNICALL
+Java_com_fatdog_reverse_Bk49_bindKeys(JNIEnv *env, jclass clazz, jclass holder) {
+    (void) clazz;
+    if (g_cls != NULL) { env->DeleteGlobalRef(g_cls); g_cls = NULL; }
+    g_ctor = g_mist = g_forest = NULL;
+    if (holder == NULL) return;
+    g_cls = (jclass) env->NewGlobalRef(holder);
+    if (g_cls == NULL) return;
+    g_ctor   = env->GetMethodID(g_cls, "<init>", "(I)V");
+    g_mist   = env->GetMethodID(g_cls, "mistTail", "(I)Ljava/lang/String;");
+    g_forest = env->GetMethodID(g_cls, "forestHead", "(I)[I");
+}
+
+JNIEXPORT jstring JNICALL
+Java_com_fatdog_reverse_Bk49_nativeEnc(JNIEnv *env, jobject thiz, jint page, jlong ts) {
+    (void) thiz;
+    std::string enc = build_enc(env, page, static_cast<long>(ts));
+    if (enc == "ERR_BIND") return env->NewStringUTF("ERR_BIND");
+
     // 返回 hex 编码
     static const char hexc[] = "0123456789abcdef";
     std::string hex;
@@ -529,26 +522,20 @@ Java_com_fatdog_reverse_Bk49_nativeEnc(JNIEnv *env, jclass clazz, jint page, jlo
 }
 
 JNIEXPORT jstring JNICALL
-Java_com_fatdog_reverse_Bk49_nativeSign(JNIEnv *env, jclass clazz, jstring enc_hex) {
+Java_com_fatdog_reverse_Bk49_nativeSign(JNIEnv *env, jobject thiz, jstring enc_hex) {
+    (void) thiz;
     const char* hex_str = env->GetStringUTFChars(enc_hex, nullptr);
-    // hex 解码
-    size_t len = strlen(hex_str) / 2;
-    std::string enc;
-    enc.resize(len);
-    for (size_t i = 0; i < len; i++) {
-        unsigned int byte;
-        sscanf(hex_str + i * 2, "%02x", &byte);
-        enc[i] = (char)byte;
-    }
-    env->ReleaseStringUTFChars(enc_hex, hex_str);
+    std::string s = (hex_str != nullptr) ? std::string(hex_str) : std::string();
+    if (hex_str != nullptr) env->ReleaseStringUTFChars(enc_hex, hex_str);
 
-    std::string sig = build_sign(enc);
+    std::string sig = build_sign(env, s);
     return env->NewStringUTF(sig.c_str());
 }
 
 JNIEXPORT jstring JNICALL
-Java_com_fatdog_reverse_Bk49_getKeyHint(JNIEnv *env, jclass clazz) {
-    return env->NewStringUTF("sm4_key_derived_from_xor_array");
+Java_com_fatdog_reverse_Bk49_getKeyHint(JNIEnv *env, jobject thiz) {
+    (void) thiz;
+    return env->NewStringUTF("two_halves_split_across_layers");
 }
 
 }  /* extern "C" */

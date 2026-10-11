@@ -1,12 +1,21 @@
 /**
- * badger.cpp — Native大陆 L48 落日平原（operator+ 重载）
+ * badger.cpp — Native大陆 L48 落日平原（operator+ 重载 · 跨层回调）
  *
- * 考点：C++ name mangling + std::string + operator+ 运算符重载
- * HMAC 密钥由两段 XOR 数组经 operator+ 拼接而成
+ * 考点：
+ *   1. C++ name mangling + std::string + operator+ 运算符重载
+ *   2. JNI 反向调用：so 回调 Java 的**实例方法**
+ *      （GetObjectClass → GetMethodID → CallObjectMethod）
+ *
+ * 密钥两截跨层拼装：
+ *   前半 "Fatdog_calm_" 在本 so（XOR 数组）；
+ *   后半 "2026" 在 Java（com.fatdog.reverse.k.Grain —— R8 改名类，
+ *   私有构造 + 私有解密函数 + 反射）。Java 反射造好实例后经 bindHolder
+ *   递给本 so 存全局引用；so 侧再带常量掩码回调 half(int) 取件。
+ *   掩码/盐少一个 → Java 解出乱码 → 签名错 → 服务端 403。
  *
  * Frida 训练：Hook C++ mangled 函数名（_ZN7SignKey...），用 DebugSymbol 反解 demangle 名
  *
- * 标记：真 Fatdog_sun / 诱饵 Fatdog_sunrise（UTF-16 藏 .rodata）
+ * 标记：诱饵 Fatdog_sunrise（明文可见，strings 可抓）
  */
 
 #include <jni.h>
@@ -123,34 +132,8 @@ static void sha256_final(sha256_ctx *c, unsigned char out[32]) {
     }
 }
 
-static void hmac_sha256(const unsigned char *key, size_t klen,
-                        const unsigned char *msg, size_t mlen,
-                        unsigned char out[32]) {
-    unsigned char k[64];
-    unsigned char ipad[64], opad[64], inner[32];
-    sha256_ctx c;
-    int i;
-    memset(k, 0, sizeof(k));
-    if (klen > 64) {
-        sha256_init(&c);
-        sha256_update(&c, key, klen);
-        sha256_final(&c, k);
-    } else {
-        memcpy(k, key, klen);
-    }
-    for (i = 0; i < 64; i++) {
-        ipad[i] = k[i] ^ 0x36;
-        opad[i] = k[i] ^ 0x5c;
-    }
-    sha256_init(&c);
-    sha256_update(&c, ipad, 64);
-    sha256_update(&c, msg, mlen);
-    sha256_final(&c, inner);
-    sha256_init(&c);
-    sha256_update(&c, opad, 64);
-    sha256_update(&c, inner, 32);
-    sha256_final(&c, out);
-}
+/* 注：本关签名已改走 HMAC-MD5（见 SignKey::sign），原先的 hmac_sha256 实现已删除；
+ * SHA-256 仍用于对 body 取摘要。 */
 
 /* ============================================================
  * MD5（供 HMAC-MD5 使用；SHA-256 仍负责 body 摘要）
@@ -240,19 +223,14 @@ static void hmac_md5(const unsigned char *key, size_t klen,
 }
 
 /* ============================================================
- * XOR 数组：两段密钥，运行时解码后通过 operator+ 拼接
+ * XOR 数组：只剩左半段；右半段改由 Java 侧供给（见下方跨层回调）
  * ============================================================ */
 static const uint8_t K48_A[] = {
     0x7A, 0x5D, 0x48, 0x58, 0x53, 0x5B, 0x63, 0x5F,
     0x5D, 0x50, 0x51, 0x63
 };  // ^0x3C → "Fatdog_calm_"
 
-static const uint8_t K48_B[] = {
-    0x68, 0x6A, 0x68, 0x6C
-};  // ^0x5A → "2026"
-
 #define K48_A_LEN (sizeof(K48_A))
-#define K48_B_LEN (sizeof(K48_B))
 
 /* ============================================================
  * SignKey 类：C++ 运算符重载 + HMAC-SHA256
@@ -305,6 +283,40 @@ public:
 };
 
 /* ============================================================
+ * 跨层回调：右半段密钥由 Java 侧的 Grain 供给
+ *   Java 反射造实例 → bindHolder(实例) → 本 so 存全局引用
+ *   算签名时按方法名回调 half(int mask)，mask 是 so 侧常量
+ * ============================================================ */
+static JavaVM   *g_vm  = NULL;     /* JNI_OnLoad 接住，供无 env 时取用 */
+static jclass    g_cls = NULL;     /* Grain 的全局类引用 */
+static jobject   g_obj = NULL;     /* Grain 的实例（Java 反射造好递进来） */
+static jmethodID g_mid = NULL;     /* Grain.half(int) */
+
+/* so 侧常量掩码：Grain 的私有解密函数少了它就解不出正确明文 */
+static const jint K48_MASK = 0x3E5C7B1F;
+
+static std::string fetch_right(JNIEnv *env) {
+    if (env == NULL && g_vm != NULL) {
+        if (g_vm->GetEnv(reinterpret_cast<void **>(&env), JNI_VERSION_1_6) != JNI_OK) {
+            return std::string();
+        }
+    }
+    if (env == NULL || g_obj == NULL || g_mid == NULL) return std::string();
+
+    jstring js = (jstring) env->CallObjectMethod(g_obj, g_mid, K48_MASK);
+    if (js == NULL) return std::string();
+    const char *cs = env->GetStringUTFChars(js, NULL);
+    std::string out;
+    if (cs != NULL) {
+        out.assign(cs);
+        env->ReleaseStringUTFChars(js, cs);
+    }
+    env->DeleteLocalRef(js);
+    if (out == "ERR_JAVA") out.clear();
+    return out;
+}
+
+/* ============================================================
  * 诱饵标记（明文可见，strings 可抓）
  * ============================================================ */
 static const char FAKE_MARK[] = "Fatdog_sunrise";
@@ -312,16 +324,13 @@ static const char FAKE_MARK[] = "Fatdog_sunrise";
 /* ============================================================
  * 生成请求签名
  * ============================================================ */
-static std::string build_sign(int page, long ts) {
-    /* 构造两段 SignKey 并用 operator+ 拼接 */
-    SignKey left;   // 解码 K48_A → "Fatdog_calm_"
-    std::string right_raw(K48_B_LEN, '\0');
-    for (size_t i = 0; i < K48_B_LEN; i++) {
-        right_raw[i] = static_cast<char>(K48_B[i] ^ 0x5A);
-    }
-    SignKey right(right_raw);  // 解码 K48_B → "2026"
+static std::string build_sign(JNIEnv *env, int page, long ts) {
+    /* 跨层取件：左半段在本 so，右半段回调 Java */
+    SignKey left;                                   // 解码 K48_A → "Fatdog_calm_"
+    std::string right_raw = fetch_right(env);       // Grain.half(K48_MASK) → "2026"
+    if (right_raw.empty()) return std::string("ERR_BIND");
 
-    SignKey full = left + right;  // operator+ 拼接 → "Fatdog_calm_2026"
+    SignKey full = left + SignKey(right_raw);       // operator+ 拼接 → "Fatdog_calm_2026"
 
     /* 组装 body → 取 SHA-256 摘要 → 对**摘要**签名（毫秒 ts 写在 body 里） */
     char body[128];
@@ -342,14 +351,49 @@ static std::string build_sign(int page, long ts) {
  * ============================================================ */
 extern "C" {
 
+JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void *reserved) {
+    (void) reserved;
+    g_vm = vm;
+    return JNI_VERSION_1_6;
+}
+
+/* 诱饵导出：Java 侧根本没有声明这个方法 —— 纯误导。
+ * 作用有两个：让 strings/nm 能抓到 "Fatdog_sunrise"；
+ * 让符号表里多一个看起来像"密钥入口"的假门。 */
 JNIEXPORT jstring JNICALL
-Java_com_fatdog_reverse_Bk48_nativeSign(JNIEnv *env, jclass clazz, jint page, jlong ts) {
-    std::string sig = build_sign(page, static_cast<long>(ts));
+Java_com_fatdog_reverse_Bk48_nativeSunrise(JNIEnv *env, jobject thiz) {
+    (void) thiz;
+    return env->NewStringUTF(FAKE_MARK);
+}
+
+/* Java 把反射造好的 Grain 实例递进来，这里缓存成全局引用 */
+JNIEXPORT void JNICALL
+Java_com_fatdog_reverse_Bk48_bindHolder(JNIEnv *env, jclass clazz, jobject holder) {
+    (void) clazz;
+    if (g_obj != NULL) { env->DeleteGlobalRef(g_obj); g_obj = NULL; }
+    if (g_cls != NULL) { env->DeleteGlobalRef(g_cls); g_cls = NULL; }
+    g_mid = NULL;
+    if (holder == NULL) return;
+    g_obj = env->NewGlobalRef(holder);
+    if (g_obj == NULL) return;
+    jclass local = env->GetObjectClass(holder);
+    if (local == NULL) return;
+    g_cls = (jclass) env->NewGlobalRef(local);
+    env->DeleteLocalRef(local);
+    if (g_cls == NULL) return;
+    g_mid = env->GetMethodID(g_cls, "half", "(I)Ljava/lang/String;");
+}
+
+JNIEXPORT jstring JNICALL
+Java_com_fatdog_reverse_Bk48_nativeSign(JNIEnv *env, jobject thiz, jint page, jlong ts) {
+    (void) thiz;
+    std::string sig = build_sign(env, page, static_cast<long>(ts));
     return env->NewStringUTF(sig.c_str());
 }
 
 JNIEXPORT jstring JNICALL
-Java_com_fatdog_reverse_Bk48_getKeyHint(JNIEnv *env, jclass clazz) {
+Java_com_fatdog_reverse_Bk48_getKeyHint(JNIEnv *env, jobject thiz) {
+    (void) thiz;
     /* 返回右半段提示（不是完整密钥） */
     return env->NewStringUTF("right_part_is_year_string");
 }

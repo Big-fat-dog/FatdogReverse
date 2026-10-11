@@ -26,10 +26,12 @@ public class kn3Activity extends Activity {
 
         TextView tv = new TextView(this);
         tv.setText("昆仑第三关 · 渡鸦桥\n\n"
-                + "libmaple.so 导出函数：\n"
+                + "libacorn.so 导出函数：\n"
                 + "String nativeKey()\n\n"
-                + "这个函数会回调 Java 层的 halfA() 方法取前半密钥，"
-                + "与 so 内的后半拼成完整密钥后返回。\n"
+                + "门面 so 会用 dlsym 依次摘取名下五枚内核"
+                + "（bramble → cinder → drift → elder → fable），"
+                + "每枚内核各贡献一个字符拼出尾段；期间还要回调 Java 层的 halfA() 与 bridgeSeed()。\n"
+                + "六枚 so 缺一不可，两类回调没补全也拼不出正确密钥。\n"
                 + "请提交它返回的完整字符串。");
         tv.setGravity(Gravity.CENTER);
         box.addView(tv, Ui.wrap(6));
@@ -63,8 +65,11 @@ public class kn3Activity extends Activity {
             public void onClick(View v) {
                 new AlertDialog.Builder(kn3Activity.this)
                         .setTitle("提示")
-                        .setMessage("nativeKey() 内部会调 GetStaticMethodID + CallStaticObjectMethod 来回调 Java 的 halfA()。\n"
-                                + "unidbg 运行时你需要在 AbstractJni 子类里 override callStaticObjectMethod 拦截这个回调并返回前半密钥。\n"
+                        .setMessage("nativeKey() 里有两处跨层回调：\n"
+                                + "① GetStaticMethodID + CallStaticObjectMethod → halfA()（String）；\n"
+                                + "② GetStaticMethodID + CallStaticIntMethod → bridgeSeed()（int）。\n"
+                                + "unidbg 里要在 AbstractJni 子类中同时 override callStaticObjectMethod 与 callStaticIntMethod；\n"
+                                + "并且要 loadLibrary 全部六枚 so——门面缺了内核会直接报错返回。\n"
                                 + "setVerbose(true) 会打印所有未实现的调用——照着补就行。")
                         .setPositiveButton("知道了", null)
                         .show();

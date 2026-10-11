@@ -37,16 +37,20 @@ import okhttp3.Request;
 import okhttp3.Response;
 
 /**
- * Native大陆 L48 落日平原（operator+ 重载）
+ * Native大陆 L48 落日平原（operator+ 重载 · 跨层回调）
  *
  * libbadger.so 导出：
- *   String nativeSign(int page, long ts)  — HMAC-SHA256 签名
- *   String getKeyHint()                  — 密钥右半段提示
+ *   String nativeSign(int page, long ts)  — HMAC-MD5 签名（**实例方法**）
+ *   String getKeyHint()                  — 密钥右半段提示（实例方法）
+ *   void   bindHolder(Object holder)     — 把反射造好的 Grain 实例交给 native
  *
  * 破解路线：
- *   ① IDA 定位 SignKey::operator+ → 理解拼接逻辑 → 还原密钥 → Python 复刻
- *   ② Frida hook nativeSign 观察返回值 → 直接用返回的签名逐页取数
- *   ③ DebugSymbol.fromAddress 反解 mangled 名 → 找到 operator+ 和 sign
+ *   ① IDA 打开 libbadger.so：找到 bindHolder 与 half 的字符串锚点，
+ *      看它在 .rodata / 解密后拿到的方法名，反查 Java 侧回调目标；
+ *   ② jadx：Bk48 已不是纯静态桥——构造函数里用反射造了个 R8 改名类的实例，
+ *      顺着 Grain.class → 改名后的类 → 密文数组 + 私有解密函数；
+ *   ③ 掩码常量在 so 里（K48_MASK），盐在 Bk48（SALT）——两边都要才解得开；
+ *   ④ Frida：hook CallObjectMethod 或直接拿返回值，逐页取数。
  *
  * Flag: FLAG_18_L48{setting_sun_plains}
  */
@@ -60,6 +64,7 @@ public class x48Activity extends Activity {
     private String base;
     private boolean loading;
     private int currentPage = 1;
+    private Bk48 bridge;   // 有状态的 JNI 桥：构造时反射造 Grain 实例并交给 native
 
     private TextView status;
     private final TextView[] cells = new TextView[10];
@@ -71,6 +76,7 @@ public class x48Activity extends Activity {
         super.onCreate(b);
         base = NetHost.httpsBase();
         initClient();
+        bridge = new Bk48();
 
         LinearLayout box = new LinearLayout(this);
         box.setOrientation(LinearLayout.VERTICAL);
@@ -81,6 +87,7 @@ public class x48Activity extends Activity {
         tv.setText("L48 · 落日平原（★★）\n"
                 + "平原上立着一座磨坊，日夜碾着看不见的谷子。\n"
                 + "谷子被拆成两捧，各自裹了层盐霜，\n"
+                + "一捧留在磨坊里，另一捧被寄去了别处，\n"
                 + "只有磨盘转起来，两捧才能重新并作一处。\n"
                 + "想取到门后的数字，先听懂磨盘转动的暗语。");
         tv.setGravity(Gravity.CENTER);
@@ -202,7 +209,14 @@ public class x48Activity extends Activity {
                                 + "名字长得拗口的机关——\n"
                                 + "它才是真正转动磨盘的那一个。\n\n"
                                 + "谷子上裹的盐霜，是可以被洗掉的；\n"
-                                + "两捧谷子，只有名字对得上才拼得成一把。")
+                                + "两捧谷子，只有名字对得上才拼得成一把。\n\n"
+                                + "别只在磨坊里找：有一捧谷子，\n"
+                                + "被寄放在隔壁那间不挂招牌的屋子里——\n"
+                                + "屋子的门牌在建造时就被涂掉了，\n"
+                                + "但有个机关还记得它的新名字。\n\n"
+                                + "洗盐霜要用两把钥匙：\n"
+                                + "一把刻在磨盘背面，一把写在屋子的门框上，\n"
+                                + "缺一把，洗出来的就是一堆乱码。")
                         .setPositiveButton("知道了", null)
                         .show();
             }
@@ -307,7 +321,7 @@ public class x48Activity extends Activity {
         status.setText("正在请求第 " + page + " 页…");
 
         final long ts = System.currentTimeMillis();          // 毫秒时间戳（不再是秒）
-        String sign = Bk48.nativeSign(page, ts);
+        String sign = bridge.nativeSign(page, ts);
         FormBody form = new FormBody.Builder()
                 .add("page", String.valueOf(page))
                 .add("ts", String.valueOf(ts))

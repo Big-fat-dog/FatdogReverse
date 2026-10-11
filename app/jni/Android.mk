@@ -85,22 +85,118 @@ LOCAL_MODULE := lotus
 LOCAL_SRC_FILES := lotus.c
 include $(BUILD_SHARED_LIBRARY)
 
-# KL3
+# KL3 渡鸦桥 —— 六 so 接力链（门面 acorn + 内核 bramble/cinder/drift/elder/fable，缺一即断链）
 include $(CLEAR_VARS)
-LOCAL_MODULE := maple
-LOCAL_SRC_FILES := maple.c
+LOCAL_MODULE := bramble
+LOCAL_SRC_FILES := bramble.cpp
+LOCAL_CPPFLAGS := -std=c++17 -fexceptions -frtti
 include $(BUILD_SHARED_LIBRARY)
 
-# KL4
 include $(CLEAR_VARS)
-LOCAL_MODULE := rivet
-LOCAL_SRC_FILES := rivet.c
+LOCAL_MODULE := cinder
+LOCAL_SRC_FILES := cinder.cpp
+LOCAL_CPPFLAGS := -std=c++17 -fexceptions -frtti
 include $(BUILD_SHARED_LIBRARY)
 
-# KL5
 include $(CLEAR_VARS)
-LOCAL_MODULE := tulip
-LOCAL_SRC_FILES := tulip.c
+LOCAL_MODULE := drift
+LOCAL_SRC_FILES := drift.cpp
+LOCAL_CPPFLAGS := -std=c++17 -fexceptions -frtti
+include $(BUILD_SHARED_LIBRARY)
+
+include $(CLEAR_VARS)
+LOCAL_MODULE := elder
+LOCAL_SRC_FILES := elder.cpp
+LOCAL_CPPFLAGS := -std=c++17 -fexceptions -frtti
+include $(BUILD_SHARED_LIBRARY)
+
+include $(CLEAR_VARS)
+LOCAL_MODULE := fable
+LOCAL_SRC_FILES := fable.cpp
+LOCAL_CPPFLAGS := -std=c++17 -fexceptions -frtti
+include $(BUILD_SHARED_LIBRARY)
+
+include $(CLEAR_VARS)
+LOCAL_MODULE := acorn
+LOCAL_SRC_FILES := acorn.cpp
+LOCAL_CPPFLAGS := -std=c++17 -fexceptions -frtti
+LOCAL_LDLIBS := -llog -ldl
+include $(BUILD_SHARED_LIBRARY)
+
+# KL4 冰裂缝 —— 菱形分叉六 so（门面 gulch + 分叉头 iris/juniper + 中继 kindle/larch + 归并 marrow）
+include $(CLEAR_VARS)
+LOCAL_MODULE := iris
+LOCAL_SRC_FILES := iris.cpp
+LOCAL_CPPFLAGS := -std=c++17 -fexceptions -frtti
+include $(BUILD_SHARED_LIBRARY)
+
+include $(CLEAR_VARS)
+LOCAL_MODULE := juniper
+LOCAL_SRC_FILES := juniper.cpp
+LOCAL_CPPFLAGS := -std=c++17 -fexceptions -frtti
+include $(BUILD_SHARED_LIBRARY)
+
+include $(CLEAR_VARS)
+LOCAL_MODULE := kindle
+LOCAL_SRC_FILES := kindle.cpp
+LOCAL_CPPFLAGS := -std=c++17 -fexceptions -frtti
+include $(BUILD_SHARED_LIBRARY)
+
+include $(CLEAR_VARS)
+LOCAL_MODULE := larch
+LOCAL_SRC_FILES := larch.cpp
+LOCAL_CPPFLAGS := -std=c++17 -fexceptions -frtti
+include $(BUILD_SHARED_LIBRARY)
+
+include $(CLEAR_VARS)
+LOCAL_MODULE := marrow
+LOCAL_SRC_FILES := marrow.cpp
+LOCAL_CPPFLAGS := -std=c++17 -fexceptions -frtti
+include $(BUILD_SHARED_LIBRARY)
+
+include $(CLEAR_VARS)
+LOCAL_MODULE := gulch
+LOCAL_SRC_FILES := gulch.cpp
+LOCAL_CPPFLAGS := -std=c++17 -fexceptions -frtti
+LOCAL_LDLIBS := -llog -ldl
+include $(BUILD_SHARED_LIBRARY)
+
+# KL5 登顶 —— 平坦化调度器六 so（门面 spire + 内核 quarry/ridge/shard/talus/verge，缺一即断链）
+include $(CLEAR_VARS)
+LOCAL_MODULE := quarry
+LOCAL_SRC_FILES := quarry.cpp
+LOCAL_CPPFLAGS := -std=c++17 -fexceptions -frtti
+include $(BUILD_SHARED_LIBRARY)
+
+include $(CLEAR_VARS)
+LOCAL_MODULE := ridge
+LOCAL_SRC_FILES := ridge.cpp
+LOCAL_CPPFLAGS := -std=c++17 -fexceptions -frtti
+include $(BUILD_SHARED_LIBRARY)
+
+include $(CLEAR_VARS)
+LOCAL_MODULE := shard
+LOCAL_SRC_FILES := shard.cpp
+LOCAL_CPPFLAGS := -std=c++17 -fexceptions -frtti
+include $(BUILD_SHARED_LIBRARY)
+
+include $(CLEAR_VARS)
+LOCAL_MODULE := talus
+LOCAL_SRC_FILES := talus.cpp
+LOCAL_CPPFLAGS := -std=c++17 -fexceptions -frtti
+include $(BUILD_SHARED_LIBRARY)
+
+include $(CLEAR_VARS)
+LOCAL_MODULE := verge
+LOCAL_SRC_FILES := verge.cpp
+LOCAL_CPPFLAGS := -std=c++17 -fexceptions -frtti
+include $(BUILD_SHARED_LIBRARY)
+
+include $(CLEAR_VARS)
+LOCAL_MODULE := spire
+LOCAL_SRC_FILES := spire.cpp
+LOCAL_CPPFLAGS := -std=c++17 -fexceptions -frtti
+LOCAL_LDLIBS := -llog -ldl
 include $(BUILD_SHARED_LIBRARY)
 
 # KL6

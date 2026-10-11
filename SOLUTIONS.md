@@ -3497,9 +3497,10 @@ sign       = HMAC-SHA256(derivedKey, payload)
 > ⚠️ 方法 B/C 挂在大厅：绕过 MainActivity 用 root/Frida 强启 `x50`~`x53` 会 `UnsatisfiedLinkError`；正常从大厅点进去不受影响（所有关卡 Activity 都是 `exported="false"`，外部直启本就被系统拒）。
 
 
-### 关卡 48：落日平原（C++ operator+ 派生密钥 · body 摘要参与签名）
+### 关卡 48：落日平原（operator+ 派生密钥 · body 摘要参与签名 · **跨层回调 + 混淆**）
 
-**考点**：密钥由两段（`Fatdog_calm_` + `2026`）经 `operator+` 拼接派生；POST 提交，**ts 为毫秒**（不再是秒），而签名对象**不是明文参数，而是 body 的 SHA-256 摘要**——这是 POST 场景的标准做法，也是本关的题眼。
+**考点**：密钥两段经 `operator+` 拼接派生；POST 提交，**ts 为毫秒**，签名对象是 **body 的 SHA-256 摘要**。
+2026-10-11 起本关升级为**跨层 + 混淆**关：左半段在 so，右半段在 Java（R8 改名类），由 so 反向回调 Java 的**实例方法**取件。
 
 ```text
 协议：POST /api/l48
@@ -3508,8 +3509,48 @@ sign       = HMAC-SHA256(derivedKey, payload)
   digest = sha256_hex(body)
   sign   = HMAC-MD5("Fatdog_calm_2026", digest)
 
-密钥（XOR 数组解码后 operator+ 拼接）：
-  Fatdog_calm_  +  2026  →  Fatdog_calm_2026
+密钥装配（两截跨层）：
+  so  侧  Fatdog_calm_   ← K48_A ^ 0x3C
+  Java侧  2026           ← com.fatdog.reverse.k.<改名类>.half(mask)
+  operator+ 拼接 → Fatdog_calm_2026
+```
+
+**路线一：静态复刻（最稳）**
+
+```text
+① IDA 打开 libbadger.so：导出表有 JNI_OnLoad / bindHolder / nativeSign / getKeyHint，
+   外加一个 Java 侧根本没声明的假门 nativeSunrise（回 "Fatdog_sunrise"，是坑）
+② build_sign 里找 CallObjectMethod —— 参数是常量 K48_MASK = 0x3E5C7B1F，
+   方法名/签名 "half" / "(I)Ljava/lang/String;" 是 so 里仅有的两条锚点字符串
+③ jadx：搜 "half" → 落在被 R8 改过名的类（原 com.fatdog.reverse.k.Grain）；
+   同包里还有一个长得一模一样、解出来是 "2OZ6" 的诱饵类
+④ 密文数组 {0x1F67,0x2029,0x1F74,0x1FDD}；盐 0x1F3A 在 Bk48.SALT（反射造实例时传入）
+⑤ 解密：plain[i] = (c[i] - salt - i*7) ^ ((mask >> (i*5)) & 0xFF)  →  "2026"
+⑥ 与 so 内 K48_A ^ 0x3C = "Fatdog_calm_" 拼接 → Fatdog_calm_2026
+```
+
+**路线二：Frida（最快）**
+
+```javascript
+Java.perform(function () {
+    // R8 改过名 → 枚举已加载类，找带 half(int) 的那个
+    Java.enumerateLoadedClassesSync().forEach(function (n) {
+        if (!n.startsWith('com.fatdog.reverse')) return;
+        try {
+            var c = Java.use(n);
+            if (c.half && c.half.overloads && c.half.overloads.length) {
+                console.log('candidate: ' + n + '  -> ' + c.half(0x3E5C7B1F));
+            }
+        } catch (e) {}
+    });
+});
+```
+
+**路线三：纯动态（不读代码）**
+
+```text
+hook Bk48.nativeSign(page, ts) → 拿到 32 位 hex 签名 → 自己 POST /api/l48 取数 → 求和
+（ts 必须与同一次调用透传，服务端时间窗 600s）
 ```
 
 **Python 全复刻（先 python server.py）**
@@ -3520,9 +3561,9 @@ import hashlib, hmac, time, requests
 KEY = b"Fatdog_calm_2026"
 total = 0
 for page in range(1, 101):
-    ts = int(time.time() * 1000)                       # ★ 毫秒
+    ts = int(time.time() * 1000)                        # ★ 毫秒
     body = f"page={page}&ts={ts}"
-    digest = hashlib.sha256(body.encode()).hexdigest()  # ★ 签的是摘要
+    digest = hashlib.sha256(body.encode()).hexdigest()   # ★ 签的是摘要
     sign = hmac.new(KEY, digest.encode(), hashlib.md5).hexdigest()
     r = requests.post("https://127.0.0.1:8443/api/l48",
                       data={"page": page, "ts": ts, "sign": sign},
@@ -3533,33 +3574,43 @@ print(total)
 
 对拍样例：`body = page=1&ts=1787013761123` → `digest = 8e0f4985690fabb04692a4f23ec35a7ee06b1cf06ac80d1f7ab4bd5db0ab0785` → `sign = 71736fc938b455280e50753815edb418`。
 
-**动态路线**：Frida hook `Bk48.nativeSign`，观察入参 ts 是 13 位（毫秒）——一眼识破时间格式；再 hook 内部 `sha256_*` 可见"先摘要后签名"的两段结构。
-```
+**坑位提醒**
 
-**动态路线**：IDA 定位 `nativeEnc` → 追踪 TEA 密钥调度（delta 异或展开 32 轮）→ 还原 XOR 数组 → 静态复刻。本关无反调试、无记账守卫，纯算法识别。
+- 符号表里的 `nativeSunrise` 是**假门**（Java 侧无声明），回的是诱饵 `Fatdog_sunrise`。
+- `k` 包里**两个同形类**，只有一个被 `Bk48` 构造函数递给了 native；认错解出 `2OZ6`。
+- 掩码（so 侧）与盐（Java 侧）**分处两层**，只读一边只能得乱码。
+- 类名被 R8 改掉，`Class.forName("com.fatdog.reverse.k.Grain")` 在成品包里查不到——要顺 `Bk48` 构造函数里的 `Grain.class` 类常量走。
 
-**坑位提醒**：TEA 的 delta `0x9E3779B9` 是黄金比例常量，IDA 里搜这个魔数可以直接定位加密函数。别和 XTEA（delta `0x61C88647`）搞混。
-
-答案：加和 `51680`；flag `FLAG_18_L48{sunset_plains}`
+答案：加和 `49585`；flag `FLAG_18_L48{setting_sun_plains}`
 
 
-### 关卡 49：迷雾森林（std::map 分发 · SM4-ECB + HMAC-MD5 · RAII）
+### 关卡 49：迷雾森林（std::map 分发 · SM4-ECB + HMAC-MD5 · RAII · 跨层回调）
 
-**考点**：L48 的升级版——用 std::map 做算法分发（CryptoBox 类），RAII 管理内存（ManagedBuffer），密钥通过 C++ 静态对象延迟初始化。加密换成国密 SM4-ECB，签名改为 HMAC-MD5，协议改为 POST。
+**考点**：L48 的升级版——①用 std::map 做算法分发（CryptoBox 类）、RAII 管理内存（ManagedBuffer）；②**跨层回调的另一种做法**：Java 只把 `Warden.class` 递给 native，由 **so 侧 `NewObject` 直接调私有构造造 Java 对象**，再回调实例方法取件（与 L48「Java 反射造实例」形成对照）。加密是国密 SM4-ECB，签名 HMAC-MD5，协议 POST。
 
 ```text
 协议：POST /api/l49
   表单字段：enc, sign, algo=0
   enc  = hex(SM4-ECB(sm4_key, "page=N&ts=T"))
-  sign = HMAC-MD5(hmac_key, enc)
+  sign = HMAC-MD5(hmac_key, enc_hex)      ← 对 hex 字符串签名（不是解码后的字节）
   algo = 0
 
-密钥（XOR 数组解码，分散在 KeyProvider 类中）：
-  sm4_key  = Fatdog_mist_2026（XOR ^0x3C）
-  hmac_key = Fatdog_forest_2026（XOR ^0x5A）
+密钥（交叉拆分，两段跨层）：
+  sm4_key  = so"Fatdog_mist_"  +  Java.mistTail(mask)="2026"    → Fatdog_mist_2026
+  hmac_key = Java.forestHead(mask)="Fatdog_forest_"  +  so"2026" → Fatdog_forest_2026
+
+跨层链：
+  Bk49 构造 → bindKeys(Warden.class)
+    → so 缓存 jclass + GetMethodID("<init>","(I)V") / ("mistTail","(I)Ljava/lang/String;") / ("forestHead","(I)[I")
+    → so NewObject(cls, <init>, SALT_WARDEN) 造实例（私有构造，JNI 不看访问修饰符）
+    → CallObjectMethod(实例, mistTail, MASK_MIST) / (forestHead, MASK_FOREST)
 ```
 
-**静态路线（Python 全复刻，先 python server.py）**
+**路线一：native 层 Frida 直取（最快）**
+
+hook `nativeEnc` / `nativeSign` 的返回值即可逐页取数；或 hook `CallObjectMethod` / `NewObject` 直接看回传的两段明文（`"2026"` / `"Fatdog_forest_"`）。
+
+**路线二：静态复刻（Python 全还原）**
 
 ```python
 import hashlib, hmac, time, requests
@@ -3567,7 +3618,6 @@ import hashlib, hmac, time, requests
 SM4_KEY  = b"Fatdog_mist_2026"
 HMAC_KEY = b"Fatdog_forest_2026"
 
-# 需要 pycryptodome 的 SM4 或自己实现 SM4-ECB
 from Crypto.Cipher import SM4
 
 def sm4_ecb_encrypt(key, data):
@@ -3590,18 +3640,21 @@ for page in range(1, 101):
 print(total)
 ```
 
-**动态路线**：
-1. IDA 定位 `CryptoBox::process` → 理解 `std::map<int, function>` 分发逻辑
-2. Frida hook `nativeEnc`/`nativeSign` 观察返回值
-3. `Memory.scanSync` 搜索 std::map 内部红黑树节点（SGI STL 红黑树头节点特征：`__rb_tree_node_base` 布局）
-4. 静态复刻：还原 SM4 密钥 + HMAC 密钥
+**路线三：解 Java 密钥件**
+
+1. `strings libotter.so`：抓 `mistTail` / `forestHead` / `<init>` 锚点 → 知道要回调哪个类的哪些方法；
+2. jadx 里 `Bk49` 构造函数持有 `Warden.class` 常量 → 顺到被 R8 改名后的那个类（`Warden` / `Veil` 两个同形，需按 `bindKeys` 实际传参判断）；
+3. 类里是私有字段 `int[]`（密文）+ 私有构造函数 + 私有解密函数 `d()`；掩码在 so（`MASK_MIST=0x5B3D7F21`、`MASK_FOREST=0x7E2A51C9`）、盐也在 so（`SALT_WARDEN=0x2C4E`）——`ch = ((c[i]-salt-i*11)&0xFFFF) ^ ((mask >>> ((i%4)*8)) & 0xFF)`；
+4. 拼装：`Fatdog_mist_` + `2026` = SM4 key；`Fatdog_forest_` + `2026` = HMAC key。
 
 **坑位提醒**：
-- 标记 `Fatdog_mist`（真）与 `Fatdog_misty`（诱饵 UTF-16）只差一个 `y`——strings 默认搜不到 UTF-16，用 `strings -el` 可破
+- 标记 `Fatdog_mist`（真）与 `Fatdog_misty`（诱饵）只差一个 `y`——诱饵明文可见，`strings` 可抓
+- **`sign` 是对 hex 字符串签名**，不是对解码后的字节——套错口径必 403
+- 掩码与盐分处两层：只读 Java 或只读 so 都只能解出乱码
+- `d()` 是私有且**按名反射调用**，R8 必须 keep 它的名字（见 `r8.pro`）
 - SM4 的 S 盒开头 `d6 90 7c b3` 是国密特征，IDA 里搜这 4 个字节直接定位
-- RAII 的 `ManagedBuffer` 析构函数里清零内存——动态分析时及时 dump
 
-答案：加和 `50621`；flag `FLAG_18_L49{misty_forest}`
+答案：加和 `50387`；flag `FLAG_18_L49{misty_forest}`
 
 
 ### 关卡 50：幽暗深渊（vtable 虚函数表分发 · AES-128-ECB + SHA-256 + 海量业务代码）
@@ -3858,81 +3911,257 @@ print(x-(1<<32) if x>=(1<<31) else x)   # -2146415444
 ```
 
 
-### KL3：渡鸦桥（跨层回调）
+### KL3：渡鸦桥（六 so 接力链 + 双类型 JNI 回调）
 
-**原理**：nativeKey() 内部经 GetStaticMethodID/CallStaticObjectMethod 回调 Java 层的 Ku3.halfA() 取前半密钥 "Fatdog_"，与 so 内 UTF-16 后半 "raven" 拼成完整密钥。
+**结构**：门面 `libacorn.so` 是六枚 so 中**唯一**导出 `Java_` 符号者——它先从 Java 取两件东西，再沿链摘五枚内核，最后拼出密钥。
 
-**unidbg 补桩**：
+```
+Ku3.nativeKey()
+   |  ① GetStaticMethodID + CallStaticObjectMethod  ->  Ku3.halfA()      = "Fatdog_"
+   |  ② GetStaticMethodID + CallStaticIntMethod     ->  Ku3.bridgeSeed() = 0x20260303
+   v
+acorn --dlsym--> bramble --> cinder --> drift --> elder --> fable
+ (只管编排)        'r'        'a'        'v'       'e'       'n'    <- 各供 1 字符
+   v
+"Fatdog_" + "raven"  =  Fatdog_raven
+```
+
+每枚内核把传入状态做一次 glibc-LCG 步进（`s = s*1103515245 + 12345`），再用 `(s>>16) & 0x1F` 选自己那张 32 格片段表取字符。真值只落在**小写字母位**，其余 31 格是**大写字母/数字诱饵**——所以只要状态不对（例如 `bridgeSeed` 没补，unidbg 默认给 0），尾段就会全是大写/数字，**一眼就能看出"回调没补全"**。五枚内核缺任一 → 门面直接回 `ERR_CHAIN`。
+
+**路线 ①：unidbg 补环境（正解）**
 
 ```java
+// 六枚 so 一个都不能少（缺一枚，门面的 dlsym 就摘不到内核）
+for (String n : new String[]{"bramble", "cinder", "drift", "elder", "fable", "acorn"})
+    emulator.loadLibrary(new File("lib" + n + ".so"));
+
+// 桥类：两类回调都要补
 @Override
 public DvmObject<?> callStaticObjectMethod(BaseVM vm, DvmClass dvc, String sig, VarArg va) {
     if (sig.equals("com/fatdog/reverse/Ku3->halfA()Ljava/lang/String;"))
         return new StringObject(vm, "Fatdog_");
     return super.callStaticObjectMethod(vm, dvc, sig, va);
 }
+
+@Override
+public int callStaticIntMethod(BaseVM vm, DvmClass dvc, String sig, VarArg va) {
+    if (sig.equals("com/fatdog/reverse/Ku3->bridgeSeed()I"))
+        return 0x20260303;
+    return super.callStaticIntMethod(vm, dvc, sig, va);
+}
 ```
 
-提交 **Fatdog_raven** 即通关。
+`emulator.getMemory().setVerbose(true)` 会把两处未实现的回调打出来，照着补即可。返回 **`Fatdog_raven`**。
 
+**路线 ②：纯静态复刻**（不跑 unidbg）
 
-### KL4：冰裂缝（反模拟检测）
+从 jadx 读出 `Ku3.halfA()` / `Ku3.bridgeSeed()` 的返回值，再按同一条 LCG 复算五张表的取位（表位 `(s>>16)&0x1F` 与 so 里逐一对得上）：
 
-**考点**：nativeProbe() 读 `/proc/self/maps` 搜 unidbg/unicorn 特征，读 `/proc/self/status` 查 TracerPid 非 0。任一命中返回 `ERR_EMULATED`；全部干净返回 `Fatdog_glacier_unlocked`。
+```python
+M = 0xFFFFFFFF
+s = 0x20260303                       # == Ku3.bridgeSeed()
+tail = ""
+for ch in "raven":
+    s = (s * 1103515245 + 12345) & M
+    tail += ch                       # 本片字符取自第 (s>>16)&0x1F 格
+print("Fatdog_" + tail)              # Fatdog_raven
+```
 
-**真机上天然通过**——因为真机的 maps 和 status 里没有 unidbg 特征且没有调试器附着。
+**路线 ③：Frida 直取**（真机最省事）
 
-**unidbg 补法（核心教学点）**
-
-```java
-// 在创建模拟器之后、加载 so 之前：
-emulator.getSyscallHandler().addIOResolver(new IOResolver() {
-    @Override
-    public FileResult resolve(Emulator emulator, String pathname, int oflags) {
-        if (pathname.equals("/proc/self/maps")) {
-            // 喂一份干净的 maps——不含任何 unidbg/unicorn 字样
-            String cleanMaps = "7f000000-7f001000 r-xp 00000000 00:00 0  /system/lib/libc.so\n"
-                             + "7f002000-7f003000 r--p 00001000 00:00 0  /system/lib/libc.so\n";
-            return FileResult.success(new ByteArrayFileIO(oflags, pathname,
-                    cleanMaps.getBytes()));
-        }
-        if (pathname.equals("/proc/self/status")) {
-            // 喂假的 status——TracerPid 固定 0
-            String cleanStatus = "Name:\tcom.fatdog.reverse\n"
-                               + "TracerPid:\t0\n"
-                               + "Uid:\t10000\t10000\t10000\t10000\n";
-            return FileResult.success(new ByteArrayFileIO(oflags, pathname,
-                    cleanStatus.getBytes()));
-        }
-        return null;   // 其他路径走默认
-    }
+```javascript
+Java.perform(function () {
+    var K = Java.use("com.fatdog.reverse.Ku3");
+    console.log("key = " + K.nativeKey());
 });
 ```
 
-然后正常调 `nativeProbe()` 即可拿到 `"Fatdog_glacier_unlocked"`。
-
-**坑位提醒**：如果 IOResolver 返回 null（没拦截），so 会尝试读真实文件系统——在 unidbg 模拟器里这些路径不存在或内容不对，就会触发检测。
+**坑**：原 `libmaple.so` 已废弃，改看 `libacorn.so`；只 `loadLibrary("acorn")` 一枚 → `nativeKey()` 回 `ERR_CHAIN`。旧的 `halfA` 回调签名不变，但**还必须补 `bridgeSeed` 的 int 回调**，否则尾段是大写/数字诱饵。
 
 
----
+### KL4：冰裂缝（菱形分叉六 so + 四类回调 + 反模拟检测）
+
+**一、本关考什么**
+
+两道门槛叠加（比 KL3 重）：① **反模拟体检**——`/proc/self/maps` 搜 `unidbg/unicorn/gum-js-loop`、`/proc/self/status` 查 `TracerPid`；② **菱形分叉拼钥**——门面 `libgulch.so` 用 `dlsym` 串五枚内核，且要补**四类** Java 回调。原单枚 `librivet.so`（maps/TracerPid + 明文令牌）已废弃。
+
+**二、拓扑：菱形分叉**
+
+```
+Ku4.nativeProbe()
+   |  体检: /proc/self/maps + /proc/self/status     -> 脏则 "ERR_EMULATED"
+   |  ① CallStaticObjectMethod -> headMark()  = "Fatdog_"   (String)
+   |  ② CallStaticIntMethod    -> forkSeed()  = 0x20260404  (int)
+   |  ③ GetStaticIntField      -> SPLIT_X     = 0x5A5A5A5A  (静态 int 字段)
+   |  ④ CallStaticObjectMethod -> saltPlan()  = int[]{0x1F3A,0x2E4B,0x3D5C,0x4C6D,0x5B7E}
+   v
+gulch --dlsym--+- iris    -- kindle            (左支：头 -> 中继)
+               +- juniper -- larch             (右支：头 -> 中继)
+                    两路同源，归并到 marrow
+   v
+"Fatdog_" + iris||juniper||kindle||larch||marrow  =  Fatdog_glacier_unlocked
+```
+
+**数据流（菱形时序）**：`fork = step(seed ^ mask)`；`iris`/`juniper` 同取 `fork` 为起点，各自步进 4/3 步取表；中继 `kindle`/`larch` 分别接在**对应支路末端**；归并 `marrow` 的起点 = `左端 ^ 右端`。任一枚内核缺失 → `ERR_CHAIN`；`saltPlan` 长度 ≠ 5 → `ERR_PLAN`；环境脏 → `ERR_EMULATED`。**读错任一支路的时序或错一个盐，该片立刻变成大写/数字诱饵。**
+
+**算法口径**：与 KL3 不同的 LCG 参数（`s = s*1664525 + 1013904223`，Numerical-Recipes）；内核从 `state ^ salt` 起步，逐字符步进，落位 `(sel(s) + j*8) & 0x1F` 取本片 32 格表；片长依次 4/3/3/3/3；表内真值为小写/`_`，其余为大写/数字诱饵。
+
+**路线 ①：unidbg 补环境（正解）**
+
+```java
+// 六枚 so 一个都不能少
+for (String n : new String[]{"iris","juniper","kindle","larch","marrow","gulch"})
+    emulator.loadLibrary(new File("lib" + n + ".so"));
+
+// 体检：IOResolver 喂干净的 maps / status
+emulator.getSyscallHandler().addIOResolver(new IOResolver() {
+    public FileResult resolve(Emulator emu, String pathname, int oflags) {
+        if ("/proc/self/maps".equals(pathname))
+            return FileResult.success(new ByteArrayFileIO(oflags, pathname,
+                    "7f000000-7f001000 r-xp 00000000 00:00 0  /system/lib/libc.so\n".getBytes()));
+        if ("/proc/self/status".equals(pathname))
+            return FileResult.success(new ByteArrayFileIO(oflags, pathname,
+                    "Name:\tcom.fatdog.reverse\nTracerPid:\t0\n".getBytes()));
+        return null;
+    }
+});
+
+// 四类回调（缺一不可）
+@Override
+public DvmObject<?> callStaticObjectMethod(BaseVM vm, DvmClass dvc, String sig, VarArg va) {
+    if (sig.equals("com/fatdog/reverse/Ku4->headMark()Ljava/lang/String;"))
+        return new StringObject(vm, "Fatdog_");
+    if (sig.equals("com/fatdog/reverse/Ku4->saltPlan()[I")) {          // 返回 int[]
+        DvmClass arr = vm.resolveClass("[I");
+        return arr.newArrayObject(vm, new int[]{0x1F3A,0x2E4B,0x3D5C,0x4C6D,0x5B7E});
+    }
+    return super.callStaticObjectMethod(vm, dvc, sig, va);
+}
+
+@Override
+public int callStaticIntMethod(BaseVM vm, DvmClass dvc, String sig, VarArg va) {
+    if (sig.equals("com/fatdog/reverse/Ku4->forkSeed()I"))
+        return 0x20260404;
+    return super.callStaticIntMethod(vm, dvc, sig, va);
+}
+
+@Override
+public DvmObject<?> getStaticIntField(BaseVM vm, DvmClass dvc, String sig) {   // ③ 静态字段
+    if (sig.equals("com/fatdog/reverse/Ku4->SPLIT_X:I"))
+        return DvmInteger.valueOf(vm, (int) 0x5A5A5A5AL);
+    return super.getStaticIntField(vm, dvc, sig);
+}
+```
+
+`emulator.getMemory().setVerbose(true)` 会打印所有未实现的回调与字段。返回 **`Fatdog_glacier_unlocked`**。
+
+**路线 ②：纯静态复刻**（不跑 unidbg）
+
+从 jadx 读出 `headMark()/forkSeed()/SPLIT_X/saltPlan()`，按 LCG + 菱形时序复算各片表位（表内小写/`_` 为真、余为大写/数字诱饵），拼出 `Fatdog_glacier_unlocked`。
+
+**路线 ③：Frida 直取**（真机最省事）
+
+```javascript
+Java.perform(function () {
+    var K = Java.use("com.fatdog.reverse.Ku4");
+    console.log("key = " + K.nativeProbe());     // 真机环境干净，直接返回完整密钥
+});
+```
+
+**坑位提醒**
+- 原 `librivet.so` 已废弃，改看 `libgulch.so`；只 `loadLibrary("gulch")` → `ERR_CHAIN`。
+- **比 KL3 多两类回调**：`SPLIT_X` 是**静态 int 字段**（不是方法，要走 `getStaticIntField`）；`saltPlan()` 返回 **int[]**（要在 `callStaticObjectMethod` 里按数组构造，不是 String）。
+- IOResolver 若对 `/proc/self/maps` 或 `/proc/self/status` 返回 null，so 会去读真实文件系统 → 体检失败回 `ERR_EMULATED`。
+- 真机天然通过体检，`nativeProbe()` 直接吐完整串。
 
 
-### KL5：登顶（综合卷）
+### KL5：登顶（平坦化调度器六 so · 综合收官卷）
 
-**考点**：动态注册（JNI_OnLoad 无 RegisterNatives 但有回调依赖）+ 跨层回调（summitKey()）+ XOR 解密。
+**考点**：昆仑收官。原版只有单枚 `libtulip.so`（UTF-16 常量 + 异或），已重做为「**6 枚 so 的平坦化调度器** + **五类跨层回调** + **三路反模拟体检**」，是本分区补环境最重、唯一需要 **trace** 的一关。
 
-**原理**：nativeClimb 回调 Ku5.summitKey() 取 "Fatdog_"，与 so 内 UTF-16 后半 "summit" 拼成 "Fatdog_summit"，XOR 解密内嵌加密数据得明文 `summit_of_kunlun_2026`。
+#### 一、这一关在考什么
 
-**unidbg 补桩**：
+- **多 so 编辑 + 运行时编排**：门面 `libspire.so` 是六枚里**唯一**导出 `Java_` 符号的 so，其余五枚（`quarry`/`ridge`/`shard`/`talus`/`verge`）只导出各自的内核函数 `ku5_ry_*`。门面靠 `dlsym(RTLD_DEFAULT)` 现取，**缺任一枚 → `nativeClimb()` 回 `ERR_CHAIN`**（只 `loadLibrary("spire")` 一定拿不到答案）。
+- **控制流平坦化（关键差异）**：五枚内核的**执行次序不在源码里**。门面把 Java 侧取来的状态揉成 `s0`，再 Fisher–Yates **现算一个 5 元置换**，用运行时生成的 `g_next[]` 状态表 + `switch` 主分发沿置换派发内核。静态反汇编看不到"先调谁后调谁"——**必须 trace**（Frida Stalker / unidbg trace）或把环境补全后直接跑出返回值。
+- **重度补环境**：三份 `/proc` 假文件 + 五类回调（比 KL4 多一类，且含 64 位与静态 String 字段）。
+
+#### 二、运行时状态 → 置换（复原口径）
+
+```
+mask = fnv1a(baseMark) ^ fnv1a(SUMMIT_TAG) ^ lo32(peakStamp) ^ hi32(peakStamp) ^ routePlan[5]
+s0   = (SEED ^ mask) * 214013 + 2531011        # MSVC LCG
+order = FisherYates(s0)   # order[i] = 第 i 个被派发的内核下标
+```
+
+规范值：`mask=0x5E550108`、`s0=0x1E08069C`、`order=[0,1,4,3,2]`。
+即派发顺序 = `quarry → ridge → verge → talus → shard`，各内核贡献一片：
+
+| 内核算位 | 片内容 | 表基准 |
+|---|---|---|
+| `quarry` | `summ` | `sel(step(step(s0 ^ salt[0])))` |
+| `ridge` | `it_o` | `salt[1]` |
+| `verge` | `f_ku` | `salt[4]` |
+| `talus` | `nlun` | `salt[3]` |
+| `shard` | `_2026` | `salt[2]` |
+
+拼起来 = **`summit_of_kunlun_2026`**。内核用又一条不同 LCG（MSVC `*214013+2531011`），从 `state^salt` 两步混淆取基准，按固定步距 `(base+j*7)&0x1F` 读 32 格片段表；真值只落小写/下划线/数字位，31 格诱饵全是大写——**状态或盐错 → 读到大写诱饵，一眼假**。
+
+#### 三、unidbg 补桩
+
+**（1）IOResolver 喂三份假文件**（比 KL4 多一份 `cmdline`）：
 
 ```java
 @Override
-public DvmObject<?> callStaticObjectMethod(BaseVM vm, DvmClass dvc, String sig, VarArg va) {
-    if (sig.contains("summitKey"))
-        return new StringObject(vm, "Fatdog_");
-    return super.callStaticObjectMethod(vm, dvc, sig, va);
+public String resolve(BaseVM vm, Emulator<?> emulator, String pathname, FileResult result) {
+    if (pathname.endsWith("/maps"))     return "…干净的内存映射…\n";   // 别含 unidbg/unicorn/frida/qemu
+    if (pathname.endsWith("/status"))   return "Name:\tcom.fatdog.reverse\nTracerPid:\t0\n";
+    if (pathname.endsWith("/cmdline"))  return "com.fatdog.reverse\0";  // 别含 unidbg/android_server/frida
+    return super.resolve(vm, emulator, pathname, result);
 }
 ```
+
+**（2）五类回调**：
+
+```java
+@Override public int callStaticIntMethod(BaseVM vm, DvmClass c, String sig, VarArg va) {
+    if (sig.contains("climbSeed")) return 0x20260505;
+    return super.callStaticIntMethod(vm, c, sig, va);
+}
+@Override public DvmObject<?> callStaticObjectMethod(BaseVM vm, DvmClass c, String sig, VarArg va) {
+    if (sig.contains("baseMark"))  return new StringObject(vm, "Fatdog_");
+    if (sig.contains("routePlan")) {                                      // 返回 int[]，长度必须 6
+        int[] a = {0x11223344,0x23344556,0x34455667,0x45566778,0x56677889,0x6778899A};
+        return new ArrayObject(vm, a, true);
+    }
+    return super.callStaticObjectMethod(vm, c, sig, va);
+}
+@Override public DvmObject<?> getStaticObjectField(BaseVM vm, DvmClass c, String sig) {
+    if (sig.contains("SUMMIT_TAG")) return new StringObject(vm, "kunlun_ridge");   // 静态 String 字段，非方法
+    return super.getStaticObjectField(vm, c, sig);
+}
+@Override public long callStaticLongMethod(BaseVM vm, DvmClass c, String sig, VarArg va) {
+    if (sig.contains("peakStamp")) return 0x12345678ABCDEF01L;
+    return super.callStaticLongMethod(vm, c, sig, va);
+}
+```
+
+再 `loadLibrary` 全部六枚 so，`nativeClimb()` 即回完整串。`setVerbose(true)` 会把未实现的字段读取与调用全部打出来，照着补即可。
+
+#### 四、trace 路线（本关特色）
+
+不想补全环境、或想直接看编排，就 **trace**：Frida 对 `libspire.so` 的 `nativeClimb` 用 `Stalker.follow()`（或 unidbg 的 `traceCode`）跟一遍，观察 `switch` 每次落到的 `case`（即 `g_next` 派发的状态）——**看到的就是内核派发次序**，据此还原置换 `order[]`，再静态复刻各表位。
+
+#### 五、真机直通
+
+真机三份 `/proc` 文件天然干净，五类回调由真实 DEX 提供，`nativeClimb()` **直接返回完整串**——真机做题只需提交。
+
+#### 六、坑位提醒
+
+- 原 `libtulip.so` 已废弃，改看 `libspire.so`；只 `loadLibrary("spire")` → `ERR_CHAIN`。
+- **比 KL4 多一重**：`SUMMIT_TAG` 是**静态 String 字段**（走 `getStaticObjectField`，不是方法）；`peakStamp()` 是 **long**（走 `callStaticLongMethod`）；`routePlan()` 返回 **int[] 且长度必须恰好 6**，否则回 `ERR_PLAN`。
+- IOResolver 若对 `/proc/self/maps`、`/proc/self/status` 或 `/proc/self/cmdline` 任一返回 null → 读真实文件系统 → 体检失败回 `ERR_EMULATED`。
+- **别只静态硬拼**：即使从五枚内核里抠出 5 片，也必须拿到正确**次序**（置换）才能拼对——次序是运行时现算的。要么补环境跑，要么 trace。
+- 真机天然通过体检，`nativeClimb()` 直接吐完整串。
 
 提交 **summit_of_kunlun_2026** 即通关。
 
