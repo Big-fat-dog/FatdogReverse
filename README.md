@@ -14,6 +14,8 @@ FatdogReverse is a **fully offline** Android reverse-engineering practice range.
 
 One design rule drives everything: **all level data, keys and verification logic live only in the local `server.py` — the APK contains none of them.** Every level is therefore reproducible from `APK + this repo` alone, with no online service and no real app sample.
 
+![bg](bg.png)
+
 > For local study, research, and security testing on devices you own or are authorized to test.
 
 ---
