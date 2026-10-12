@@ -361,3 +361,7 @@ This project is an **educational reverse-engineering range**. Every level, serve
 - The project is provided for "study and research" and comes with no warranty of any kind.
 
 If these levels helped you understand something, feel free to open an Issue; if you find a bug in a level itself, a report is welcome too.
+
+## Community
+
+- **[linux.do](https://linux.do/)** - A thriving developer community.

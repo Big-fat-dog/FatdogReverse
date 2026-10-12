@@ -40,6 +40,7 @@ SKILL.md
 
 *.md
 !README.md
+!README.zh-CN.md
 !SOLUTIONS.md
 
 .workbuddy/
