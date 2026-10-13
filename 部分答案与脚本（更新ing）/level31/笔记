@@ -1,0 +1,3 @@
+jadx里defpackge就是没有包名的意思
+这关的ida里的函数需要修改类型和参数，他就一个jnienv。
+然后这关有关于密钥的构造，他是利用两个相邻寄存器，接着是JNI_onload动态调用了java方法和native方法

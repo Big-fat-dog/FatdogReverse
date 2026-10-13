@@ -1,0 +1,109 @@
+[*] 第17关 网络签名定位脚本已加载
+[OK] OkHttp hooks installed
+[OK] HttpURLConnection hooks installed
+[OK] MessageDigest hooks installed
+[OK] Mac hooks installed
+[OK] Cipher hooks installed
+
+[*] 所有 hook 已安装，现在操作 App 触发网络请求...
+[*] 提示：hook 加密算法拿不到结果时，说明签名是在 native 层（SO）计算的
+[*] 下一步：用 Frida 的 Interceptor hook JNI 调用
+
+[URL] https://127.0.0.1:8443/api/l28?page=1&ts=1789986728&sign=eb093f6d97d8644c9a1ac6ef6164a3946d0a09a1bcba7fec6acbcf6d6cf8fcfc
+java.lang.Exception
+	at okhttp3.Request$Builder.url(Native Method)
+	at com.fatdog.reverse.Ct.fetchPage(SourceFile:76)
+	at com.fatdog.reverse.d28Activity.loadPage(SourceFile:205)
+	at com.fatdog.reverse.d28Activity.onCreate(SourceFile:198)
+	at android.app.Activity.performCreate(Activity.java:7893)
+	at android.app.Activity.performCreate(Activity.java:7880)
+	at android.app.Instrumentation.callActivityOnCreate(Instrumentation.java:1307)
+	at android.app.ActivityThread.performLaunchActivity(ActivityThread.java:3283)
+	at android.app.ActivityThread.handleLaunchActivity(ActivityThread.java:3457)
+	at android.app.servertransaction.LaunchActivityItem.execute(LaunchActivityItem.java:83)
+	at android.app.servertransaction.TransactionExecutor.executeCallbacks(TransactionExecutor.java:135)
+	at android.app.servertransaction.TransactionExecutor.execute(TransactionExecutor.java:95)
+	at android.app.ActivityThread$H.handleMessage(ActivityThread.java:2044)
+	at android.os.Handler.dispatchMessage(Handler.java:107)
+	at android.os.Looper.loop(Looper.java:224)
+	at android.app.ActivityThread.main(ActivityThread.java:7562)
+	at java.lang.reflect.Method.invoke(Native Method)
+	at com.android.internal.os.RuntimeInit$MethodAndArgsCaller.run(RuntimeInit.java:539)
+	at com.android.internal.os.ZygoteInit.main(ZygoteInit.java:950)
+
+
+[MessageDigest.update] SHA-256 input=3059301306072a8648ce3d020106082a8648ce3d030107034200047da84b1229...
+[MessageDigest.digest] result=a4b90990b418581487bb13a2cc67700a3c359804f91bdfb8e377cd0ec80ddc10
+
+[MessageDigest.update] SHA-256 input=3059301306072a8648ce3d020106082a8648ce3d03010703420004d7f4cc69b2...
+[MessageDigest.digest] result=68f698f81f6482be3a8ceeb9281d4cfc71515d6793d444d10a67acbb4f4ffbc4
+
+[MessageDigest.update] SHA-256 input=3059301306072a8648ce3d020106082a8648ce3d030107034200040246c5be1b...
+[MessageDigest.digest] result=5614069a2fd7c2ecd3f5e1bd44b23ec74676b9bc99115cc0ef949855d689d0dd
+
+[MessageDigest.update] SHA-256 input=3059301306072a8648ce3d020106082a8648ce3d03010703420004205b18c83c...
+[MessageDigest.digest] result=ee4bbdb775ce60bae142691fabe19e66a30f7e5fb072d88300c47b897aa8fdcb
+
+[MessageDigest.update] SHA-256 input=3059301306072a8648ce3d020106082a8648ce3d030107034200040b23cb8562...
+[MessageDigest.digest] result=cdb5179b7fc1c046feea31136a3f8f002e6182faf8896fecc8b2f5b5ab604900
+
+[MessageDigest.update] SHA-256 input=3059301306072a8648ce3d020106082a8648ce3d030107034200042764390c2d...
+[MessageDigest.digest] result=7461b4a09cfb3d41d75159575b2e7649a445a8d27709b0cc564a6482b7eb41a3
+
+[MessageDigest.update] SHA-256 input=3059301306072a8648ce3d020106082a8648ce3d0301070342000496eaac1c46...
+[MessageDigest.digest] result=ddeb1d2b7a0d4fa6208b81ad8168707e2e8e9d01d55c888d3d11c4cdb6ecbecc
+
+[MessageDigest.update] SHA-256 input=30820122300d06092a864886f70d01010105000382010f003082010a02820101...
+[MessageDigest.digest] result=ac3b9aed7fa9674757159e6d7d575672f9d98100941e9bdeffeca1313b75782d
+
+[MessageDigest.update] SHA1 input=30820122300d06092a864886f70d01010105000382010f003082010a02820101...
+[MessageDigest.digest] result=c43f8b837ec4040e7add873a5d3a4cf7ab365137
+
+[MessageDigest.update] SHA1 input=30820122300d06092a864886f70d01010105000382010f003082010a02820101...
+[MessageDigest.digest] result=a95884d7ae0663842ff214527256ee2a120da93c
+
+[MessageDigest.update] SHA1 input=30820122300d06092a864886f70d01010105000382010f003082010a02820101...
+[MessageDigest.digest] result=c43f8b837ec4040e7add873a5d3a4cf7ab365137
+
+[MessageDigest.update] SHA1 input=30820122300d06092a864886f70d01010105000382010f003082010a02820101...
+[MessageDigest.digest] result=a95884d7ae0663842ff214527256ee2a120da93c
+
+[URL] https://127.0.0.1:8443/api/l28?page=2&ts=1789996299&sign=4c67fa46a31413a1a76f20a5ca20a1232dac4d3ebc9838dffba803ba2a5aa7a8
+java.lang.Exception
+	at okhttp3.Request$Builder.url(Native Method)
+	at com.fatdog.reverse.Ct.fetchPage(SourceFile:76)
+	at com.fatdog.reverse.d28Activity.loadPage(SourceFile:205)
+	at com.fatdog.reverse.d28Activity.access$100(SourceFile:27)
+	at com.fatdog.reverse.d28Activity$2.onClick(SourceFile:119)
+	at android.view.View.performClick(View.java:7185)
+	at android.view.View.performClickInternal(View.java:7162)
+	at android.view.View.access$3500(View.java:819)
+	at android.view.View$PerformClick.run(View.java:27678)
+	at android.os.Handler.handleCallback(Handler.java:883)
+	at android.os.Handler.dispatchMessage(Handler.java:100)
+	at android.os.Looper.loop(Looper.java:224)
+	at android.app.ActivityThread.main(ActivityThread.java:7562)
+	at java.lang.reflect.Method.invoke(Native Method)
+	at com.android.internal.os.RuntimeInit$MethodAndArgsCaller.run(RuntimeInit.java:539)
+	at com.android.internal.os.ZygoteInit.main(ZygoteInit.java:950)
+
+
+[URL] https://127.0.0.1:8443/api/l28?page=1&ts=1789996299&sign=d4808002c9374fc521008fc00e709d073b47e6c53c6cde68006bd1bb283239fa
+java.lang.Exception
+	at okhttp3.Request$Builder.url(Native Method)
+	at com.fatdog.reverse.Ct.fetchPage(SourceFile:76)
+	at com.fatdog.reverse.d28Activity.loadPage(SourceFile:205)
+	at com.fatdog.reverse.d28Activity.access$100(SourceFile:27)
+	at com.fatdog.reverse.d28Activity$1.onClick(SourceFile:101)
+	at android.view.View.performClick(View.java:7185)
+	at android.view.View.performClickInternal(View.java:7162)
+	at android.view.View.access$3500(View.java:819)
+	at android.view.View$PerformClick.run(View.java:27678)
+	at android.os.Handler.handleCallback(Handler.java:883)
+	at android.os.Handler.dispatchMessage(Handler.java:100)
+	at android.os.Looper.loop(Looper.java:224)
+	at android.app.ActivityThread.main(ActivityThread.java:7562)
+	at java.lang.reflect.Method.invoke(Native Method)
+	at com.android.internal.os.RuntimeInit$MethodAndArgsCaller.run(RuntimeInit.java:539)
+	at com.android.internal.os.ZygoteInit.main(ZygoteInit.java:950)
+

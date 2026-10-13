@@ -1,0 +1,3 @@
+1.检测 /proc/pid/fd:这个检测点在16版本以上的frida里面已经被抹去了
+2.检测 /proc/pid/maps 线程名：这个检测点里存在frida-agent-64.so，IO重定向来解决他。
+3.检测 /proc/pid/task 线程名：comm和status里重点筛查。存在gdbus和gmain，我的是16.7版本的frida

@@ -1,0 +1,3 @@
+第34关：貌似frida二次注入也就是手动执行hook_sha256又会留下残留的检测点，所以放在dlopen里比较好。其实就是fridahook会在.text留脏东西，然后就会被CRC搞了
+第37b关：如何找到digestCore的真实地址，他是个跳转桩，真实地址在2FE4
+在jadx里，defpackge就是没有包名的意思
