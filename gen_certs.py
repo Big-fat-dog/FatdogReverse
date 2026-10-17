@@ -6,13 +6,19 @@
 服务器证书 SAN 包含 localhost / 127.0.0.1 / 10.0.2.2（模拟器宿主机）。
 客户端证书由同一 CA 签发（CN=fatdog-client，EKU=clientAuth），
 PKCS12 导出密码 fatdemo_mt26，并复制一份到 app/assets/mt_client.p12 进 APK。
+
+★ 坑（2026-10-17 真机实测）：p12 必须用 legacy PBE（PBE-SHA1-3DES + HmacPBESHA1）导出。
+Android 的 PKCS12 KeyStore（BouncyCastle）不支持 PBES2/PBKDF2/AES，
+cryptography 的 BestAvailableEncryption 会写成 PBES2，App 里 KeyStore.load() 直接抛
+"NoSuchAlgorithmException: 1.2.840.113549.1.5.12 SecretKeyFactory not available"，
+表现为第 26 关一进页面就「请求失败」，连 TLS 握手都发不出去。
 """
 import datetime
 import os
 import shutil
+import subprocess
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
-from cryptography.hazmat.primitives.serialization import pkcs12
 from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.x509.oid import ExtendedKeyUsageOID, NameOID
 
@@ -30,6 +36,39 @@ def write(name, data):
     with open(os.path.join(OUT, name), "wb") as f:
         f.write(data)
     print("写出 certs/" + name)
+
+
+def find_openssl():
+    """找 openssl：PATH 优先，其次 Git for Windows 的常见安装位置。"""
+    p = shutil.which("openssl")
+    if p:
+        return p
+    for c in (r"C:\Program Files\Git\usr\bin\openssl.exe",
+              r"C:\Program Files\Git\mingw64\bin\openssl.exe",
+              r"C:\Program Files (x86)\Git\usr\bin\openssl.exe"):
+        if os.path.exists(c):
+            return c
+    return None
+
+
+def export_legacy_p12(crt, key, ca, out, password, alias="fatdog-client"):
+    """用 legacy PBE 导出 p12，Android 才解得开（详见文件头部的坑）。"""
+    openssl = find_openssl()
+    if not openssl:
+        raise RuntimeError(
+            "找不到 openssl：Android 端 p12 必须用 legacy PBE 导出。"
+            "请安装 OpenSSL，或把 Git 的 usr/bin 加进 PATH 后重跑。")
+    cmd = [openssl, "pkcs12", "-export",
+           "-in", crt, "-inkey", key, "-certfile", ca,
+           "-name", alias,
+           "-keypbe", "PBE-SHA1-3DES",
+           "-certpbe", "PBE-SHA1-3DES",
+           "-macalg", "sha1",
+           "-iter", "2048",
+           "-out", out,
+           "-passout", "pass:" + password]
+    subprocess.run(cmd, check=True)
+    print("写出 " + out + "（legacy PBE-SHA1-3DES）")
 
 
 def main():
@@ -86,10 +125,11 @@ def main():
     write("client.key", cl_key.private_bytes(
         serialization.Encoding.PEM, serialization.PrivateFormat.TraditionalOpenSSL,
         serialization.NoEncryption()))
-    p12 = pkcs12.serialize_key_and_certificates(
-        name=b"fatdog-client", key=cl_key, cert=cl, cas=[ca],
-        encryption_algorithm=serialization.BestAvailableEncryption(CLIENT_P12_PASS))
-    write("client.p12", p12)
+    export_legacy_p12(os.path.join(OUT, "client.crt"),
+                      os.path.join(OUT, "client.key"),
+                      os.path.join(OUT, "ca.crt"),
+                      os.path.join(OUT, "client.p12"),
+                      CLIENT_P12_PASS.decode())
     dst = os.path.join(HERE, "app", "assets", "mt_client.p12")
     shutil.copyfile(os.path.join(OUT, "client.p12"), dst)
     print("复制 -> app/assets/mt_client.p12")

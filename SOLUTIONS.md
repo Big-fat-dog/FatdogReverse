@@ -662,7 +662,7 @@ Charles 抓包模式使用 Reverse Proxies，端口要错开，否则会与本�
 |---|---|---|
 | `L15-L19` | HTTP 协议与签名复刻 | 不需要 CA；只需 `18787 -> 127.0.0.1:8787` |
 | `L21` | Frida Hook `SSLContext.init` / `TrustManager` | 导入项目 CA 的 `ca.crt + ca.key`，让 Charles 直接签发叶证书 |
-| `L22` | Frida Hook TrustManager + `CertificatePinner.check` | 项目 CA 只能过信任闸；静态 Python 也不经过 App pin |
+| `L22` | Frida Hook TrustManager + `CertificatePinner.check$okhttp` | 项目 CA 只能过信任闸；静态 Python 也不经过 App pin |
 | `L23` | Frida Hook `onReceivedSslError` 并 `handler.proceed()` | 项目 CA 不是本关题解；`curl -k` 只能算静态抄近道 |
 | `L24` | 保留真实校验链，Hook `Z24Core.realPin` 换 pin | 静态 Python 带 CA 直接取数是开卷捷径 |
 | `L25` | Frida 原生层复用/Hook `nativeSign` | 静态提取密钥并带 CA 复刻是开卷捷径 |
@@ -1133,7 +1133,6 @@ Java.perform(function () {
 
 ## SSL 抓包（L21-27）
 
-
 ### 关卡 21：踏云寻踪（HTTPS + 自定义 TrustManager）
 
 **考点**：服务端升级 HTTPS（自签 CA）。App 的 OkHttp 客户端装了一个**自定义 TrustManager**，只信内置的自签 CA——代理工具（mitmproxy/Fiddler/Charles）换发的证书不是这个 CA 签的，握手直接失败。这就是教程 21 的第一道闸：抓包先被信任校验挡住。
@@ -1213,7 +1212,7 @@ Java.perform(function () {
 
 **类在哪**：`x2Activity` → `Pn.fetchPage`。`Pn.PIN` 就是 SPKI 指纹（明文字符串，可以直接看到）；HMAC 密钥 `Kp`（`fatdemo_`）+ `Pn.KB`（`pin_key`）。CA 复用 `Tm.caDer()`。诱饵 `Pim`。
 
-**Charles 配置**：同样使用 `18443`。导入项目 CA 只能解决第一道 TrustManager，属于环境捷径；Charles 叶证书的 SPKI 与原服务端证书不同，题解主线仍要 Hook `CertificatePinner.check`。
+**Charles 配置**：同样使用 `18443`。导入项目 CA 只能解决第一道 TrustManager，属于环境捷径；Charles 叶证书的 SPKI 与原服务端证书不同，题解主线仍要 Hook `CertificatePinner.check$okhttp`（OkHttp 4.x 的真实校验入口，见下）。
 
 **先读懂流程**：和 L21 一样，端点换成 `GET https://…:8443/api/pin`，密钥换 `fatdemo_pin_key`，响应明文 JSON。
 
@@ -1240,7 +1239,9 @@ for p in range(1, 101):
 print(total)          # 50384
 ```
 
-**路线 2：Frida 拆双闸门（题解主线，推荐）**。第一道同 L21（换掉 TrustManager），第二道 Hook `okhttp3.CertificatePinner.check` 让它空跑：
+**路线 2：Frida 拆双闸门（题解主线，推荐）**。第一道同 L21（换掉 TrustManager），第二道 Hook `okhttp3.CertificatePinner.check$okhttp` 让它空跑：
+
+> ⚠️ **OkHttp 4.x 的坑**：本靶场用的是 OkHttp **4.12.0**（Kotlin 重写版）。握手时 `RealConnection.connectTls()` 调用的是 **internal 方法 `check$okhttp(String, Function0)`**，而**不是** OkHttp 3.x 时代那个公开的 `check(String, List)`。`check(String, List)` / `check(String, Certificate...)` 只是转发壳，运行时不会被内部调用——**Hook 它们会静默失效**（不报错但也不生效，pin 校验照常抛 `SSLPeerUnverifiedException`）。务必直接 Hook `check$okhttp`。
 
 ```javascript
 Java.perform(function () {
@@ -1260,11 +1261,17 @@ Java.perform(function () {
   init.implementation = function (km, tm, sr) { init.call(this, km, [TrustManager.$new()], sr); };
 
   // 第二道：OkHttp CertificatePinner 放行
+  // ★ OkHttp 4.x：握手走 internal 的 check$okhttp(String, Function0)，不是 check(String, List)
   var CP = Java.use('okhttp3.CertificatePinner');
-  CP.check.overload('java.lang.String', 'java.util.List').implementation = function (hostname, certs) {
+  CP['check$okhttp'].implementation = function (hostname, cleanedPeerCertificatesFn) {
     console.log('[L22] pinner bypass: ' + hostname);
+    // 不调用原方法 = 跳过 pin 校验、不抛 SSLPeerUnverifiedException
   };
 });
+
+// 补充：HostnameVerifier（Pn$1）只认 10.0.2.2/127.0.0.1/localhost，
+// 正常请求本就返回 true，不是拦路虎；想稳可一并 hook：
+//   Java.use('com.fatdog.reverse.Pn$1').verify.implementation = function (h, s) { return true; };
 // 两道都过之后，mitmproxy 的假证书就能走通整条链路
 ```
 
@@ -1761,9 +1768,9 @@ Java.perform(function () {
     // 1) TrustManager 那道闸：换成全信任（或 objection android sslpinning disable 一把梭）
     // 2) Pinner 那道闸：OkHttp 的 check$okhttp 直接置空
     var CP = Java.use('okhttp3.CertificatePinner');
-    CP.check.overload('java.lang.String', 'java.util.List').implementation = function (h, p) {
+    CP['check$okhttp'].implementation = function (h, cleanedPeerCertificatesFn) {
         console.log('[pinner bypass]', h);
-        return;   // 不抛 CertificateException 即放行
+        // 不抛 SSLPeerUnverifiedException 即放行
     };
 });
 ```

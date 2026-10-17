@@ -1,0 +1,40 @@
+[+] WebView hooks installed
+
+[+] WebView.loadUrl()
+    URL: https://127.0.0.1:8443/h5/v23
+backtrace:  java.lang.Exception
+	at android.webkit.WebView.loadUrl(Native Method)
+	at com.fatdog.reverse.y3Activity.onCreate(SourceFile:89)
+	at android.app.Activity.performCreate(Activity.java:7893)
+	at android.app.Activity.performCreate(Activity.java:7880)
+	at android.app.Instrumentation.callActivityOnCreate(Instrumentation.java:1307)
+	at android.app.ActivityThread.performLaunchActivity(ActivityThread.java:3283)
+	at android.app.ActivityThread.handleLaunchActivity(ActivityThread.java:3457)
+	at android.app.servertransaction.LaunchActivityItem.execute(LaunchActivityItem.java:83)
+	at android.app.servertransaction.TransactionExecutor.executeCallbacks(TransactionExecutor.java:135)
+	at android.app.servertransaction.TransactionExecutor.execute(TransactionExecutor.java:95)
+	at android.app.ActivityThread$H.handleMessage(ActivityThread.java:2044)
+	at android.os.Handler.dispatchMessage(Handler.java:107)
+	at android.os.Looper.loop(Looper.java:224)
+	at android.app.ActivityThread.main(ActivityThread.java:7562)
+	at java.lang.reflect.Method.invoke(Native Method)
+	at com.android.internal.os.RuntimeInit$MethodAndArgsCaller.run(RuntimeInit.java:539)
+	at com.android.internal.os.ZygoteInit.main(ZygoteInit.java:950)
+
+
+[+] addJavascriptInterface()
+    name: MiWebViewDetector
+    object class: miui.contentcatcher.sdk.WebViewDetector
+backtrace:  java.lang.Exception
+	at android.webkit.WebView.addJavascriptInterface(Native Method)
+	at miui.contentcatcher.sdk.utils.WebViewUtils$NativeWebViewUtils.addJavascriptInterface(WebViewUtils.java:245)
+	at miui.contentcatcher.sdk.utils.WebViewUtils.initWebViewJsInterface(WebViewUtils.java:158)
+	at miui.contentcatcher.InterceptorProxy$1.run(InterceptorProxy.java:190)
+	at android.os.Handler.handleCallback(Handler.java:883)
+	at android.os.Handler.dispatchMessage(Handler.java:100)
+	at android.os.Looper.loop(Looper.java:224)
+	at android.app.ActivityThread.main(ActivityThread.java:7562)
+	at java.lang.reflect.Method.invoke(Native Method)
+	at com.android.internal.os.RuntimeInit$MethodAndArgsCaller.run(RuntimeInit.java:539)
+	at com.android.internal.os.ZygoteInit.main(ZygoteInit.java:950)
+
