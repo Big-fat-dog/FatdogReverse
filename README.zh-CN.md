@@ -111,8 +111,10 @@ FatdogReverse 是一套**完全离线运行**的 Android 逆向工程练习靶�
 |---|---|
 | JDK | 17 或更高 |
 | Android SDK | Platform 34 + Build Tools 34.0.0 |
-| NDK | 26.1.10909125（部分 Native 关卡需要） |
+| NDK | 26.1.10909125（**必需**，不是可选） |
 | Python | 3.9+ |
+
+> **NDK 不能省。** App 启动时（`FatdogApp.onCreate` → `AppInit`、`MainActivity`、`WarmUp`）会静态装载 **60 个 so**，缺一个就 `UnsatisfiedLinkError` 闪退。没有 NDK 时构建脚本会直接报错退出，不再产出装不上的包。
 
 解题时按需准备：`jadx`、`apktool`、`frida` / `frida-server`、Xposed 或 LSPosed、`mitmproxy`、Charles Proxy、IDA / Ghidra / unidbg。
 
@@ -319,6 +321,35 @@ Flutter 用自带的 BoringSSL，**不读系统代理**，直接在系统里设 
 2. **`KL38`「雾里观花」起会对代理 / VPN 环境做体检**：命中后请求参数被**静默投毒**（签名全错，界面却不报错）。先把环境切干净，再去比对参数。
 3. **`KL40b`「镜中之障」**的门槛在**引擎层证书校验桩**：引擎里那段固定链检查被抹平（`reFlutter` 等价 patch）后，才能读到本关真数据；也可以纯静态复刻请求参数。
 4. **两关的主密钥以 base64 承载**：从载荷 / so 里 `strings` 直接搜到的是一串 base64（如 `RmF0ZG9nX2hhemU=`），需先 `b64decode` 还原主钥再派生——**直接把 base64 串当钥会全部失败**。
+
+</details>
+
+<details>
+<summary>安装成功，点开立刻闪退（没有任何界面）？</summary>
+
+典型原因是 **APK 里没有 `lib/` 目录**，不是机型问题。
+
+启动路径（`FatdogApp.onCreate` → `AppInit`、`MainActivity`、`WarmUp`）在静态块里一次性 `System.loadLibrary` 装载 **60 个 so**。缺任意一个，`Application.onCreate` 就抛 `UnsatisfiedLinkError`，进程在第一帧之前被杀掉——桌面上只看到图标一闪，连启动页都没有。
+
+**先确认：**
+
+```bash
+unzip -l FatdogReverse.apk | grep "lib/"
+adb logcat -d | grep -i "UnsatisfiedLinkError"
+```
+
+如果第一条**没有任何输出**，就是构建时没探测到 NDK（旧版脚本会安静跳过 so 并照样打印「构建成功」，现已改成直接报错）。
+
+**解决：**
+
+```bash
+sdkmanager "ndk;26.1.10909125"
+python build_apk.py
+```
+
+构建日志里必须出现 `NDK 产物: 324 个 so / arm64-v8a=163, armeabi-v7a=161` 和 `启动期 so 复核通过`。
+
+**还要注意 ABI：** APK 只含 `arm64-v8a` 与 `armeabi-v7a`。雷电 / MuMu 等模拟器是 **x86_64**，在未开启 ARM 兼容（转译）时会以完全相同的 `UnsatisfiedLinkError` 闪退——包本身没坏。请用 arm64 真机，或开启模拟器的 ARM 转译 / 使用 arm64 系统镜像。
 
 </details>
 

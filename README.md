@@ -111,8 +111,10 @@ Unlocked after clearing the whole main track, or entered directly with the passp
 |---|---|
 | JDK | 17 or newer |
 | Android SDK | Platform 34 + Build Tools 34.0.0 |
-| NDK | 26.1.10909125 (needed by some native levels) |
+| NDK | 26.1.10909125 (**required**, not optional) |
 | Python | 3.9+ |
+
+> **The NDK cannot be skipped.** At startup (`FatdogApp.onCreate` → `AppInit`, `MainActivity`, `WarmUp`) the app statically loads **60 native libraries**. If any one is missing you get an `UnsatisfiedLinkError` and an instant crash. The build script now fails fast instead of silently producing an APK that installs fine and dies on launch.
 
 Prepare as needed for solving: `jadx`, `apktool`, `frida` / `frida-server`, Xposed or LSPosed, `mitmproxy`, Charles Proxy, IDA / Ghidra / unidbg.
 
@@ -319,6 +321,35 @@ Flutter uses its own BoringSSL and **does not read the system proxy**, so an HTT
 2. From `KL38` ("雾里观花") onward the app **probes the proxy/VPN environment**: on a hit the request parameters are **silently poisoned** (every signature is wrong while the UI shows no error). Clean your environment first, then compare parameters.
 3. **`KL40b` ("镜中之障")**'s gate is the **engine-layer certificate-check stub**: only after that fixed chain check is flattened (a `reFlutter`-equivalent patch) can you read the level's real data. You can also re-implement the request parameters purely statically.
 4. **Both levels carry the master key as base64**: what `strings` finds in the payload / `.so` is a base64 blob (e.g. `RmF0ZG9nX2hhemU=`); you must `b64decode` it back to the master key before deriving — **using the base64 string as the key fails every time**.
+
+</details>
+
+<details>
+<summary>The app installs but closes instantly on launch (no UI at all)?</summary>
+
+The usual cause is an APK with **no `lib/` directory** — not the device.
+
+The startup path (`FatdogApp.onCreate` → `AppInit`, `MainActivity`, `WarmUp`) calls `System.loadLibrary` for **60 native libraries** in static initializers. Miss any one of them and `Application.onCreate` throws `UnsatisfiedLinkError`; the process dies before the first frame, so all you see is the icon flashing with no splash screen.
+
+**Confirm it:**
+
+```bash
+unzip -l FatdogReverse.apk | grep "lib/"
+adb logcat -d | grep -i "UnsatisfiedLinkError"
+```
+
+If the first command prints **nothing**, the build never found the NDK (older script versions skipped the `.so` files silently and still reported success; it now aborts instead).
+
+**Fix:**
+
+```bash
+sdkmanager "ndk;26.1.10909125"
+python build_apk.py
+```
+
+The log must show `NDK 产物: 324 个 so / arm64-v8a=163, armeabi-v7a=161` and `启动期 so 复核通过`.
+
+**Also check the ABI.** The APK ships only `arm64-v8a` and `armeabi-v7a`. LDPlayer / MuMu and similar emulators are **x86_64**; without ARM translation they fail with the exact same `UnsatisfiedLinkError`. Use an arm64 device, or enable the emulator's ARM translation / use an arm64 system image.
 
 </details>
 

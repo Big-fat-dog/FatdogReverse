@@ -4,15 +4,18 @@
 依赖：
   1) JDK 17+（本机 PyCharm 自带 JBR 即可，脚本会自动探测）
   2) Android SDK：build-tools（aapt2/d8/apksigner/zipalign）+ platforms/android-XX/android.jar
-3) NDK（关卡 25 必需）：装了就自动编译 jni/ 里的 libnative.so（arm64-v8a + armeabi-v7a）。
-       关卡 25 的 JNI 门禁与 native HMAC 签名都在这个 so 里，缺了进不去。
+3) NDK（**必需**，不是可选）：启动期 FatdogApp/AppInit、MainActivity、WarmUp 会静态
+       System.loadLibrary 装载 60 个 so（jni/ 下 160 个 LOCAL_MODULE 全量编译）。
+       缺 NDK 时构建会直接报错退出——因为打不出 lib/ 的 APK 装上必闪退
+       （Application.onCreate 抛 UnsatisfiedLinkError，点图标瞬间退出、连第一帧都没有）。
 
 设置 ANDROID_SDK_ROOT（或 ANDROID_HOME）指向 SDK 根目录后运行：
     python build_apk.py
-产物：FatdogReverse.apk（含图标、资源、单 classes.dex（R8 打包全部关卡，含关卡 20 的 AdBox/a20Activity）、assets/config.json、可选 lib/*.so、META-INF 签名）
+产物：FatdogReverse.apk（含图标、资源、单 classes.dex（R8 打包全部关卡，含关卡 20 的 AdBox/a20Activity）、assets/config.json、lib/*.so、META-INF 签名）
 """
 import glob
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -131,6 +134,26 @@ def find_ndk(sdk):
         if latest:
             return latest
     return None
+
+
+def required_native_libs():
+    """抓出所有 System.loadLibrary("x") 的库名（全工程，不只是启动期）。
+
+    启动期真正致命的是 Application.onCreate / Activity 类初始化里那几个静态块：
+    少一个 so 就抛 UnsatisfiedLinkError，进程在 Application 阶段直接死掉，
+    用户看到的就是"点开就闪退"。所以这些库必须逐个在 lib/<abi>/ 里存在。
+    """
+    names = set()
+    src = os.path.join(APP, 'src')
+    for root, _dirs, files in os.walk(src):
+        for fn in files:
+            if not fn.endswith('.java'):
+                continue
+            with open(os.path.join(root, fn), encoding='utf-8', errors='replace') as f:
+                text = f.read()
+            for m in re.finditer(r'System\.loadLibrary\(\s*"([^"]+)"\s*\)', text):
+                names.add(m.group(1))
+    return names
 
 
 def run(cmd, **kw):
@@ -488,7 +511,11 @@ def main():
          '--output', dex_r8,
          classes_jar] + lib_jars)
 
-    # 4) 可选：NDK 编译各关 so（L25 libnative.so；第三季起每关独立 so，防剧透）
+    # 4) NDK 编译各关 so（**必需**）
+    #    启动期会静态装载 60 个 so；APK 里没有 lib/ 时，Application.onCreate 就抛
+    #    UnsatisfiedLinkError，表现为"安装成功、点开闪退、没有任何界面"。
+    #    因此这里绝不降级跳过：没有 NDK / 没有 ndk-build 一律直接失败。
+    need_libs = required_native_libs()
     ndk = find_ndk(sdk)
     libs = {}
     if ndk:
@@ -521,16 +548,37 @@ def main():
                         raise
             # 4b) 回填 Flutter 真实产物：ndk-build 会清空 libs/<abi>/*，须在其后重抽。
             inject_flutter_libs(APP)
+            # 逐 ABI 校验：启动期要加载的 so 必须一个不缺，否则这个 ABI 直接不算数。
+            # （以前这里不校验，没 NDK 时会安静地打出"没有 lib/ 的 APK"，
+            #   装机后 100% 闪退——issue 里最常见的一类。）
             for abi in ('arm64-v8a', 'armeabi-v7a'):
-                for so in sorted(glob.glob(os.path.join(APP, 'libs', abi, '*.so'))):
-                    libs.setdefault(abi, []).append(so)
+                sos = sorted(glob.glob(os.path.join(APP, 'libs', abi, '*.so')))
+                present = set(os.path.basename(x) for x in sos)
+                missing = sorted(n for n in need_libs if ('lib%s.so' % n) not in present)
+                if missing:
+                    print('跳过 ABI %s：缺 %d 个启动期 so（%s%s）'
+                          % (abi, len(missing), ', '.join(missing[:4]),
+                             ' ...' if len(missing) > 4 else ''))
+                    continue
+                if 'libc++_shared.so' not in present:
+                    print('跳过 ABI %s：缺 libc++_shared.so（APP_STL := c++_shared）' % abi)
+                    continue
+                libs[abi] = sos
             total = sum(len(v) for v in libs.values())
-            print('NDK 产物:', total, '个 so' if total else '无')
+            print('NDK 产物:', total, '个 so /',
+                  ', '.join('%s=%d' % (a, len(v)) for a, v in libs.items()))
+            if 'arm64-v8a' not in libs:
+                sys.exit('arm64-v8a 的 native 库不完整，打出来的 APK 在 64 位设备上必闪退。\n'
+                         '先删掉 app/obj 与 app/libs 再重跑；仍失败请检查 jni/ 的编译错误。')
         else:
-            print('警告: 找到 NDK 目录但缺少 ndk-build.cmd，跳过 so 编译')
+            sys.exit('找到 NDK 目录但没有 ndk-build.cmd：%s\n'
+                     '打不出 lib/ 的 APK 装上必闪退，不能继续。请重装 NDK。' % ndk)
     else:
-        print('提示: 未找到 NDK，跳过 lib/*.so（APK 仍可构建，只是少了 lib/ 目录的结构装饰）。')
-        print('      安装: sdkmanager "ndk;26.1.10909125"（或设置 ANDROID_NDK_ROOT）')
+        sys.exit('未找到 NDK。FatdogReverse 的启动路径会静态装载 60 个 so，\n'
+                 '缺少 lib/ 的 APK 安装后点开必闪退（UnsatisfiedLinkError）。\n'
+                 '请安装 NDK 后重试：\n'
+                 '    sdkmanager "ndk;26.1.10909125"\n'
+                 '或设置环境变量 ANDROID_NDK_ROOT 指向 NDK 目录。')
 
     # 5) 把 dex / so 塞进 APK
     unsigned = os.path.join(BUILD, 'unsigned.apk')
@@ -541,6 +589,17 @@ def main():
             for so in sos:
                 z.write(so, 'lib/%s/%s' % (abi, os.path.basename(so)),
                         compress_type=zipfile.ZIP_STORED)
+
+    # 5b) 打包后复核：确认启动期 so 真的进包了（防止 zip 阶段漏写）。
+    with zipfile.ZipFile(unsigned) as z:
+        packed = set(n for n in z.namelist() if n.startswith('lib/'))
+    for abi in libs:
+        miss = sorted(n for n in need_libs
+                      if ('lib/%s/lib%s.so' % (abi, n)) not in packed)
+        if miss:
+            sys.exit('APK 里缺少启动期 so（%s）: %s ...\n'
+                     '这样装上去必闪退，已中止。' % (abi, ', '.join(miss[:5])))
+    print('启动期 so 复核通过:', len(need_libs), '个库 /', ', '.join(sorted(libs)))
 
     # 6) zipalign 对齐
     aligned = os.path.join(BUILD, 'aligned.apk')
