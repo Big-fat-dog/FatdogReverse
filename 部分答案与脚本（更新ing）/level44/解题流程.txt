@@ -1,0 +1,58 @@
+现在ida里patch提示里的那个so文件，将g_door的值改为0x9B
+然后将so文件重新打包进app，安装后即可取数
+
+java层传了个1进assertGuard这个函数，这个函数要关注byte_9448，dword_9440，dword_944C三处地址
+__int64 __fastcall Java_com_fatdog_reverse_Wk_assertGuard(JNIEnv *a1, __int64 a2, int a3)
+{
+  if ( byte_9448 != 1 )
+    return 0xFFFFFFFFLL;
+  if ( dword_9440 < a3 )
+    return 4294967294LL;
+  if ( dword_944C != 0 )
+    return 0;
+  return 4294967293LL;
+}
+其实看也能看出来这个函数的返回值正确的应该是什么，但是学习！
+
+Java_com_fatdog_reverse_Wk_passCert这个函数里对三个值进行了一些操作，细看
+首先这个函数对9440做了一个自增，再看上面，没有这个自增会去走一个错误分支，蜜罐了。
+所以这个函数还必须得执行，如果不是直接改返回值的话。
+if ( a3 != nullptr
+    && (v6 = (*result)->GetArrayLength(a1: result, a2: a3),
+        (result = (JNIEnv *)(*v4)->GetByteArrayElements(a1: v4, a2: a3, a3: nullptr)) != nullptr) )
+这个a3读了传进来的字节数组，然后对他进行了sha256，所以这个大概率是证书了。
+
+v19 = v20 == (_QWORD)xmmword_9450
+       && v21 == *((_QWORD *)&xmmword_9450 + 1)
+       && v22 == (_QWORD)xmmword_9460
+       && v23 == *((_QWORD *)&xmmword_9460 + 1);
+    byte_9448 = 1;
+    dword_944C = v19;
+哈希值被存在了v20至v23。然后拿到和预先异或的值进行了比较，验证证书是否被篡改。
+
+ok，这样看来，我们只需要修改证书的sha256，让他满足预先设置的值即可。
+private byte[] getCertDer() throws Exception {
+        Signature[] signingCertificateHistory;
+        if (Build.VERSION.SDK_INT >= 28) {
+            SigningInfo signingInfo = getPackageManager().getPackageInfo(getPackageName(), 134217728).signingInfo;
+            if (signingInfo.hasMultipleSigners()) {
+                signingCertificateHistory = signingInfo.getApkContentsSigners();
+            } else {
+                signingCertificateHistory = signingInfo.getSigningCertificateHistory();
+            }
+            return signingCertificateHistory[0].toByteArray();
+        }
+        return getPackageManager().getPackageInfo(getPackageName(), 64).signatures[0].toByteArray();
+    }
+
+那么问题又来了，sha256完全不可逆，我们只知道他的哈希结果，不能反推出他的真实值。
+换个角度的话，去修改so里的校验，让预设变成我们现在的证书哈希结果也不是不行。
+最简单的还是拿原来的证书签名结果替换hook现在的，直接绕过去。
+
+
+同时，那个token函数又是麻烦点，它不是普通的随机数
+加载了两个变量混入状态，一个随着页码变动，一个初始是用时间戳作种子，后面就沿用上一轮状态
+
+ps：其实这一关你hook不hook der签名无所谓，因为那个函数的返回值根本不参与后面的计算，他只是关于密钥的获取，我们直接hook拿到密钥后甚至都不需要管那个签名校验的函数
+并且，那个随机数也不会被校验。。。
+不过出于学习目的，还是整一下吧。
