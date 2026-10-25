@@ -1554,7 +1554,7 @@ def api_l45(page: int = Query(...), ts: int = Query(...), vt: str = Query(...),
 #      → 本服务端识别为诱饵，返回【脏数据】（HTTP 200，求和必错；不再 403）
 #   ③ 绕过 ② 后才用真标记 Fatdog_bind + 随机 vt 派生 → 真数据
 #   key = SHA256(原包 certHash ‖ 标记 ‖ vt)
-_L46_CERT_HASH = bytes.fromhex("3bb2134ca3b10bacd43965d0838efa90eef3765eed8832929168ca0e221237fe")
+_L46_CERT_HASH = bytes.fromhex("198ea4e3e658ef5496aab46fa97400574a884ecdf6e57b16acf0ca0a14f78751")
 _L46_MARKER = b"Fatdog_bind"
 _L46_DMARKER = b"Fatdog_band"          # 诱饵标记（与真标记一字之差，客户端校验不过时使用）
 KEY46_MASTER = "Fatdog_bind"           # 标记名（仅供日志/识别；实际密钥是派生的 32 字节）
@@ -1607,7 +1607,7 @@ def api_l46(page: int = Form(...), ts: int = Form(...), nonce: str = Form(...),
 #      → 本服务端识别为诱饵，返回【脏数据】（HTTP 200，求和必错；不再 403/投毒）
 #   ③ 绕过 ② 后才用真标记 Fatdog_seal + 随机 vt 派生 → 真数据
 #   key = SHA256(原包 certHash ‖ 标记 ‖ vt)，hmac_key 与 aes_key 同一把
-_L47_CERT_HASH = bytes.fromhex("3bb2134ca3b10bacd43965d0838efa90eef3765eed8832929168ca0e221237fe")
+_L47_CERT_HASH = bytes.fromhex("198ea4e3e658ef5496aab46fa97400574a884ecdf6e57b16acf0ca0a14f78751")
 _L47_MARKER = b"Fatdog_seal"
 _L47_DMARKER = b"Fatdog_steal"        # 诱饵标记（与真标记一字之差，守卫不过时客户端使用）
 KEY47_MASTER = "Fatdog_seal"          # 标记名（仅供日志/识别；实际密钥是派生的 32 字节）

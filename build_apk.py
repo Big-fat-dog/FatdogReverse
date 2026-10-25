@@ -620,6 +620,18 @@ def main():
          '--ks-pass', 'pass:android', '--key-pass', 'pass:android',
          '--out', out_apk, aligned])
 
+    # 8b) 签名基准自检：L43-L47「签名校验对抗」五关把**原包证书的 SHA-256**烘焙进了
+    #     Java 类（L43）、四份 so（L44-L47）、felix 的 CRC 基线和 server.py（L46/L47）。
+    #     证书指纹只由 keystore 决定、与 APK 内容无关；但 keystore 缺失时上面的第 7 步
+    #     会静默生成一把新钥匙 —— 那一刻这五关全部变成"玩家一进来就被判定为重打包"，
+    #     而且不会报任何错。所以签完名立刻拿实际签名证书对拍所有烘焙点，不一致就中止。
+    print()
+    print('>> 校验签名基准（L43-L47）')
+    if subprocess.call([sys.executable, os.path.join('tools', 'verify_signature_baseline.py'),
+                        '--keystore', os.path.relpath(ks, HERE)], cwd=HERE) != 0:
+        sys.exit('签名基准与代码内烘焙值不一致（详见上面的 FAIL 行），已中止构建。\n'
+                 '要么用回原 keystore 重新签名，要么把实际摘要重新烘焙进 L43-L47。')
+
     print()
     print('构建成功:', out_apk)
     print('APK 内容:')

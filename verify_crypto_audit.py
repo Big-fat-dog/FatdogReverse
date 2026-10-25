@@ -657,14 +657,14 @@ check("L45 master key", KEY45_MASTER == "Fatdog_lurk")
 
 # ─── L46: certHash-derived HMAC ───
 print("\n=== L46: certHash-derived HMAC ===")
-_L46_CERT_HASH = bytes.fromhex("3bb2134ca3b10bacd43965d0838efa90eef3765eed8832929168ca0e221237fe")
+_L46_CERT_HASH = bytes.fromhex("198ea4e3e658ef5496aab46fa97400574a884ecdf6e57b16acf0ca0a14f78751")
 _L46_MARKER = b"Fatdog_bind"
 _L46_DERIVED_KEY = hashlib.sha256(_L46_CERT_HASH + _L46_MARKER).digest()
 check("L46 derived key", len(_L46_DERIVED_KEY) == 32)
 
 # ─── L47: certHash-derived HMAC + AES ───
 print("\n=== L47: certHash-derived HMAC + AES ===")
-_L47_CERT_HASH = bytes.fromhex("3bb2134ca3b10bacd43965d0838efa90eef3765eed8832929168ca0e221237fe")
+_L47_CERT_HASH = bytes.fromhex("198ea4e3e658ef5496aab46fa97400574a884ecdf6e57b16acf0ca0a14f78751")
 _L47_MARKER = b"Fatdog_seal"
 _L47_HMAC_KEY = hashlib.sha256(_L47_CERT_HASH + _L47_MARKER).digest()
 _L47_AES_KEY = hashlib.sha256(_L47_CERT_HASH + _L47_MARKER).digest()[:16]

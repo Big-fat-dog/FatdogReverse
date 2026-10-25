@@ -3429,7 +3429,7 @@ sign       = HMAC-SHA256(derivedKey, payload)
 **考点**：签名校验对抗的终极大考——四重防线同时叠加，任何单一手段都不够：
 
 1. **守卫矩阵（四点互验）**：启动记账 `audit` / Activity 核账 `tick=0xABCD` / **当前包证书摘要 == 内置基准** `cert_ok` / **基准数组 CRC32** —— 四路全过才算"已封缄"
-2. **CRC 自校验**：`CRC32(MARK_X ‖ DMARK_X ‖ BENCH_X)` 与**烘焙常量** `0xCDDA9987` 比对。
+2. **CRC 自校验**：`CRC32(MARK_X ‖ DMARK_X ‖ BENCH_X)` 与**烘焙常量** `0xE3BCC2CD` 比对。
    把基准数组改成自己证书的摘要（最常见的攻击）会被当场抓到
 3. **certHash 参与密钥派生**：密钥由证书摘要派生，重打包者证书不同 → 派生 key 不同
 4. **AES 加密响应**：响应不是明文 nums，而是 AES-ECB 密文，需要额外解密步骤
