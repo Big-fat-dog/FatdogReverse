@@ -355,9 +355,10 @@ static void m9_aes256_ecb_enc(const unsigned char key[32],
         m9_aes256_block(cipher + i, plain + i);
     /* PKCS7 padding */
     {
-        unsigned char pad_val = 16 - (len - full);
-        for (j = full; j < len; j++) block[j - full] = plain[j];
-        for (j = len - full; j < 16; j++) block[j - full] = pad_val;
+        unsigned int used = len - full;                    /* 余数字节数 0..15 */
+        unsigned char pad_val = (unsigned char)(16 - used); /* 补足到 16 的填充值 */
+        for (j = 0; j < used; j++) block[j] = plain[full + j];
+        for (j = used; j < 16; j++) block[j] = pad_val;
         m9_aes256_block(cipher + full, block);
     }
 }
@@ -486,6 +487,44 @@ static void m9_sign_and_enc(int page, long ts, const char *vt,
     }
 }
 
+/* 解密 hex 密文 → 明文写入 out（保证以 NUL 结尾），返回明文字节数；失败返回 -1。
+ * ★ 必须显式按 pt_len 截断并补 NUL：plain[128] 是栈内存，去填充后 [pt_len..) 里
+ *   仍是 padding 字节与上一栈帧的垃圾，直接交给 NewStringUTF 会一路读到第一个 0，
+ *   把 0x07 填充和栈上残留（如 enc_hex 的片段）当成明文返回（2026-10-27 实测：
+ *   "64␇␇␇␇␇␇␇7ab87ffa3f9a" 直接让 Integer.parseInt 抛 NumberFormatException）。 */
+static int m9_decrypt_text(const char *hex, const char *vt, char *out, unsigned int cap) {
+    unsigned char ct[128];
+    unsigned char plain[128];
+    unsigned char key[32];
+    unsigned int ct_len, pt_len, i;
+    int vlen = 0;
+
+    if (!hex || !out || cap == 0) return -1;
+    ct_len = (unsigned int)strlen(hex) / 2;
+    if (ct_len == 0 || ct_len > sizeof(ct) || ct_len % 16 != 0) return -1;
+
+    memset(ct, 0, sizeof(ct));
+    memset(plain, 0, sizeof(plain));
+    for (i = 0; i < ct_len; i++) {
+        unsigned int b;
+        if (sscanf(hex + 2*i, "%02x", &b) != 1) return -1;
+        ct[i] = (unsigned char)b;
+    }
+
+    m9_derive_keys(vt, key);
+    m9_aes256_expand(key);
+    for (i = 0; i + 16 <= ct_len; i += 16)
+        m9_aes256_block_dec(plain + i, ct + i);
+
+    pt_len = m9_pkcs7_unpad(plain, ct_len);
+    if (pt_len == 0 || pt_len >= cap) return -1;
+
+    memcpy(out, plain, pt_len);
+    out[pt_len] = 0;
+    vlen = (int)pt_len;
+    return vlen;
+}
+
 /* ==================== JNI 接口 ==================== */
 
 #ifndef M9_HOST_TEST
@@ -603,45 +642,21 @@ Java_com_fatdog_reverse_Wp_nativeDecrypt(JNIEnv *env, jclass clazz,
                                           jstring hexCipher, jstring vt) {
     const char *hex;
     const char *v = NULL;
-    unsigned char *ct;
-    unsigned char plain[128];
-    unsigned char key[32];
-    unsigned int ct_len, pt_len;
-    int i;
+    char out[129];
+    int n;
     (void)clazz;
 
     if (!hexCipher) return NULL;
     hex = (*env)->GetStringUTFChars(env, hexCipher, NULL);
     if (!hex) return NULL;
 
-    ct_len = (unsigned int)strlen(hex) / 2;
-    if (ct_len == 0 || ct_len > 128 || ct_len % 16 != 0) {
-        (*env)->ReleaseStringUTFChars(env, hexCipher, hex);
-        return NULL;
-    }
-
-    ct = (unsigned char *)malloc(ct_len);
-    for (i = 0; i < (int)ct_len; i++) {
-        unsigned int b;
-        sscanf(hex + 2*i, "%02x", &b);
-        ct[i] = (unsigned char)b;
-    }
+    if (vt) v = (*env)->GetStringUTFChars(env, vt, NULL);
+    n = m9_decrypt_text(hex, v, out, sizeof(out));
+    if (v) (*env)->ReleaseStringUTFChars(env, vt, v);
     (*env)->ReleaseStringUTFChars(env, hexCipher, hex);
 
-    if (vt) v = (*env)->GetStringUTFChars(env, vt, NULL);
-    m9_derive_keys(v, key);
-    if (v) (*env)->ReleaseStringUTFChars(env, vt, v);
-
-    m9_aes256_expand(key);
-    for (i = 0; i + 16 <= (int)ct_len; i += 16)
-        m9_aes256_block_dec(plain + i, ct + i);
-    free(ct);
-
-    pt_len = m9_pkcs7_unpad(plain, ct_len);
-    if (pt_len == 0) return NULL;
-
-    jstring result = (*env)->NewStringUTF(env, (const char *)plain);
-    return result;
+    if (n <= 0) return NULL;
+    return (*env)->NewStringUTF(env, out);
 }
 
 JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void *reserved) {
@@ -652,6 +667,7 @@ JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void *reserved) {
 #else /* M9_HOST_TEST */
 
 int main(void) {
+    setvbuf(stdout, NULL, _IONBF, 0);
     char sign_hex[65];
     unsigned char enc_raw[16];
     unsigned char key[32];
@@ -694,6 +710,37 @@ int main(void) {
         dl = m9_pkcs7_unpad(pt, 16);
         if (dl > 0 && dl < 16) pt[dl] = 0;
         printf("dec(page=1) = %s (len=%u, expect 6)\n", dl ? (char *)pt : "<fail>", dl);
+    }
+
+    /* ★ 回归（2026-10-27）：解密结果必须按明文长度截断并 NUL 终止。
+     * 旧实现直接把未清零的 plain[128] 交给 NewStringUTF，会把 PKCS7 padding(0x07)
+     * 和上一栈帧残留（如 enc_hex 片段）一起返回，客户端 parseInt 直接抛
+     * NumberFormatException: For input string: "64␇␇␇␇␇␇␇7ab87ffa3f9a"。
+     * 这里造一段与服务端同形的 41 字节明文做加密→hex→解密回环。 */
+    {
+        char body[80];
+        unsigned char ct[64];
+        char hexbuf[129], out[129];
+        unsigned int blen, clen, k;
+        static const char *HH = "0123456789abcdef";
+        int n;
+
+        blen = (unsigned int)snprintf(body, sizeof(body),
+                     "page=1|nums=64,7,84,22,88,47,7,9,96,99");
+        m9_aes256_expand(key);
+        m9_aes256_ecb_enc(key, (const unsigned char *)body, blen, ct);
+        clen = ((blen / 16) + 1) * 16;
+        for (k = 0; k < clen; k++) {
+            hexbuf[2*k]   = HH[ct[k] >> 4];
+            hexbuf[2*k+1] = HH[ct[k] & 0xF];
+        }
+        hexbuf[2*clen] = 0;
+
+        n = m9_decrypt_text(hexbuf, VT, out, sizeof(out));
+        printf("decrypt_text: n=%d strlen=%u trim=%s body=%s\n",
+               n, n > 0 ? (unsigned)strlen(out) : 0u,
+               (n > 0 && (unsigned)n == (unsigned)strlen(out)) ? "PASS" : "FAIL",
+               (n > 0 && strcmp(out, body) == 0) ? "PASS" : "FAIL");
     }
 
     /* 破坏 cert_ok → 诱饵标记派生（不再是投毒） */

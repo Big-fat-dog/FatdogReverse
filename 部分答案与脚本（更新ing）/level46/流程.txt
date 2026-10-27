@@ -1,0 +1,17 @@
+这一题的难点主要在密钥的派生。
+.rodata:000000000000089C qword_89C       DCQ 0x5E635B5358485D7A  ; DATA XREF: sub_F48+84↓o
+.rodata:000000000000089C                                         ; sub_F48+A0↓r
+.rodata:00000000000008A4 byte_8A4        DCB 0x55                ; DATA XREF: sub_F48+A4↓r
+.rodata:00000000000008A5 byte_8A5        DCB 0x52                ; DATA XREF: sub_F48+A8↓r
+.rodata:00000000000008A6 byte_8A6        DCB 0x58                ; DATA XREF: sub_F48+AC↓r
+.rodata:00000000000008A7 qword_8A7       DCQ 0x5E635B5358485D7A  ; DATA XREF: sub_F48+94↓o
+.rodata:00000000000008A7                                         ; sub_F48+A0↓r
+.rodata:00000000000008AF byte_8AF        DCB 0x5D                ; DATA XREF: sub_F48+A4↓r
+.rodata:00000000000008B0 byte_8B0        DCB 0x52                ; DATA XREF: sub_F48+A8↓r
+.rodata:00000000000008B1 byte_8B1        DCB 0x58                ; DATA XREF: sub_F48+AC↓r
+
+首先是得判断分支走向，验证der后会走上分支。
+然后这些数字会被异或3c拿到密钥的前一段，也就是11字节。
+后面剩余的字节来自于
+v4 = xmmword_9AB0;
+v5 = xmmword_9AC0;这两处，跟进去发现就是der的哈希值。

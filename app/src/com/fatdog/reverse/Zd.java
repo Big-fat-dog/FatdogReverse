@@ -82,6 +82,9 @@ public class Zd {
                     .add("ts", String.valueOf(ts))
                     .add("sign", sign)
                     .add("enc", enc)
+                    // vt 必须原样回传：服务端要用它复算 key（SHA256(certHash‖标记‖vt)）
+                    // 才能验签 + 解密 enc。漏了它 FastAPI 直接回 422 missing vt。
+                    .add("vt", vt)
                     .build();
             Request req = new Request.Builder()
                     .url(url)
