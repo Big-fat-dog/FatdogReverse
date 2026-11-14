@@ -1,0 +1,53 @@
+1.找不到加载的so文件
+利用frida遍历出当前注册所有函数，并且名字包含java层那个命名的。
+这关是动态加载的，我们修改一下动态注册的脚本，让他能通过函数指针在运行时反查出是来自哪个模块了。
+
+2.jni_onload流程
+首先就是在堆里申请内存，这里没有体现sso，直接就干堆里了。字符串就是java里的类名。
+其实还是有sso的体现的
+if ( (v29 & 1) != 0 )
+      v18 = *(__int64 **)&v31[7];    主要是这里，他是取得8字节的指针，也就是sso里指向堆地址的那个。
+    else
+      v18 = &v30;
+    *((_BYTE *)v18 + v16) = LOBYTE(v47[0]) ^ byte_15CE[v16];
+
+3.native层调用java层
+
+  v47[9] = v23;// bindHolder
+  v47[10] = v25;
+  v47[11] = sub_47DC;
+
+  这里注册了一个动态函数，函数里有个methoid相关的需要知道调用对象。
+
+4.nativeEnc
+跟着控制流，拿到密钥拼接结果：Fatdog_abys_2026
+接着就是拼接要加密的字符串。存到了v38里
+
+LABEL_44:
+  (*(void (__fastcall **)(__int128 *__return_ptr, void *, __int64 *, __int128 *))(*(_QWORD *)qword_11DE0 + 16LL))(
+    a1: &v36,
+    a2: qword_11DE0,
+    a3: &v33,//Fatdog_abys_2026
+    a4: &v38);//加密数据
+11DE0是8字节，在下面的函数里被赋值。
+__int64 sub_59CC()
+{
+  JNIEnv *v0; // x0
+  _QWORD *v1; // x0
+
+  v0 = (JNIEnv *)operator new(a1: 8u);
+  *v0 = (JNIEnv)&off_D988;
+  qword_11DE0 = v0;
+  v1 = (_QWORD *)operator new(a1: 8u);
+  *v1 = &off_D9D8;
+  qword_11DE8 = (__int64)v1;
+  return __cxa_atexit(lpfunc: (void (*)(void *))sub_35BC, obj: &qword_11DE0, lpdso_handle: &off_D970);
+}
+跟进去能发现DE0是SealAlpha类的虚函数表对象，上面是偏移16字节，我们跟进去看就是
+.data.rel.ro:000000000000D988 off_D988        DCQ nullsub_1           ; DATA XREF: sub_59CC+14↑o
+.data.rel.ro:000000000000D990                 DCQ j_._ZdlPv           ; operator delete(void *)
+.data.rel.ro:000000000000D998                 DCQ sub_49F0
+D998这个函数，所以这里在调用这个函数来加密。
+
+=============================标记一下，明天在搞，嘻嘻=============================
+跟进去看加密函数逻辑，发现是个AES。

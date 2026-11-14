@@ -1,3 +1,31 @@
+function hook_dlsym(dlsymFuncAddr) {
+    Interceptor.attach(dlsymFuncAddr, {
+        onEnter: function (args) {
+            // do something
+            this.libAddr = ptr(args[0]) // args[0]是库基址
+            this.funcName = ptr(args[1]) // args[1]是函数名
+        },
+        onLeave: function (retval) {
+            // do something
+            let module = Process.findModuleByAddress(retval)//this.libAddr
+            if (this.funcName.readCString().indexOf('nativeEnc') !== -1) {
+                console.log("function name: ", this.funcName.readCString(),
+                    "lib name: ", module.name, //是否可以直接用libAddr.name?
+                    "function's memory address: ", retval,
+                    "function offset: ", retval.sub(module.base)
+                )
+            }
+        },
+    })
+}
+
+
+let dlsymFuncAddr = Module.findExportByName('libdl.so', 'dlsym')
+hook_dlsym(dlsymFuncAddr)
+
+
+
+
 function hook_registerNatives() {
     let symbols = Module.enumerateSymbols('libart.so');
     let addrRegisterNatives = null;
@@ -23,7 +51,13 @@ function hook_registerNatives() {
 }
 
 
+console.log('---------------------动态注册----------------------')
+var registerNativesHooked = false;
+var dlopenHooked = false;
 function get_all_dynamic_methods() {
+    if (registerNativesHooked) return;   // 只 attach 一次
+    registerNativesHooked = true;
+
     var register_address = hook_registerNatives();
     Interceptor.attach(register_address, {
         onEnter: function (args) {
@@ -31,8 +65,8 @@ function get_all_dynamic_methods() {
             var methodsPtr = args[2];
             var count = args[3];
             let className = Java.vm.tryGetEnv().getClassName(jclazz); // 获取类名
-            console.log("jclass: ", className);
-            console.log("count: ", count.toInt32());
+            // console.log("jclass: ", className);
+            // console.log("count: ", count.toInt32());
             for (let i = 0; i < count.toInt32(); i++) {
                 let methodPtr = methodsPtr.add(i * Process.pointerSize * 3);
 
@@ -44,8 +78,16 @@ function get_all_dynamic_methods() {
                 let sig = Memory.readCString(sigPtr);   // 方法签名
                 // let symbol = DebugSymbol.fromAddress(fnPtr); // 函数符号信息
 
-
+                if (name.indexOf("Sign") < 0 && name.indexOf("Enc") < 0) {
+                    continue;
+                }
                 // 打印每个 JNI 方法的详细信息
+                let mod = Process.findModuleByAddress(fnPtr);
+                if (mod) {
+                    console.log("Method:", name,
+                        "lib:", mod.name,
+                        "offset:", fnPtr.sub(mod.base));
+                }
                 console.log("[RegisterNatives] Class:", className);
                 console.log("  Method: " + name);
                 console.log("  Signature: " + sig);
@@ -58,3 +100,29 @@ function get_all_dynamic_methods() {
         },
     })
 }
+
+
+
+function hook_dlopen(func) {
+    if (dlopenHooked) return;
+    dlopenHooked = true;
+    var dlopen = Module.findExportByName(null, "dlopen");
+    Interceptor.attach(dlopen, {
+        onEnter: function (args) {
+            try { this.so = args[0].readCString(); } catch (e) { this.so = null; }
+        },
+        onLeave: function (retval) {
+            if (this.so) func();
+        }
+    });
+    var android_dlopen_ext = Module.findExportByName(null, "android_dlopen_ext");
+    Interceptor.attach(android_dlopen_ext, {
+        onEnter: function (args) {
+            try { this.so = args[0].readCString(); } catch (e) { this.so = null; }
+        }, onLeave: function (retval) {
+            if (this.so) func();
+        }
+    });
+}
+
+hook_dlopen(get_all_dynamic_methods)
