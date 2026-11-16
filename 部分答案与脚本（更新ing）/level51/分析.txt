@@ -1,0 +1,29 @@
+1.多个so分析。
+用dlopen打开了libturtle.so，并存储如下几个函数。
+off_12210 = (__int64 (*)(void))dlsym(handle: v1, name: v15);   "tt_seed"
+off_12220 = dlsym(handle: (void *)qword_12218, name: v12);  "tt_salt"
+off_12228 = dlsym(handle: (void *)qword_12218, name: v9);   "tt_slen"
+off_12230 = dlsym(handle: (void *)qword_12218, name: v7);   "tt_mark"
+
+2.首先进去tt_seed，这里好像是拿密钥
+如下是几个关键变量
+byte_F5B：Fatdog_thunder_202600000   这个密钥有点阴，要仔细看看异或的那个数组，有5个零ida不会显示出来。
+byte_F600 = 1;
+byte_F5C8："Fatdog_peak_"
+
+3.回到nativeenc
+
+v19 = 8 - (v18 & 7);                          // v18是长度，这行结果是4。隐藏的pkcs7
+  LOBYTE(v148[0]) = 2 * v19;
+  memset(s: (char *)v148 + 1, c: v19, n: v19);  // 从1偏移不了4个4
+  v20 = (char *)v41;
+  *((_BYTE *)v148 + v19 + 1) = 0;               // 所以v148是:8 4444 0
+
+这里很有意思，是一个隐蔽的sso，存的8 4444 0是一个string对象的短字符形态。
+0x08>>1 = 4 也就是长度。
+4444是填充的0x04，最后0是标记字符串结尾的。
+
+往下看能看到3处密钥扩展，以及des主函数。
+验证一下就能发现是3DES-ECB
+
+=============今天先到这，美美睡觉先==============
