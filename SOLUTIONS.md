@@ -3790,12 +3790,12 @@ Java.perform(function () {
 
 **坑位提醒**：
 - `libshark.so` 的辅助库是**首次调用 `nativeEnc`/`nativeSign` 时**经 `load_aux()` 惰性 `dlopen` + `dlsym`（`tt_*`）取指针；库名/符号名都是密文。`libquota.so` 才是由 `JNI_OnLoad` 直接 `dlopen` 拉进进程的（纯诱饵，缺失不影响通关）
-- SM3 国密哈希标准库没有——必须复用 `libturtle.so` 的 `tt_mark`（或 Python 自实现）还原
+- SM3 就是**标准 SM3**（标准 IV + 标准填充，长度字段写比特数）——Python 直接 `hashlib.new('sm3')`、命令行 `openssl dgst -sm3` 都能复算；App 端 `libturtle.so` 的 `tt_mark` 与之一致（早期版本填充长度误写字节数，2026-11-17 已修回标准）
 - **盐是拼出来的**：头段在 `libturtle.so`（12B）、尾段在 Java（5B）。少任一段 → `SM3` 结果全错 → 服务端 403；尾段取件器的**掩码只在 so 侧**（Java 侧少一个比特就解出乱码）
 - `Fatdog_bolt` 是**诱饵导出**（`libshark.so` 的 `nativeShark`）——`strings` 抓得到但没用；真盐靠跨层拼装
 - `libquota.so` 是纯业务代码干扰（ThreadPool/EventBus/MetricsCollector/CircuitBreaker/RateLimiter），与加密无关；可在 `/proc/self/maps` 或 hook `dlopen` 时看到
 
-答案：加和 `50247`；flag `FLAG_18_L51{thunder_peak}`
+答案：加和 `51340`；flag `FLAG_18_L51{thunder_peak}`
 
 
 ### 关卡 52：冰封雪域（魔改 SM4 + 深层调用栈 + HMAC-MD5 · 3 SO 分离）
@@ -3838,7 +3838,7 @@ Java.perform(function () {
 - 深层调用栈：JNI → k52_dispatch → k52_process → `Pillar::mint`（原 `Sm52Cipher::encryptBlock`）→ k52_sm4_round × 32 → k52_sub_bytes
 - `Fatdog_snow`（真标记）和 `Fatdog_snowflake`（诱饵 UTF-16）用 `strings -el` 对比
 
-答案：加和 `50247`；flag `FLAG_18_L52{frozen_snowfield}`
+答案：加和 `48296`；flag `FLAG_18_L52{frozen_snowfield}`
 
 ### L53：焚天火域（★★★★★ 魔改 AES + Feistel 轮函数 + 异常控制流 · 3 SO 分离 · 最终关）
 

@@ -2631,7 +2631,7 @@ def sm3_hash(msg: bytes) -> bytes:
     msg_len = len(msg)
     msg = msg + b'\x80'
     msg += b'\x00' * ((55 - msg_len) % 64)
-    msg += msg_len.to_bytes(8, 'big')
+    msg += (msg_len * 8).to_bytes(8, 'big')  # ★ 长度字段=比特数（标准 SM3）
     # SM3 IV（标准值，L51 服务端用标准 IV）
     V = [0x7380166f, 0x4914b2b9, 0x172442d7, 0xda8a0600,
          0xa96f30bc, 0x163138aa, 0xe38dee4d, 0xb0fb0e4e]
@@ -2640,14 +2640,12 @@ def sm3_hash(msg: bytes) -> bytes:
     return b''.join(v.to_bytes(4, 'big') for v in V)
 
 
-# ---------------- 关卡 51（雷霆山巅）：3DES-EDE-ECB + SM3 + HMAC-SHA256 ----------
+# ---------------- 关卡 51（雷霆山巅）：3DES-EDE-ECB + 标准 SM3 ----------
 # 3DES 密钥: Fatdog_thunder_2026（XOR ^0x4B）
 # SM3 盐: Fatdog_peak_salt!（XOR ^0x2D）
-# HMAC 密钥: Fatdog_hmac51_key!（XOR ^0x63）
 # 协议: GET /api/l51?enc=3DES 密文&sig=SM3 摘要&ts=T
 KEY51_3DES = b"Fatdog_thunder_2026" + b"\x00" * 5  # 19 + 5 = 24 bytes
 KEY51_SM3_SALT = b"Fatdog_peak_salt!"
-KEY51_HMAC = b"Fatdog_hmac51_key!"
 PAGES51, PER_PAGE51, SEED51 = 100, 10, 20291008
 _rng51 = random.Random(SEED51)
 NUMS51 = [_rng51.randint(1, 100) for _ in range(PAGES51 * PER_PAGE51)]
@@ -2655,7 +2653,7 @@ NUMS51 = [_rng51.randint(1, 100) for _ in range(PAGES51 * PER_PAGE51)]
 
 @app.get("/api/l51")
 def api_l51(enc: str = Query(...), sig: str = Query(...), ts: int = Query(...)):
-    """L51 雷霆山巅：3DES-EDE-ECB + SM3 + HMAC-SHA256
+    """L51 雷霆山巅：3DES-EDE-ECB + 标准 SM3（无 HMAC）
 
     客户端: enc=hex(3DES-ECB(key, "page=N&ts=T")), sig=SM3(salt + enc), ts=T
     服务端: 解密 enc → 校验 page/ts → 验 sig → 返回该页数字

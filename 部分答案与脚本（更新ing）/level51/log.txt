@@ -14,7 +14,7 @@
 [*] 若加密算法 hook 不到结果，说明签名在 native 层（SO）计算
 [*] 下一步：用 Frida 的 Interceptor hook JNI 调用
 
-[URL] https://127.0.0.1:8443/api/l51?enc=d56d2de57556cf71f499b108f11f51bff6045c06a6bc08fe&sig=5d9b96dfa5bffb22321a057311883b88741a2467085e88ac41fd13901a14e514&ts=1794663996
+[URL] https://127.0.0.1:8443/api/l51?enc=d56d2de57556cf713ce164a8173edeca978c607aac59cd66&sig=25b2554e7e2688be517a1af892d4cd141fb2dbec9167a4d8f1d4cb8495ad304c&ts=1794922291
 [URL Stack]
 java.lang.Exception
 	at okhttp3.Request$Builder.url(Native Method)

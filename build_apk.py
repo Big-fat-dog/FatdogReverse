@@ -229,7 +229,7 @@ def main():
             os.makedirs(p_cls, exist_ok=True)
             os.makedirs(p_dex_dir, exist_ok=True)
             p_java = sorted(glob.glob(os.path.join(src_root, '**', '*.java'), recursive=True))
-            run([javac, '-encoding', 'UTF-8', '-source', '8', '-target', '8',
+            run([javac, '-encoding', 'UTF-8', '-source', '8', '-target', '8', '-Xlint:-options',
                  '-bootclasspath', android_jar, '-d', p_cls] + p_java)
             p_jar = os.path.join(BUILD, 'kkl1dex', part, 'classes.jar')
             with zipfile.ZipFile(p_jar, 'w', zipfile.ZIP_DEFLATED) as zj:
@@ -263,7 +263,7 @@ def main():
             os.makedirs(p_cls, exist_ok=True)
             os.makedirs(p_dex_dir, exist_ok=True)
             p_java = sorted(glob.glob(os.path.join(src_root, '**', '*.java'), recursive=True))
-            run([javac, '-encoding', 'UTF-8', '-source', '8', '-target', '8',
+            run([javac, '-encoding', 'UTF-8', '-source', '8', '-target', '8', '-Xlint:-options',
                  '-bootclasspath', android_jar, '-d', p_cls] + p_java)
             p_jar = os.path.join(BUILD, 'kkl2dex', part, 'classes.jar')
             with zipfile.ZipFile(p_jar, 'w', zipfile.ZIP_DEFLATED) as zj:
@@ -328,7 +328,7 @@ def main():
                 dep_cls = os.path.join(BUILD, 'kkl5dex', dep, 'classes')
                 if os.path.isdir(dep_cls):
                     cp += os.pathsep + dep_cls
-            run([javac, '-encoding', 'UTF-8', '-source', '8', '-target', '8',
+            run([javac, '-encoding', 'UTF-8', '-source', '8', '-target', '8', '-Xlint:-options',
                  '-bootclasspath', android_jar, '-classpath', cp, '-d', p_cls] + p_java)
             p_jar = os.path.join(BUILD, 'kkl5dex', part, 'classes.jar')
             with zipfile.ZipFile(p_jar, 'w', zipfile.ZIP_DEFLATED) as zj:
@@ -386,7 +386,7 @@ def main():
                 dep_cls = os.path.join(BUILD, 'kkl3dex', dep, 'classes')
                 if os.path.isdir(dep_cls):
                     cp += os.pathsep + dep_cls
-            run([javac, '-encoding', 'UTF-8', '-source', '8', '-target', '8',
+            run([javac, '-encoding', 'UTF-8', '-source', '8', '-target', '8', '-Xlint:-options',
                  '-bootclasspath', android_jar, '-classpath', cp, '-d', p_cls] + p_java)
             p_jar = os.path.join(BUILD, 'kkl3dex', part, 'classes.jar')
             with zipfile.ZipFile(p_jar, 'w', zipfile.ZIP_DEFLATED) as zj:
@@ -429,7 +429,7 @@ def main():
                 dep_cls = os.path.join(BUILD, 'kkl4dex', dep, 'classes')
                 if os.path.isdir(dep_cls):
                     cp += os.pathsep + dep_cls
-            run([javac, '-encoding', 'UTF-8', '-source', '8', '-target', '8',
+            run([javac, '-encoding', 'UTF-8', '-source', '8', '-target', '8', '-Xlint:-options',
                  '-bootclasspath', android_jar, '-classpath', cp, '-d', p_cls] + p_java)
             p_jar = os.path.join(BUILD, 'kkl4dex', part, 'classes.jar')
             with zipfile.ZipFile(p_jar, 'w', zipfile.ZIP_DEFLATED) as zj:
@@ -484,9 +484,12 @@ def main():
     run(link_cmd)
 
     # 2) javac：源码 + R.java + libs jar 一起编译（OkHttp 等在 classpath 上）
+    #    -source/-target 8 是 Android 侧的固定目标（d8/R8 与 minSdk 都按 Java 8 语义走），不能升；
+    #    JDK 21+ 会因此报 "源值 8 已过时，将在未来发行版中删除"，用 -Xlint:-options 只压这条
+    #    "选项过时"提示，其它警告照常输出。
     srcs = glob.glob(os.path.join(APP, 'src', '**', '*.java'), recursive=True)
     srcs += glob.glob(os.path.join(BUILD, 'gen', '**', '*.java'), recursive=True)
-    run([javac, '-encoding', 'UTF-8', '-source', '8', '-target', '8',
+    run([javac, '-encoding', 'UTF-8', '-source', '8', '-target', '8', '-Xlint:-options',
          '-bootclasspath', android_jar,
          '-classpath', android_jar + os.pathsep + lib_cp,
          '-d', os.path.join(BUILD, 'classes')] + srcs)

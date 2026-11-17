@@ -63,7 +63,7 @@
     },
     {
       "type": "class",
-      "tabPath": "com.fatdog.reverse.kn3Activity",
+      "tabPath": "l6",
       "subPath": "0",
       "caret": 0,
       "view": {
@@ -78,12 +78,12 @@
     },
     {
       "type": "class",
-      "tabPath": "com.fatdog.reverse.MainActivity",
+      "tabPath": "kotlin.KotlinVersion",
       "subPath": "0",
-      "caret": 832,
+      "caret": 0,
       "view": {
         "x": 0,
-        "y": 4152
+        "y": 0
       },
       "active": false,
       "pinned": false,
@@ -93,12 +93,42 @@
     },
     {
       "type": "class",
-      "tabPath": "com.fatdog.reverse.MsgAuthActivity",
+      "tabPath": "com.fatdog.reverse.x51Activity",
       "subPath": "0",
-      "caret": 3420,
+      "caret": 0,
       "view": {
         "x": 0,
-        "y": 1032
+        "y": 0
+      },
+      "active": false,
+      "pinned": false,
+      "bookmarked": false,
+      "hidden": false,
+      "previewTab": false
+    },
+    {
+      "type": "class",
+      "tabPath": "com.fatdog.reverse.Bk51",
+      "subPath": "0",
+      "caret": 905,
+      "view": {
+        "x": 0,
+        "y": 120
+      },
+      "active": false,
+      "pinned": false,
+      "bookmarked": false,
+      "hidden": false,
+      "previewTab": false
+    },
+    {
+      "type": "class",
+      "tabPath": "m6",
+      "subPath": "0",
+      "caret": 971,
+      "view": {
+        "x": 0,
+        "y": 96
       },
       "active": true,
       "pinned": false,
@@ -110,6 +140,10 @@
   "cacheDir": "C:\\Users\\21494\\AppData\\Local\\skylot\\jadx\\cache\\projects\\FatdogReverse-ce35f02865270a31c4926b12c040a22d",
   "enableLiveReload": false,
   "searchHistory": [
+    "com.fatdog.reverse.x51Activity.loadPage",
+    "bindHolder",
+    "slice",
+    "com.fatdog.reverse.x50Activity.loadPage",
     "输入正确的口令",
     "Main",
     "pro 工坊",

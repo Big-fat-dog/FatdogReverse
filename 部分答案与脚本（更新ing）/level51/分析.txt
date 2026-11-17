@@ -27,3 +27,19 @@ v19 = 8 - (v18 & 7);                          // v18是长度，这行结果是4
 验证一下就能发现是3DES-ECB
 
 =============今天先到这，美美睡觉先==============
+
+
+4.nativeSign
+这里也是打开了另一个so，调用salt拿到"Fatdog_peak_"
+
+qword_12238是jclass
+qword_12240 = (__int64)(*a1)->GetMethodID(a1, a2: qword_12238, a3: "<init>", a4: "(I)V");
+qword_12248 = (__int64)(*a1)->GetMethodID(a1, a2: qword_12238, a3: v20, a4: v18); “tail”
+
+m6的构造函数里有个this.b，这个静态分析时灭找到，有点迷。
+盐值搞到手：Fatdog_peak_salt!
+
+后面会调用ttmark处理这个盐，跟进去看看干了啥。
+
+5.ttmark是个sm3，通过固定的iv能判断出来
+他哈希了enc+盐，用作sign

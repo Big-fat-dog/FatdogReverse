@@ -74,13 +74,13 @@ static std::string sm3_hex(const uint8_t* data, size_t len) {
     // SM3 IV（标准值，L51 服务端用标准 IV）
     uint32_t V[8] = {0x7380166f,0x4914b2b9,0x172442d7,0xda8a0600,
                      0xa96f30bc,0x163138aa,0xe38dee4d,0xb0fb0e4e};
-    size_t msgLen = len;
+    uint64_t bitLen = (uint64_t)len * 8;  /* ★ 长度字段写比特数（标准 SM3；曾误写字节数） */
     std::vector<uint8_t> msg(len + 72);  // 1 bit-pad + up to 63 zeros + 8 length bytes
     memcpy(msg.data(), data, len);
     msg[len] = 0x80;
     size_t totalLen = len + 1;
     while (totalLen % 64 != 56) msg[totalLen++] = 0;
-    for (int i = 0; i < 8; i++) msg[totalLen + i] = (uint8_t)(msgLen >> (56 - 8*i));
+    for (int i = 0; i < 8; i++) msg[totalLen + i] = (uint8_t)(bitLen >> (56 - 8*i));
     totalLen += 8;
     for (size_t i = 0; i < totalLen; i += 64) {
         uint8_t block[64];
@@ -130,7 +130,7 @@ int tt_slen() { prime_marks(); return 12; }
 
 const char* tt_mark(const unsigned char* data, int len) {
     static std::string result;
-    result = sm3_hex(data, len);
+    result = sm3_hex(data, len > 0 ? (size_t)len : 0);
     return result.c_str();
 }
 
