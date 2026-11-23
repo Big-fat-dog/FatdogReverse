@@ -15,20 +15,24 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 /**
- * 扶桑树 KL24 冰鉴悬镜：进程状态层 4 路评分阈值制 + 加载期检测。
+ * 扶桑树 KL24 冰鉴悬镜：进程运行时状态层 —— 反调试 / tracer 取证。
+ * 4 路加权评分 + 加载期检测。
  * libice.so 导出八个函数：
- *   int    nativeTracerPid()        — /proc/self/status TracerPid
- *   int    nativeState()            — 进程状态字检查
- *   int    nativePpidChain()        — 父进程链调试器名
- *   int    nativeStatusIntegrity()  — status 结构完整性
+ *   int    nativeTracerPid()        — /proc/self/status TracerPid（权重 2）
+ *   int    nativeState()            — 进程状态字检查（权重 1）
+ *   int    nativePpidChain()        — 父进程链调试器名（权重 2）
+ *   int    nativeStatusIntegrity()  — status 结构完整性（权重 1）
  *   int    nativeLoadPhase()        — 加载期(.init_array)检测相位
- *   int    nativeFridaDetect()      — 综合检测（评分阈值制，≥2 判检出）
+ *   int    nativeFridaDetect()      — 综合检测（加权得分 ≥2 判检出）
  *   String nativeAnswer()           — 最终答案（加载期命中则永久锁定）
  *   String nativeStatus()           — 检测详情
  *
  * 与 KL21-23 的关键差异：
- *   ① 判定 = 评分阈值制（4 路信号命中 ≥2），不再单点 OR 定罪
- *   ② 时机 = so 加载瞬间(.init_array)就已跑完检测并缓存，进关点按钮只是「看结果」
+ *   ① 判定 = 加权评分（阈值 2）：ptrace 直证 / 调试器父进程各记 2 分，
+ *      State / status 完整性各记 1 分 —— 真实 attach 即可触发，不再恒 0
+ *   ② 时机 = so 加载瞬间(.init_array)先跑一次并缓存，进关点按钮会再算一次
+ *
+ * 本关检的是「调试器 / tracer」，不检 Frida 注入的内存痕迹（那是 KL25 起的考点）。
  */
 public class f61Activity extends Activity {
 
@@ -41,7 +45,7 @@ public class f61Activity extends Activity {
         root.setPadding(Ui.dp(16), Ui.dp(20), Ui.dp(16), Ui.dp(12));
 
         TextView tv = new TextView(this);
-        tv.setText("KL24 · 冰鉴悬镜（★★☆ 四路评分阈值制）\n\n"
+        tv.setText("KL24 · 冰鉴悬镜（★★☆ 四路加权评分 · 反调试）\n\n"
                 + "libice.so 导出八个函数：\n"
                 + "  int    nativeTracerPid()\n"
                 + "  int    nativeState()\n"
@@ -51,13 +55,13 @@ public class f61Activity extends Activity {
                 + "  int    nativeFridaDetect()\n"
                 + "  String nativeAnswer()\n"
                 + "  String nativeStatus()\n\n"
-                + "评分阈值制（4 路命中 ≥2 才判检出）：\n"
-                + "  ① TracerPid 非零\n"
-                + "  ② State 为 t/T\n"
-                + "  ③ 父进程链含调试器名\n"
-                + "  ④ status 结构被喂假\n\n"
-                + "★ 本关检测在 so【加载瞬间】(.init_array)就已执行并缓存，\n"
-                + "  答案与加载期结果绑定——事后 hook 运行期检测解不开。\n\n"
+                + "加权评分（阈值 ≥2 判检出）：\n"
+                + "  ① TracerPid 非零 ········ 2 分（ptrace 直证）\n"
+                + "  ② State 为 t/T ·········· 1 分（被 stop 的瞬间）\n"
+                + "  ③ 父进程链含调试器名 ···· 2 分（调试器当爹）\n"
+                + "  ④ status 结构被喂假 ···· 1 分（hook 痕迹）\n\n"
+                + "★ 本关检测在 so【加载瞬间】(.init_array)先跑一次并缓存；\n"
+                + "  进关点按钮会再算一次运行期状态——调试器挂上后点按钮即可见。\n\n"
                 + "标记：两个标记一真一假，需仔细辨别");
         tv.setGravity(Gravity.CENTER);
         root.addView(tv, Ui.wrap(6));
@@ -80,7 +84,7 @@ public class f61Activity extends Activity {
                 int result = Qk.nativeFridaDetect();
                 if (result == 1) showFridaDetected();
                 String status = Qk.nativeStatus();
-                statusTv.setText("检测结果: " + (result == 1 ? "检出 Frida" : "未检出") + "\n\n" + status);
+                statusTv.setText("检测结果: " + (result == 1 ? "检出调试器/tracer" : "未检出") + "\n\n" + status);
                 statusTv.setTextColor(result == 1 ? 0xFFFF6B6B : 0xFF51CF66);
             }
         });
@@ -119,17 +123,19 @@ public class f61Activity extends Activity {
             @Override public void onClick(View v) {
                 new AlertDialog.Builder(f61Activity.this)
                         .setTitle("提示")
-                        .setMessage("进程状态层 · 四路评分阈值制：\n\n"
-                                + "① TracerPid：/proc/self/status 中 TracerPid 非零\n"
-                                + "② State：进程状态为 t（traced stop）或 T（stopped）\n"
-                                + "③ 父进程链：PPid 的 cmdline 含 frida/gdb/lldb/gdbserver\n"
-                                + "④ status 结构完整性：status 缺关键字段（被 hook 喂假）\n\n"
-                                + "评分阈值制：命中 ≥2 路才判检出（单点信号不误杀）\n\n"
-                                + "★ 时机是本关重点：检测在 so【加载瞬间】(.init_array)已跑完并缓存，\n"
-                                + "  进关点按钮只是查看结果。因此：\n"
-                                + "  • hook nativeFridaDetect 返回 0 没用——答案读的是内部缓存；\n"
-                                + "  • 想通关要么「根本别让它检出」（干净环境直接提交），\n"
-                                + "    要么用 spawn 抢在 so 加载前，把 .init_array 里的检测函数替掉。\n\n"
+                        .setMessage("进程运行时状态层 · 四路加权评分（反调试取证）：\n\n"
+                                + "① TracerPid 非零 ········ 2 分\n"
+                                + "   /proc/self/status 的 TracerPid 被内核写成 tracer 的 pid\n"
+                                + "② State 为 t（traced stop）/ T（stopped） ··· 1 分\n"
+                                + "③ 父进程链：PPid 的 cmdline 含 frida/gdb/lldb/gdbserver ··· 2 分\n"
+                                + "④ status 缺 TracerPid/State 字段（被 hook 喂假） ··· 1 分\n\n"
+                                + "加权得分 ≥2 判检出：任一直证（①或③）单独成立即可定罪，\n"
+                                + "②④ 是辅助佐证，需两路合看。\n\n"
+                                + "★ 时机：.init_array 里先跑一次并缓存；进关点按钮会再算一次运行期状态。\n"
+                                + "  · 只启动 frida-server 不算——它是独立进程，本关不看它；\n"
+                                + "  · Frida attach 注入完成后会 detach，TracerPid 随即归零，本关不追这个；\n"
+                                + "  · 真正会触发的是「有个 tracer 一直挂着」：gdb / lldb / gdbserver attach、\n"
+                                + "    或任何 ptrace 常驻的注入器。挂上后再点「运行检测」即可看到 ① 命中。\n\n"
                                 + "静态复刻：SEED = 20280718\n\n"
                                 + "注意两个标记中有一个是诱饵，仔细对比拼写差异。")
                         .setPositiveButton("知道了", null)
@@ -154,10 +160,12 @@ public class f61Activity extends Activity {
 
     private void showFridaDetected() {
         new AlertDialog.Builder(this)
-                .setTitle("已被 Frida 检测")
-                .setMessage("检测到 Frida 注入！\n\n本关答案与【加载期】检测结果绑定：\n"
-                        + "一旦 so 加载时被检出，答案即被永久锁定，事后 hook 运行期检测也解不开。\n\n"
-                        + "干净环境下直接计算并提交即可；若确需挂 Frida，须用 spawn 抢在 so 加载前处理 .init_array 中的检测。")
+                .setTitle("已被反调试检测")
+                .setMessage("检测到调试器 / tracer 挂在本进程上！\n\n"
+                        + "本关答案与检测结果绑定：加载期一旦命中，答案即被永久锁定；\n"
+                        + "运行期命中则本次提交直接被拒。\n\n"
+                        + "干净环境（没有 tracer 常驻）下直接计算并提交即可；"
+                        + "若挂着 gdb/lldb/gdbserver，先 detach 再提交。")
                 .setPositiveButton("知道了", null)
                 .show();
     }

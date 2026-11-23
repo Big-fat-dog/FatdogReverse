@@ -1,18 +1,32 @@
 /**
  * ice.c — 扶桑树 KL24 冰鉴悬镜
  *
- * 进程「运行时状态」层检测：4 路信号 + 评分阈值制 + 加载期 (.init_array) 先跑。
+ * 进程「运行时状态」层检测：反调试 / tracer 取证。
+ * 4 路信号 + 加权评分（阈值 2）+ 加载期 (.init_array) 先跑。
  *
- *   ① TracerPid 非零           —— /proc/self/status 有 tracer 挂上
- *   ② State ∈ {t,T}            —— 进程处于被 ptrace 停止态
- *   ③ 父进程链命中调试器名      —— PPid 的 cmdline 含 frida/gdb/lldb/gdbserver
- *   ④ status 结构完整性         —— /proc/self/status 被喂假/过滤（缺必需字段）
+ *   ① TracerPid 非零           —— /proc/self/status 有 tracer 挂上（权重 2）
+ *   ② State ∈ {t,T}            —— 进程处于被 ptrace 停止态（权重 1）
+ *   ③ 父进程链命中调试器名      —— PPid 的 cmdline 含 frida/gdb/lldb/gdbserver（权重 2）
+ *   ④ status 结构完整性         —— /proc/self/status 被喂假/过滤（缺必需字段）（权重 1）
  *
- *   命中数 >= KL24_THRESHOLD(2) 才判定检出 —— 评分阈值制，
- *   避免部分 ROM 的 seccomp/SELinux 让单路信号误报时误杀正常玩家
- *   （沿用 KL15/KL19/KL28 教训，禁「任一命中即判」）。
+ * 【为什么改成加权，而不是「命中 ≥ 2 路」】
+ *   旧版四路等权 + 阈值 2，但这四路在现实中同时成立的机会是 0：
+ *     • Frida attach 注入完成后立即 detach，TracerPid 归 0；
+ *     • State 只在被 stop 的一瞬间是 t/T；
+ *     • app 的 PPid 永远是 zygote，不会含调试器名；
+ *     • 没 hook fopen/fgets 时 status 结构当然完整。
+ *   结果就是真实 gdb/lldb 挂上去也只有 1 分，阈值 2 永远达不到，本关检测形同
+ *   虚设（真机实测 0/4）。现在按「证据可靠性」加权：
+ *     • ① TracerPid 是内核给的 ptrace 直证 → 2 分，单独即达阈值；
+ *     • ③ 调试器当父进程没有正常可能     → 2 分，单独即达阈值；
+ *     • ②④ 是辅助佐证，各 1 分，需两路合看，避免单点误杀。
+ *   阈值仍是 2，评分制的设计阶梯（KL24→KL28）不变。
  *
- * 【本关升级点 · 加载期检测】
+ * 【本关不检什么】
+ *   Frida 注入留下的内存/线程痕迹（memfd 映射、gum-js-loop 线程等）属于
+ *   KL25 起的考点，本关不重复叠加，避免与后续关卡同质化。
+ *
+ * 【加载期检测】
  *   so 被 System.loadLibrary 加载时，.init_array 里的 constructor 先跑一遍检测
  *   并把结果缓存在 g_load_phase：
  *      0=未执行  1=加载期干净  2=加载期已命定
@@ -38,8 +52,13 @@
 static const char REAL_MARK[] = "Fatdog_siren";
 static const char FAKE_MARK[] = "Fatdog_sren";
 
-/* 评分阈值制：4 路信号里命中 >= 2 才判检出 */
-#define KL24_SIG_COUNT 4
+/* 评分权重：2 = 直接定罪证据（单独达阈值），1 = 辅助佐证（需合看） */
+#define KL24_W_TRACER 2
+#define KL24_W_STATE  1
+#define KL24_W_PPID   2
+#define KL24_W_STATUS 1
+
+#define KL24_MAX_SCORE (KL24_W_TRACER + KL24_W_STATE + KL24_W_PPID + KL24_W_STATUS)
 #define KL24_THRESHOLD 2
 
 /* 加载期相位 */
@@ -161,14 +180,14 @@ static int sig_status_integrity(void) {
 }
 
 /* ============================================================
- * 评分：返回命中信号数（0..KL24_SIG_COUNT）
+ * 评分：返回加权得分（0..KL24_MAX_SCORE）
  * ============================================================ */
 static int detect_score(void) {
     int s = 0;
-    s += sig_tracer_pid();
-    s += sig_state();
-    s += sig_ppid_chain();
-    s += sig_status_integrity();
+    s += sig_tracer_pid()      * KL24_W_TRACER;
+    s += sig_state()           * KL24_W_STATE;
+    s += sig_ppid_chain()      * KL24_W_PPID;
+    s += sig_status_integrity() * KL24_W_STATUS;
     return s;
 }
 
@@ -187,7 +206,7 @@ static void _ice_load_guard(void) {
 }
 
 /* ============================================================
- * 综合检测（评分阈值制 + 加载期锁定）
+ * 综合检测（加权评分 + 加载期锁定）
  * ============================================================ */
 static int detect_frida(void) {
     /* 加载期已判定命中 → 永久锁定，运行期怎么 hook 都解不开 */
@@ -240,23 +259,23 @@ static const char* compute_status(void) {
     int sc  = detect_score();
 
     snprintf(buf, sizeof(buf),
-        "=== 冰鉴悬镜（评分阈值制 · 加载期先跑）===\n"
-        "加载期相位(.init_array): %s   加载期命中数: %d\n"
+        "=== 冰鉴悬镜（反调试取证 · 加权评分 · 加载期先跑）===\n"
+        "加载期相位(.init_array): %s   加载期得分: %d\n"
         "--------------------------------------------------\n"
-        "① TracerPid : %-4s\n"
-        "② State     : %-4s\n"
-        "③ 父进程链 : %-4s\n"
-        "④ status完整: %-4s\n"
+        "① TracerPid  : %-4s (权重%d)\n"
+        "② State      : %-4s (权重%d)\n"
+        "③ 父进程链   : %-4s (权重%d)\n"
+        "④ status完整 : %-4s (权重%d)\n"
         "--------------------------------------------------\n"
-        "命中 %d/%d 路，阈值 >= %d 判检出\n"
+        "加权得分 %d/%d，阈值 >= %d 判检出\n"
         "综合判定: %s\n\n"
         "标记A: %s\n标记B: %s",
         load_phase_str(), g_load_score,
-        tp ? "命中" : "安全",
-        st ? "命中" : "安全",
-        pp ? "命中" : "安全",
-        sf ? "命中" : "安全",
-        sc, KL24_SIG_COUNT, KL24_THRESHOLD,
+        tp ? "命中" : "安全", KL24_W_TRACER,
+        st ? "命中" : "安全", KL24_W_STATE,
+        pp ? "命中" : "安全", KL24_W_PPID,
+        sf ? "命中" : "安全", KL24_W_STATUS,
+        sc, KL24_MAX_SCORE, KL24_THRESHOLD,
         detect_frida() ? "检出" : "安全",
         REAL_MARK, FAKE_MARK);
     return buf;

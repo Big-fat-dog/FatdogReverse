@@ -20,13 +20,13 @@ import android.widget.Toast;
  *   int    nativeFridaDetect()  — 三路 AND（条件全部成立才判定）
  *   int    nativeMapsHex()      — maps hex 特征码
  *   int    nativeDtDebug()      — 运行时 DT_DEBUG
- *   int    nativeAuxv()         — /proc/self/auxv
+ *   int    nativeAuxv()         — auxv/程序头表结构自洽
  *   String nativeAnswer()       — 最终答案
  *   String nativeStatus()       — 检测详情
  *
  * 与 KL21/22 的关键差异：
  *   判定逻辑 = AND（maps 命中且结构校验成立）
- *   检测维度 = 运行时 ELF/auxv 一致性 vs 路径/字符串扫描
+ *   检测维度 = 运行时 ELF/程序头表一致性 vs 路径/字符串扫描
  */
 public class e60Activity extends Activity {
 
@@ -48,9 +48,9 @@ public class e60Activity extends Activity {
                 + "  String nativeAnswer()\n"
                 + "  String nativeStatus()\n\n"
                 + "三路 AND 判定（条件全部成立才判定）：\n"
-                + "  ① maps hex：r-xp 段搜索 frida 特征字节\n"
+                + "  ① maps hex：流式扫完整 maps，r-xp 段搜索 frida 特征字节\n"
                 + "  ② 运行时 DT_DEBUG：dl_iterate_phdr 读取链接器写入值\n"
-                + "  ③ auxv：/proc/self/auxv 与 ELF 头交叉校验\n\n"
+                + "  ③ auxv：getauxval + AT_PHDR 程序头表自洽校验（纯内存）\n\n"
                 + "标记：两个标记一真一假，需仔细辨别\n\n"
                 + "【重要】本关答案与检测结果绑定：一旦被检出 Frida，答案会被锁定，\n"
                 + "必须先绕过检测（hook nativeFridaDetect 返回 0）再提交。");
@@ -112,14 +112,16 @@ public class e60Activity extends Activity {
                 new AlertDialog.Builder(e60Activity.this)
                         .setTitle("提示")
                         .setMessage("三重内存指纹 + AND 判定：\n\n"
-                                + "① maps hex：在 r-xp 可执行段中搜索 frida 特征字节\n"
+                                + "① maps hex：流式读取完整 /proc/self/maps，在 r-xp 可执行段\n"
+                                + "   中搜索 frida 特征字节（注入的 agent 映射在表尾）\n"
                                 + "② 运行时 DT_DEBUG：用 dl_iterate_phdr 定位主程序动态段\n"
-                                + "③ auxv：读 /proc/self/auxv，与磁盘 ELF 头交叉校验\n\n"
+                                + "③ auxv：getauxval 取 AT_PHDR/AT_PHENT/AT_PHNUM，校验程序头表\n"
+                                + "   自身结构（PT_PHDR 大小、load_bias 页对齐、PT_LOAD 偏移）\n\n"
                                 + "AND 判定：maps 命中且两条结构校验成立才判定\n"
                                 + "（与 KL21/22 的 OR 判定相反——任一校验失败即安全）\n\n"
                                 + "绕过路线：\n"
                                 + "  • 只需绕过三路中的任一路即可\n"
-                                + "  • hook maps 解析 / hook ELF 读取 / hook auxv\n"
+                                + "  • hook maps 解析 / hook dl_iterate_phdr / hook getauxval\n"
                                 + "  • Frida spawn 模式可避免部分检测\n\n"
                                 + "静态复刻：SEED = 20280717\n\n"
                                 + "注意两个标记中有一个是诱饵，仔细对比拼写差异。")

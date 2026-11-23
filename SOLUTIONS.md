@@ -6042,7 +6042,7 @@ print("sum =", total, "submit =", hashlib.md5(str(total).encode()).hexdigest())
 > - `nativeStatus()` 报告的 `REAL_MARK`/`FAKE_MARK`（如 `Fatdog_breeze`/`Fatdog_gust`）**只是演示文本，纯干扰，不参与答案**——别被"两个标记一真一假"带偏。
 >
 > 三个通用认知：
-> 1. **判定逻辑**是训练场——OR / AND / **评分阈值制** 的绕过策略不同：OR 全绕、AND 破一路即可、**评分阈值制要「把命中数压到阈值以下」**（KL21/22 是 OR，KL23 是 AND，**KL24 起统一改为多路评分阈值制**——KL24 4 路 / KL25 5 路 / KL26 6 路 / KL27 7 路 / KL28 8 路，命中 ≥2 才判检出，防单点误杀）。
+> 1. **判定逻辑**是训练场——OR / AND / **评分阈值制** 的绕过策略不同：OR 全绕、AND 破一路即可、**评分阈值制要「把得分压到阈值以下」**（KL21/22 是 OR，KL23 是 AND，**KL24 起改为多路评分制**——KL24 4 路**加权**（ptrace 直证/调试器父进程各 2 分，State/status 完整性各 1 分，阈值 2）；KL25 5 路 / KL26 6 路 / KL27 7 路 / KL28 8 路为**等权命中数 ≥2**，防单点误杀）。
 > 2. **检测时机**逐关递进——**KL21-23 = 进关点「运行检测」按钮时才跑**（冒烟式）；**KL24 起 = so 加载瞬间 `.init_array` 先跑并缓存结果**，`nativeAnswer()` 读缓存，事后 hook 运行期检测无效（详见 KL24/KL25 小节）。**KL26/27 已在此之上叠加「注入痕迹」检测**——脏页 / 匿名代码岛 / ARM64 跳板 / libc 磁盘对内存完整性，专治"洗掉特征串 + hook libc"（见各关小节）；**KL28 已再加第 8 路「libc 符号解析完整性」**（抓换库 / LD_PRELOAD / GOT 重定向），并以 **C++ OOP** 重构（`Probe` 抽象基类 + 8 真身派生类虚派发 + RAII 管信号检查）。
 > 3. **答案算法**：KL21-23 是 `SHA-256(seed 的 4 字节大端)`，KL24-28 是 LCG 伪随机 hex。下面表格里的答案是**未检出时的真值**；下表只是结论，静态复刻见下方脚本。
 > 4. **工程坑（KL26/27 首日翻车）**：Android 10+ 把系统库 `.text` 映射为 **`--xp`（只执行不可读）**，所以「内存 vs 磁盘代码比对」这类检测**不能直接解引用代码地址**（会 `SIGSEGV/SEGV_ACCERR`，`System.loadLibrary` 即闪退）。必须走 `/proc/self/mem` + `pread64`（见 `app/jni/fuso_probe.h` 的 `fuso_read_code()`）。另：**宿主自测测不到此坑**（Windows 无 `/proc`，那几路天然返回 0），涉及读外部代码的改动**必须真机验证**（`python tools/verify_fuso_device.py`）。
@@ -6051,8 +6051,8 @@ print("sum =", total, "submit =", hashlib.md5(str(total).encode()).hexdigest())
 |---|---|---|---|---|---|---|
 | KL21 | 枯叶听风 | OR | 端口 27042-27044 + D-Bus 指纹 | 20280715 | `509b85ba58729bb4934d5467a7c01c508f82f09ea2f660d703591cc233bb172b` | `FLAG_18_KL21{leaf_hears_the_wind}` |
 | KL22 | 落影寻痕 | OR | fd memfd + maps 关键词 | 20280716 | `7ece99ec50816dca8130a166dff30227d8ef546fbf97f5370a1ff5fc2caff2c6` | `FLAG_18_KL22{shadow_leaves_no_trace}` |
-| KL23 | 照妖显形 | AND | maps 特征字节 + 运行时 DT_DEBUG + auxv 一致性 | 20280717 | `7553ec6d375135f8fb11dcf5a0a6f50060c6a68a05a9147f88f8771db5083bbb` | `FLAG_18_KL23{mirror_shows_true_face}` |
-| KL24 | 冰鉴悬镜 | 阈值≥2 | **加载期检测** + TracerPid/State/父进程链/status完整性（4 路） | 20280718 | `83abc5a60bf846a88404c66b0cf24701` | `FLAG_18_KL24{ice_mirror_catches_all}` |
+| KL23 | 照妖显形 | AND | maps 流式特征字节 + 运行时 DT_DEBUG + 程序头表自洽 | 20280717 | `7553ec6d375135f8fb11dcf5a0a6f50060c6a68a05a9147f88f8771db5083bbb` | `FLAG_18_KL23{mirror_shows_true_face}` |
+| KL24 | 冰鉴悬镜 | 加权 ≥2 | **加载期检测** + TracerPid(2)/State(1)/父进程链(2)/status完整性(1) | 20280718 | `83abc5a60bf846a88404c66b0cf24701` | `FLAG_18_KL24{ice_mirror_catches_all}` |
 | KL25 | 暮雾锁听 | 阈值≥2 | **加载期检测** + maps/线程名/auxv/线程数/幻影映射（5 路） | 20280719 | `c8c20ef9499a87f1c94e0fc64ab1886c` | `FLAG_18_KL25{mist_locks_the_ears}` |
 | KL26 | 暮霭沉沉 | 阈值≥2 | **加载期检测** + timing/版本嗅探/脏页/代码岛/跳板/libc入口（6 路） | 20280720 | `8ac8cc07027b4d6d8bf9cd8003454e71` | `FLAG_18_KL26{dusk_hides_the_truth}` |
 | KL27 | 轻纱覆影 | 阈值≥2 | **加载期检测** + 线程上下文/时序交叉/脏页/代码岛/跳板/libc入口/libc采样（7 路） | 20280721 | `4cc08a01cc4402bc4da28b32cdcd0386` | `FLAG_18_KL27{veil_conceals_all}` |
@@ -6104,27 +6104,31 @@ def lcg_ans(seed):                      # KL24-28：libice 之后统一 LCG 伪 
 ### KL23：照妖显形（libsun.so · 三路 AND）
 
 - **综合判定** `detect_frida_present = detect_maps_hex() && detect_dt_debug() && detect_auxv()` —— **AND**（三路同时成立才检出，漏任一路都安全）。
-- **子路①maps hex**：在 `/proc/self/maps` 的 r-xp 段里搜 frida 特征字节模式；
+- **子路①maps hex**：**流式**读取完整 `/proc/self/maps`（8KB 分块 + 行缓冲，跨块续行），在 `r-xp` 段里搜 frida 特征字节；注入的 `memfd:frida-agent-64.so` 映射总在表尾，旧版 16KB 固定窗口只能覆盖约 6%，永远漏，已改；
 - **子路②运行时 DT_DEBUG**：通过 `dl_iterate_phdr` 和 `AT_PHDR` 定位主程序动态段，读取链接器写入内存的 `DT_DEBUG`；磁盘值为 0，不能离线读取判定；
-- **子路③auxv**：读 `/proc/self/auxv` 与磁盘 ELF 头交叉校验，作为 ABI 无关的一致性守卫；
-- **绕过**：hook `nativeFridaDetect`→0；或破坏 maps 特征路、`dl_iterate_phdr` 路径、auxv/ELF 一致性中的任意一条（AND 破一路即安全）。
+- **子路③程序头表自洽**：`getauxval(AT_PHDR/AT_PHENT/AT_PHNUM)` 后直接在内存里校验 — `phent == sizeof(ElfW(Phdr))`、`PT_PHDR.p_filesz == phnum*phent`、`load_bias` 页对齐、首个 `PT_LOAD` 的 offset/vaddr 页内偏移一致。**不读 `/proc/self/exe` 与 `/proc/self/auxv`**：前者标签是 `zygote_exec`，untrusted_app 读取被 SELinux 拦，旧实现在真机上这一路恒 0，导致 AND 永不成立；
+- **绕过**：hook `nativeFridaDetect`→0；或破坏 maps 特征路、`dl_iterate_phdr` 路径、程序头表自洽中的任意一条（AND 破一路即安全）；③ 也可直接 hook `getauxval` 让三项取不到值。
 - **静态答案（未检出时）**：seed `20280717` → `sha256` → `7553ec6d375135f8fb11dcf5a0a6f50060c6a68a05a9147f88f8771db5083bbb`。flag `FLAG_18_KL23{mirror_shows_true_face}`。
 - *注：`Fatdog_gleam`/`Fatdog_glint` 仅为报告展示，与答案无关。*
 
-### KL24：冰鉴悬镜（libice.so · 进程状态层 4 路评分阈值制 + 加载期检测）
+### KL24：冰鉴悬镜（libice.so · 运行时状态层 · 反调试取证 · 加权评分 + 加载期检测）
 
-- **判定 = 评分阈值制**：4 路信号命中 **≥2** 才判检出（不再是旧版单点 OR——修掉了"任一命中即判"）：
-  - ① `sig_tracer_pid()`：`/proc/self/status` 的 `TracerPid` 非零（frida-gadget 注入常留下 tracer）；
-  - ② `sig_state()`：进程状态字为 `t`（traced stop）/ `T`（stopped）；
-  - ③ `sig_ppid_chain()`：`PPid` 的 `cmdline` 含 `frida`/`gdb`/`lldb`/`gdbserver`（经典"调试器当父进程"）；
-  - ④ `sig_status_integrity()`：`status` 缺 `TracerPid`/`State` 关键字段（被 hook 喂假/过滤的痕迹）。
+- **定位**：检「调试器 / tracer 常驻」。Frida 注入留下的内存/线程痕迹属于 KL25 起的考点，本关不重复叠加。
+- **判定 = 加权评分，阈值 2**：
+  - ① `sig_tracer_pid()`：`/proc/self/status` 的 `TracerPid` 非零 —— **权重 2**（内核给出的 ptrace 直证，单独即达阈值）；
+  - ② `sig_state()`：进程状态字为 `t`（traced stop）/ `T`（stopped）—— **权重 1**；
+  - ③ `sig_ppid_chain()`：`PPid` 的 `cmdline` 含 `frida`/`gdb`/`lldb`/`gdbserver` —— **权重 2**（调试器当父进程没有正常可能）；
+  - ④ `sig_status_integrity()`：`status` 缺 `TracerPid`/`State` 关键字段（被 hook 喂假/过滤的痕迹）—— **权重 1**。
+- **★ 为什么加权（2026-11-23 真机实测后修）**：旧版四路等权 + 阈值 2 永不可达 —— Frida attach 注入完成后立即 detach（TracerPid 归 0）、State 只在被 stop 的瞬间成立、app 的 PPid 永远是 zygote、没 hook 就没④，真机上真实 gdb 挂上也只 1 分。现改为按证据可靠性加权，阈值仍 2；四路信号一个没删、没加。
 - **★ 加载期检测（本关升级点）**：so 加载时 `.init_array` 里的 `__attribute__((constructor(101)))` **先跑一遍**检测，把结果缓存进 `g_load_phase`（0=未执行 / 1=干净 / 2=命中），并暴露 `nativeLoadPhase()` 供 App 展示。`nativeAnswer()` 读的就是这份缓存：
   - **一旦加载期命中 → 答案永久锁定**（返回 `DETECTED_FRIDA_LOCKED_ANSWER`），**事后 hook 运行期检测函数解不开**；
-  - 所以旧套路「hook `nativeFridaDetect` 返回 0」对本关**失效**——它只影响按钮显示的检测结果，改不动 `nativeAnswer()` 内部的判定。
+  - 但运行期检测在每次 `nativeFridaDetect()` / `nativeAnswer()` 时**重算**，所以「so 加载之后才 attach 的 tracer」照样会被抓——挂上 gdb 再点按钮即可看到 ① 命中。
 - **绕过路线**：
-  - 干净环境直接算答案提交（最省事，压根不用 Frida）；
-  - 确需挂 Frida：用 `frida -f`（spawn）+ hook `android_dlopen_ext` 的 **onEnter**，抢在 `.init_array` 检测函数执行前替换它（`onLeave` 太晚，检测已跑完）；
-  - 或在加载前 hook `sig_tracer_pid`/`sig_state`/`sig_ppid_chain`/`sig_status_integrity`，使加载期 score < 2——**只压一路不够**（阈值 ≥2），至少要绕开两路。
+  - 干净环境直接算答案提交（最省事）；
+  - 挂着 gdb/lldb/gdbserver 时，先 detach 再提交；
+  - 或 hook ①③ 中的任意一路（各值 2 分，压掉一路得分即 < 2）；④ 单独压不够；
+  - 若要在加载期就骗过检测，用 `frida -f`（spawn）+ hook `android_dlopen_ext` 的 **onEnter**，抢在 `.init_array` 执行前替换（`onLeave` 太晚）；
+  - 注意只启动 frida-server 不会触发任何一路——它是独立进程，本关不看它。
 - **静态答案（未检出时）**：seed `20280718` → LCG → `83abc5a60bf846a88404c66b0cf24701`。flag `FLAG_18_KL24{ice_mirror_catches_all}`。
 - 导出（桥类 `Qk`）：`nativeTracerPid / nativeState / nativePpidChain / nativeStatusIntegrity / nativeLoadPhase / nativeFridaDetect / nativeAnswer / nativeStatus`。
 - *注：`Fatdog_siren`/`Fatdog_sren` 仅为报告展示，与答案无关。*

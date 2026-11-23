@@ -16,7 +16,7 @@ public final class Ok {
     /** 运行时 DT_DEBUG 校验子结果 */
     public static native int nativeDtDebug();
 
-    /** auxv/ELF 一致性子结果 */
+    /** auxv/程序头表结构自洽子结果（纯内存，不读 /proc） */
     public static native int nativeAuxv();
 
     /** 最终答案 */

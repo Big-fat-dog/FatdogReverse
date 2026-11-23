@@ -3,9 +3,13 @@
  *
  * 与 KL21/22 的 OR 判定不同：本关要求三路条件同时成立才判定检出。
  *
- *   ① maps hex pattern：解析 /proc/self/maps，搜索 r-xp 段中的 frida 特征字节
+ *   ① maps hex pattern：流式解析 /proc/self/maps，搜索 r-xp 段中的 frida 特征字节
  *   ② 运行时 DT_DEBUG：通过 dl_iterate_phdr 读取主程序链接器写入的运行时值
- *   ③ auxv 校验：读 /proc/self/auxv，按 ELF class 解析并与磁盘 ELF 头交叉校验
+ *   ③ auxv 结构自洽：getauxval + AT_PHDR 程序头表校验（纯内存，不碰 /proc）
+ *
+ * 注意：只启动 frida-server 时本关必然全 0 —— server 是独立进程，
+ * 目标 app 的 maps 里没有它；必须真正 attach 注入后 r-xp 段才会出现
+ * /memfd:frida-agent-*.so。本关检的是「注入后的运行时痕迹」。
  *
  * 标记（真）：Fatdog_gleam — UTF-16 码元。
  * 诱饵（假）：Fatdog_glint — 一字之差。
@@ -95,48 +99,64 @@ static void to_hex(const uint8_t *in, int n, char *out) {
 
 /* ============================================================
  * 检测①：maps hex pattern（在 r-xp 段搜索 frida 特征字节）
+ *
+ * 流式行缓冲：旧实现用固定 16KB 整块缓冲，首次 read 填到 16383 字节后
+ * total 已满，第二次 read 请求 0 字节直接 break —— 真机 /proc/self/maps
+ * 约 260KB，覆盖率只有 6%，而注入的 agent 永远映射在表尾，等于恒不命中。
+ * 现改为 8KB 分块 read + 行缓冲续接，无总长上限。
  * ============================================================ */
+#define MAPS_LINE_MAX 512
+
+static int line_is_rx_hit(const char *line, int len) {
+    /* maps 行：start-end perms offset dev inode pathname
+     * 权限字段从第一个空格之后开始，要求 r-xp（可执行映射）。 */
+    int i = 0;
+    while (i < len && line[i] != ' ') i++;
+    if (i + 4 >= len) return 0;
+
+    const char *perm = line + i + 1;
+    if (perm[0] != 'r' || perm[2] != 'x' || perm[3] != 'p') return 0;
+
+    for (int k = 0; k + SIG_LEN <= len; k++) {
+        if (memcmp(line + k, FRIDA_SIG, SIG_LEN) == 0) return 1;
+    }
+    return 0;
+}
+
 static int detect_maps_hex(void) {
     int fd = open("/proc/self/maps", O_RDONLY);
     if (fd < 0) return 0;
 
-    char buf[16384];
-    int total = 0;
+    char chunk[8192];
+    char line[MAPS_LINE_MAX];
+    int line_len = 0;
+    int overflow = 0;   /* 超长行：截断丢弃，但不打断后续行 */
     int found = 0;
 
-    while (!found) {
-        int n = read(fd, buf + total, sizeof(buf) - total - 1);
+    for (;;) {
+        ssize_t n = read(fd, chunk, sizeof(chunk));
         if (n <= 0) break;
-        total += n;
-        buf[total] = '\0';
 
-        /* 逐行扫描 */
-        char *nl_last = NULL;
-        char *line = buf;
-        while (*line) {
-            char *nl = strchr(line, '\n');
-            int line_len = nl ? (int)(nl - line) : (int)strlen(line);
-
-            /* 检查是否是 r-xp 段（可执行） */
-            char *perm = memchr(line, ' ', line_len);
-            if (perm && perm + 4 < line + line_len) {
-                if (memcmp(perm, " r-xp", 5) == 0) {
-                    /* 在整行（含路径）中搜索特征字节 */
-                    for (int i = 0; i < line_len - SIG_LEN; i++) {
-                        if (memcmp(line + i, FRIDA_SIG, SIG_LEN) == 0) {
-                            found = 1;
-                            break;
-                        }
-                    }
-                }
+        for (ssize_t i = 0; i < n; i++) {
+            char c = chunk[i];
+            if (c == '\n') {
+                if (!overflow && line_is_rx_hit(line, line_len)) found = 1;
+                line_len = 0;
+                overflow = 0;
+                if (found) break;
+                continue;
             }
-            if (found) break;
-            nl_last = nl;
-            line = nl ? nl + 1 : line + line_len;
+            if (line_len < MAPS_LINE_MAX - 1) line[line_len++] = c;
+            else overflow = 1;
         }
-        if (nl_last == NULL) break;
-        /* 保留最后一行不完整数据 */
+        if (found) break;
     }
+
+    /* 末尾没有换行的残行也要检查 */
+    if (!found && line_len > 0 && !overflow) {
+        if (line_is_rx_hit(line, line_len)) found = 1;
+    }
+
     close(fd);
     return found;
 }
@@ -190,101 +210,47 @@ static int detect_dt_debug(void) {
 }
 
 /* ============================================================
- * 读取 /proc/self/exe 的 ELF 头信息（类 + phoff/phentsize/phnum）
- * ============================================================ */
-static int read_elf_info(int *is_64, uint64_t *phoff,
-                         uint16_t *phentsize, uint16_t *phnum) {
-    int fd = open("/proc/self/exe", O_RDONLY);
-    if (fd < 0) return 0;
-
-    uint8_t h[64];
-    ssize_t got = read(fd, h, 16);
-    if (got != 16 || h[0] != 0x7f || h[1] != 'E' || h[2] != 'L' || h[3] != 'F') {
-        close(fd);
-        return 0;
-    }
-    int is64 = (h[4] == 2);
-    lseek(fd, 0, SEEK_SET);
-    got = read(fd, h, is64 ? 64 : 52);
-    if (got != (is64 ? 64 : 52)) { close(fd); return 0; }
-
-    if (is64) {
-        *is_64 = 1;
-        *phoff = (uint64_t)h[32] | ((uint64_t)h[33] << 8) |
-                 ((uint64_t)h[34] << 16) | ((uint64_t)h[35] << 24) |
-                 ((uint64_t)h[36] << 32) | ((uint64_t)h[37] << 40) |
-                 ((uint64_t)h[38] << 48) | ((uint64_t)h[39] << 56);
-        *phentsize = (uint16_t)(h[54] | (h[55] << 8));
-        *phnum = (uint16_t)(h[56] | (h[57] << 8));
-    } else {
-        *is_64 = 0;
-        *phoff = (uint64_t)(h[28] | (h[29] << 8) | (h[30] << 16) | (h[31] << 24));
-        *phentsize = (uint16_t)(h[42] | (h[43] << 8));
-        *phnum = (uint16_t)(h[44] | (h[45] << 8));
-    }
-    close(fd);
-    return 1;
-}
-
-static uint64_t rd_le64(const uint8_t *p) {
-    uint64_t v = 0;
-    for (int i = 0; i < 8; i++) v |= (uint64_t)p[i] << (8 * i);
-    return v;
-}
-
-static uint32_t rd_le32(const uint8_t *p) {
-    return (uint32_t)p[0] | ((uint32_t)p[1] << 8) |
-           ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24);
-}
-
-/* ============================================================
- * 校验③：辅助向量一致性（读 /proc/self/auxv，与磁盘 ELF 头交叉比对）
- * 64 位设备上 auxv 条目是 16 字节（Elf64_auxv_t：type+value 各 8 字节），
- * 32 位是 8 字节。旧实现按 32 位解析会把 AT_PHDR 的值读到 type 的高 32 位
- * （恒为 0）造成 64 位设备误报，这里按 ELF class 取正确宽度。
- * 返回 1 表示元数据一致；该结果作为 AND 判定中的运行时环境守卫。
+ * 校验③：auxv 一致性（纯内存校验，不读 /proc）
+ *
+ * 旧实现要读 /proc/self/exe（zygote_exec 标签，untrusted_app 读被
+ * SELinux 拦）与 /proc/self/auxv，任一失败立即 return 0。真机上这一路
+ * 恒为 0，三路 AND 因此永远不成立 —— 本关永远抓不到注入。
+ *
+ * 现改为只用 getauxval + AT_PHDR 指向的程序头表做自洽校验：
+ *   • AT_PHENT 必须等于当前 ABI 的 ElfW(Phdr) 大小
+ *   • 表内必须有 PT_PHDR，且 p_filesz == phnum * phent
+ *     （PT_PHDR 描述的就是程序头表本身，大小不符说明表被替换/伪造）
+ *   • load_bias = AT_PHDR - PT_PHDR.p_vaddr 必须页对齐
+ *   • 首个 PT_LOAD 的 p_offset 与 p_vaddr 页内偏移必须一致（mmap 硬约束）
+ * 全部成立才返回 1，作为 AND 判定中的运行时结构守卫。
  * ============================================================ */
 static int detect_auxv(void) {
-    int is_64 = 0;
-    uint64_t elf_phoff = 0;
-    uint16_t elf_phentsize = 0, elf_phnum = 0;
-    if (!read_elf_info(&is_64, &elf_phoff, &elf_phentsize, &elf_phnum)) return 0;
+    uintptr_t phdr_addr = (uintptr_t)getauxval(AT_PHDR);
+    size_t phent = (size_t)getauxval(AT_PHENT);
+    size_t phnum = (size_t)getauxval(AT_PHNUM);
+    if (phdr_addr == 0 || phnum == 0 || phnum > 512) return 0;
+    if (phent != sizeof(ElfW(Phdr))) return 0;
 
-    int fd = open("/proc/self/auxv", O_RDONLY);
-    if (fd < 0) return 0;
+    const ElfW(Phdr) *ph = (const ElfW(Phdr) *)phdr_addr;
+    uintptr_t load_bias = 0;
+    int has_phdr = 0;
 
-    uint8_t buf[1024];
-    int n = read(fd, buf, sizeof(buf));
-    close(fd);
-    if (n <= 0) return 0;
-
-    size_t ent = is_64 ? 16 : 8;
-    uint64_t at_phdr = 0, at_phent = 0, at_phnum = 0;
-    int has_phdr = 0, has_phent = 0, has_phnum = 0;
-    size_t i = 0;
-    while (i + ent <= (size_t)n) {
-        uint64_t a_type, a_val;
-        if (is_64) {
-            a_type = rd_le64(buf + i);
-            a_val = rd_le64(buf + i + 8);
-        } else {
-            a_type = rd_le32(buf + i);
-            a_val = rd_le32(buf + i + 4);
-        }
-        if (a_type == 0) break; /* AT_NULL */
-        if (a_type == 3) { at_phdr = a_val; has_phdr = 1; }       /* AT_PHDR */
-        else if (a_type == 4) { at_phent = a_val; has_phent = 1; } /* AT_PHENT */
-        else if (a_type == 5) { at_phnum = a_val; has_phnum = 1; } /* AT_PHNUM */
-        i += ent;
+    for (size_t i = 0; i < phnum; i++) {
+        if (ph[i].p_type != PT_PHDR) continue;
+        if ((uintptr_t)ph[i].p_vaddr > phdr_addr) return 0;
+        if ((size_t)ph[i].p_filesz != phnum * phent) return 0;
+        load_bias = phdr_addr - (uintptr_t)ph[i].p_vaddr;
+        has_phdr = 1;
+        break;
     }
+    if (!has_phdr) return 0;
+    if ((load_bias & 0xFFFULL) != 0) return 0;
 
-    /* AT_PHDR 低 12 位应等于 e_phoff 低 12 位（load_bias 页对齐），
-     * PHENT/PHNUM 必须与磁盘 ELF 头一致。 */
-    if (!has_phdr || !has_phent || !has_phnum) return 0;
-    if (at_phdr == 0) return 0;
-    if (at_phent != elf_phentsize) return 0;
-    if (at_phnum != elf_phnum) return 0;
-    if ((at_phdr & 0xFFFULL) != (elf_phoff & 0xFFFULL)) return 0;
+    for (size_t i = 0; i < phnum; i++) {
+        if (ph[i].p_type != PT_LOAD) continue;
+        if ((ph[i].p_offset & 0xFFFULL) != ((uintptr_t)ph[i].p_vaddr & 0xFFFULL)) return 0;
+        break;
+    }
     return 1;
 }
 
@@ -366,7 +332,7 @@ Java_com_fatdog_reverse_Ok_nativeStatus(JNIEnv *env, jclass clazz) {
     snprintf(buf, sizeof(buf),
         "maps_hex = %d (frida bytes in r-xp)\n"
         "dt_debug = %d (runtime DT_DEBUG)\n"
-        "auxv     = %d (auxv/ELF consistent)\n"
+        "auxv     = %d (phdr self-consistent)\n"
         "combined = %d (3-way AND)",
         g_hex_result, g_dt_result, g_auxv_result,
         (g_hex_result && g_dt_result && g_auxv_result) ? 1 : 0);
